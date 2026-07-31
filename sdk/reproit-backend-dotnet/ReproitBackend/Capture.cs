@@ -115,14 +115,24 @@ public sealed class Capture
         foreach (var candidate in new[]
         {
             config.Commit,
-            Environment.GetEnvironmentVariable("REPROIT_COMMIT"),
-            Environment.GetEnvironmentVariable("GITHUB_SHA"),
+            ReadEnvironment("REPROIT_COMMIT"),
+            ReadEnvironment("GITHUB_SHA"),
         })
         {
             if (candidate != null && Token.IsMatch(candidate)) return candidate;
         }
         return null;
     }
+
+    // Seam so a suite can STATE the environment it needs rather than inherit it.
+    // The Python, Java and Ruby SDKs each hit the same defect: a test pinning an
+    // exact deployment shape while this fallback reads GITHUB_SHA, which a
+    // GitHub runner always sets and a laptop never does, so the batch grows a
+    // commit key only in CI. No .NET test asserts that shape today, so this is
+    // the latent case rather than a live one, and the seam exists so it stays
+    // that way.
+    internal static Func<string, string?> ReadEnvironment { get; set; } =
+        Environment.GetEnvironmentVariable;
 
     private Capture(CaptureConfig config, bool startWorker)
     {

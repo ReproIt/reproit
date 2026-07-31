@@ -9,9 +9,12 @@ require "json"
 require "minitest/autorun"
 require "open3"
 
+require_relative "test_helper"
 require_relative "../lib/reproit_backend_rb"
 
 class CaptureTest < Minitest::Test
+  include AmbientCodeIdentity
+
   R = ReproitBackendRb
 
   def capture(overrides = {})
@@ -35,6 +38,15 @@ class CaptureTest < Minitest::Test
     trace = finished_trace(status, success)
     operation = { "operation" => "createOrder", "status" => status, "events" => trace.events.dup }
     handle.build_batch([operation])
+  end
+
+  # The env fallback used to be exercised only by accident, when GITHUB_SHA
+  # leaked into the suite and broke the exact-shape assertions below. Pin it on
+  # purpose instead: a deployment carries the identity its runner knows.
+  def test_a_ci_runner_supplies_the_commit_the_config_omits
+    sha = "f857cb7740a5f857cb7740a5f857cb7740a5f857"
+    ENV["GITHUB_SHA"] = sha
+    assert_equal({ "version" => "1.2.3", "commit" => sha }, batch_for(500, false)["deployment"])
   end
 
   def test_server_error_batch_uses_the_universal_causal_contract

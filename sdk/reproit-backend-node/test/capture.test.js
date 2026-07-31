@@ -7,6 +7,23 @@ const test = require('node:test');
 
 const { BackendTrace, Capture, CAPTURE_FORMAT, SERVER_ERROR_ORACLE } = require('../index.js');
 
+// Keep this suite hermetic against the runner. resolveCommit falls back to
+// REPROIT_COMMIT then GITHUB_SHA, which is correct, but a GitHub runner always
+// sets GITHUB_SHA and a laptop never does, so a test pinning an exact
+// `deployment` shape passes locally and fails in CI. The Python, Java and Ruby
+// SDKs each hit precisely that, separately. Neutralize it here so this one
+// cannot, and pin the fallback on purpose below rather than by accident.
+const AMBIENT_CODE_IDENTITY = ['REPROIT_COMMIT', 'GITHUB_SHA'];
+for (const name of AMBIENT_CODE_IDENTITY) {
+  delete process.env[name];
+}
+
+test('a CI runner supplies the commit the config omits', () => {
+  const sha = 'f857cb7740a5f857cb7740a5f857cb7740a5f857';
+  assert.strictEqual(Capture.resolveCommit({}, { GITHUB_SHA: sha }), sha);
+  assert.strictEqual(Capture.resolveCommit({ commit: null }, {}), null);
+});
+
 function finishedTrace(status, success) {
   const capture = Capture.create({
     endpoint: 'http://c/v1/capture-batches',

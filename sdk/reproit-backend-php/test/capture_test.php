@@ -12,6 +12,17 @@ namespace ReproitBackend\Test;
 use ReproitBackend\BackendTrace;
 use ReproitBackend\Capture;
 
+// Keep this suite hermetic against the runner. resolveCommit falls back to
+// REPROIT_COMMIT then GITHUB_SHA, which is correct behaviour, but a GitHub
+// runner always sets GITHUB_SHA and a laptop never does, so a test pinning an
+// exact `deployment` shape passes locally and fails in CI. The Python, Java and
+// Ruby SDKs each hit exactly that, separately. putenv with a bare name unsets
+// the variable for this process, so the environment becomes an input this file
+// states rather than one it inherits.
+foreach (['REPROIT_COMMIT', 'GITHUB_SHA'] as $ambient) {
+    putenv($ambient);
+}
+
 use const ReproitBackend\CAPTURE_FORMAT;
 use const ReproitBackend\SERVER_ERROR_ORACLE;
 

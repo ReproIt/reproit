@@ -657,13 +657,25 @@ fn capabilities(operation: &CapturedOperation) -> Value {
 /// Code identity in priority order: explicit config, then the common CI and
 /// platform environment. Never shells out to git.
 fn resolve_commit(configured: Option<String>) -> Option<String> {
+    resolve_commit_from(configured, |name| std::env::var(name).ok())
+}
+
+/// The same resolution with the environment supplied explicitly, so a test can
+/// STATE it rather than inherit it. A GitHub runner always sets GITHUB_SHA and
+/// a laptop never does, so a suite asserting an exact deployment shape passes
+/// locally and fails in CI. The Python, Java and Ruby SDKs each hit that
+/// separately; this seam is why the Rust one cannot.
+fn resolve_commit_from(
+    configured: Option<String>,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> Option<String> {
     if let Some(commit) = configured {
         if valid_token(&commit) {
             return Some(commit);
         }
     }
     for name in ["REPROIT_COMMIT", "GITHUB_SHA"] {
-        if let Ok(value) = std::env::var(name) {
+        if let Some(value) = lookup(name) {
             if valid_token(&value) {
                 return Some(value);
             }
@@ -690,6 +702,32 @@ fn valid_token(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    // The environment is an input this suite STATES, never one it inherits.
+    // Proven both ways so the fallback is exercised on purpose rather than by
+    // the accident of a runner setting GITHUB_SHA.
+    #[test]
+    fn a_ci_runner_supplies_the_commit_the_config_omits() {
+        let sha = "f857cb7740a5f857cb7740a5f857cb7740a5f857";
+        let found = super::resolve_commit_from(None, |name| {
+            (name == "GITHUB_SHA").then(|| sha.to_string())
+        });
+        assert_eq!(found.as_deref(), Some(sha));
+    }
+
+    #[test]
+    fn an_empty_environment_yields_no_commit() {
+        assert_eq!(super::resolve_commit_from(None, |_| None), None);
+    }
+
+    #[test]
+    fn a_configured_commit_wins_over_the_environment() {
+        let configured = "0123456789abcdef0123456789abcdef01234567";
+        let found = super::resolve_commit_from(Some(configured.to_string()), |_| {
+            Some("f857cb7740a5f857cb7740a5f857cb7740a5f857".to_string())
+        });
+        assert_eq!(found.as_deref(), Some(configured));
+    }
     use super::*;
     use crate::{EffectKind, HttpInput, TraceContext};
 

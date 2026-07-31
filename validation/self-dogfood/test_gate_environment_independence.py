@@ -183,28 +183,109 @@ class GateEnvironmentIndependenceTests(unittest.TestCase):
         )
 
 
-    def test_the_java_capture_suite_states_its_environment(self) -> None:
-        # Sixth instance, and a direct consequence of abolishing SDK tiers. The
-        # Java SDK pinned an exact `deployment` shape while resolveCommit falls
-        # back to GITHUB_SHA, so it was green on a laptop and red on the runner.
-        # It had simply never gated before, so nobody saw it. Same defect as the
-        # Python suite, found six commits later in a different language, which is
-        # the argument for one shared rule rather than one fix per SDK.
-        source = JAVA_CAPTURE_TEST.read_text(encoding="utf-8", errors="replace")
-        for name in AMBIENT_CODE_IDENTITY:
-            self.assertIn(
-                name,
-                source,
-                f"the Java capture suite never mentions {name}, which the SDK "
-                "reads as code identity, so its exact-shape deployment "
-                "assertions inherit the runner's environment",
+    def test_every_sdk_reading_ambient_identity_neutralizes_it_in_tests(self) -> None:
+        # Instances two, six and seven of this class were the SAME defect in
+        # Python, Java and Ruby: a suite pinning an exact `deployment` shape
+        # while the SDK falls back to GITHUB_SHA, which only a runner sets. Each
+        # was found separately, the last two only once SDK support tiers were
+        # abolished and those suites began gating. Fixing them one language at a
+        # time is how you get six instances, so this case states the RULE: if an
+        # SDK's production code reads an ambient code-identity variable, its test
+        # suite must neutralize it rather than inherit it. The mechanism is
+        # deliberately per language (a pytest conftest, a replaceable field, a
+        # minitest hook) because that is what each ecosystem offers; what is
+        # shared is the obligation.
+        for sdk, source_hits in _sdks_reading_ambient_identity():
+            tests = list((ROOT / "sdk" / sdk).rglob("*"))
+            neutralized = any(
+                path.is_file()
+                and path.suffix in TEST_SUFFIXES
+                and _holds_tests(path)
+                and _neutralizes_ambient_identity(path)
+                for path in tests
             )
-        self.assertRegex(
-            source,
-            r"Capture\.environment\s*=\s*Map\.of\(\)",
-            "the Java capture suite names the ambient variables but never "
-            "replaces the environment, so it still inherits GITHUB_SHA in CI",
-        )
+            self.assertTrue(
+                neutralized,
+                f"sdk/{sdk} reads ambient code identity at {source_hits} but no "
+                "test file neutralizes it, so any exact-shape assertion it makes "
+                "passes on a laptop and fails on a runner that sets GITHUB_SHA",
+            )
+
+
+TEST_SUFFIXES = (".py", ".java", ".rb", ".js", ".mjs", ".ts", ".go", ".rs", ".cs", ".php", ".kt")
+
+# Any of the per-language ways to take the environment out of the suite's hands.
+# One entry per ecosystem's way of taking the environment out of the suite's
+# hands. Each is the idiom that language actually offers, which is why the rule
+# is stated as an obligation rather than as a single mechanism:
+#   pytest       monkeypatch.delenv
+#   ruby         ENV.delete
+#   java         Capture.environment = ...
+#   dotnet       Capture.ReadEnvironment = ...
+#   go           t.Setenv
+#   node         delete process.env[...]
+#   php          putenv(NAME) with no '=' unsets it
+#   rust         resolve_commit_from(.., lookup)
+NEUTRALIZES_AMBIENT = re.compile(
+    r"delenv|ENV\.delete|\bCapture\.environment\s*=|\bReadEnvironment\s*=|"
+    r"monkeypatch|\bSetenv\(|\bunsetenv\b|\bputenv\(|\bresolve_commit_from\b|delete process\.env"
+)
+
+
+def _neutralizes_ambient_identity(path: Path) -> bool:
+    """A neutralization must be ABOUT the ambient identity variables.
+
+    Matching the idiom alone was too loose: the PHP suite calls putenv for
+    REPROIT_REPLAY in a different file, which satisfied a bare putenv check
+    while nothing touched GITHUB_SHA. Requiring both the idiom and one of the
+    variable names in the same file closes that.
+    """
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if not any(name in text for name in AMBIENT_CODE_IDENTITY):
+        return False
+    return bool(NEUTRALIZES_AMBIENT.search(text))
+
+
+def _is_test_path(path: Path) -> bool:
+    """Test by LAYOUT. Used to exclude test files from the source scan."""
+    parts = {part.lower() for part in path.parts}
+    name = path.name.lower()
+    return bool(parts & {"test", "tests", "spec"}) or "test" in name or "conftest" in name
+
+
+def _holds_tests(path: Path) -> bool:
+    """Does this file hold tests at all? Layout, or Rust's inline module.
+
+    Deliberately WIDER than _is_test_path, and the two must stay separate. Rust
+    keeps unit tests in the source file behind `#[cfg(test)] mod tests`, so
+    treating that as a test path would also drop the file from the source scan
+    and the Rust SDK would silently stop being checked at all. That happened
+    while writing this rule: the flagged set quietly fell from eight SDKs to
+    seven and the suite still reported OK.
+    """
+    if _is_test_path(path):
+        return True
+    return path.suffix == ".rs" and "#[cfg(test)]" in path.read_text(
+        encoding="utf-8", errors="replace"
+    )
+
+
+def _sdks_reading_ambient_identity() -> list[tuple[str, str]]:
+    """SDK dirs whose NON-test source reads REPROIT_COMMIT or GITHUB_SHA."""
+    found = []
+    for sdk in sorted((ROOT / "sdk").iterdir()):
+        if not sdk.is_dir():
+            continue
+        for path in sdk.rglob("*"):
+            if not path.is_file() or path.suffix not in TEST_SUFFIXES:
+                continue
+            if _is_test_path(path) or "node_modules" in path.parts:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if any(name in text for name in AMBIENT_CODE_IDENTITY):
+                found.append((sdk.name, str(path.relative_to(ROOT))))
+                break
+    return found
 
 
 def _python_sdk_invocations(workflow: str) -> list[tuple[str, str]]:

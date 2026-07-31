@@ -151,3 +151,51 @@ Control on the seventh structural case:
 Checked the sibling SDKs for the same shape while here: only the Rust SDK
 asserts a deployment, and it asserts the version FIELD rather than the whole
 map, so an extra commit key cannot break it. No other SDK was affected.
+
+6. Generalized, after the SAME defect appeared a third time.
+
+Python (case 2), Java (case 5 below) and Ruby all pinned an exact deployment
+shape while their SDK falls back to GITHUB_SHA. Three languages, three
+separate discoveries, the last two only because abolishing SDK support tiers
+made those suites gate for the first time. Fixing them one language at a
+time is how you get to three, so the case now states the RULE: if an SDK's
+production code reads an ambient code-identity variable, some test file in
+that SDK must neutralize it.
+
+Applying the rule found a FOURTH and FIFTH latent case with no failing test
+behind them: dotnet and node read GITHUB_SHA with nothing neutralizing it,
+and would have broken the first time anyone added an exact-shape assertion.
+Seams added in all of them, matching each ecosystem's own idiom:
+  pytest  monkeypatch.delenv        ruby    ENV.delete
+  java    Capture.environment =     dotnet  Capture.ReadEnvironment =
+  node    delete process.env[..]    php     putenv(NAME)
+  rust    resolve_commit_from(.., lookup)
+
+Two ways the rule was WRONG before the controls caught it, both recorded
+because each made the check quieter rather than louder:
+
+  a) Marking Rust inline #[cfg(test)] files as test files also excluded them
+     from the SOURCE scan, so the Rust SDK silently stopped being checked.
+     The covered set fell from 8 SDKs to 7 and the suite still said OK.
+     Split into _is_test_path (layout, excludes sources) and _holds_tests
+     (wider, finds neutralization).
+  b) Matching the idiom alone was too loose: PHP calls putenv for
+     REPROIT_REPLAY in replay_test.php, which satisfied a bare putenv check
+     while nothing touched GITHUB_SHA. Now a file must contain BOTH the
+     idiom and one of the variable names.
+
+Controls, one per language, each stripped then restored, exit code captured
+into a variable rather than read after a command substitution (which resets
+$? and silently reported 0 for every control on the first attempt):
+
+  ruby   test_helper.rb        stripped -> 1
+  node   capture.test.js       stripped -> 1
+  rust   capture.rs            stripped -> 1
+  php    capture_test.php      stripped -> 1
+  java   CaptureTest.java      stripped -> 1
+  python conftest.py           stripped -> 1
+  all restored                          -> 0
+
+Suites verified with GITHUB_SHA set and unset: java 45, ruby 8 runs 46
+assertions, node 40 pass, dotnet 45, php capture 35, rust 6 test binaries,
+python 44.

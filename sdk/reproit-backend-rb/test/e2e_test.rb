@@ -14,6 +14,7 @@ require "webrick"
 
 require "rack"
 
+require_relative "test_helper"
 require_relative "../lib/reproit_backend_rb"
 
 # Minimal WEBrick-to-Rack bridge so the e2e stack stays stdlib plus the rack
@@ -57,6 +58,8 @@ class RackBridge < WEBrick::HTTPServlet::AbstractServlet
 end
 
 class E2eTest < Minitest::Test
+  include AmbientCodeIdentity
+
   R = ReproitBackendRb
 
   def start_stub_ingest(received)
