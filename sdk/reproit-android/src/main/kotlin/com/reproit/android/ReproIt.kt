@@ -10,6 +10,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
+import java.io.File
 import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -50,6 +51,8 @@ object ReproIt {
   private var engine: Engine? = null
   private var cfg: ReproItConfig? = null
   private var currentActivity: Activity? = null
+  /** Crash capsules written on the crash path, uploaded on the next launch. */
+  private var spool: CapsuleSpool? = null
 
   private val main = Handler(Looper.getMainLooper())
   private val io = Executors.newSingleThreadExecutor()
@@ -175,6 +178,11 @@ object ReproIt {
     causalHttp.setCapturing(config.captureExchanges)
 
     application.registerActivityLifecycleCallbacks(Lifecycle)
+    // The spool lives in filesDir, which survives a crash (it does not survive
+    // an uninstall, which is correct: a reinstalled app is a different install
+    // and its predecessor's capsule is not ours to ship).
+    spool = CapsuleSpool(File(application.filesDir, "reproit-capsules"))
+    drainSpooledCapsules(config)
     installErrorHandler()
     scheduleFlush()
   }
@@ -1023,10 +1031,48 @@ object ReproIt {
           batchSequence = ++captureBatchSequence,
           observedAtMs = nowMs,
         ) ?: return false
-      // Synchronous on the crashing thread: the io executor may never run.
-      post(config, Json.encode(batch), "/v1/capture-batches")
+      // Write to disk, do NOT post. The process is about to be killed and a
+      // network round trip loses that race (measured: the kill lands 168 to
+      // 768 ms after the fatal exception, while a cold POST took 40 to 316 ms
+      // to LOCALHOST and far longer over a real network). A local write is
+      // milliseconds, so the capsule survives and the next launch ships it.
+      val spooled = spool?.write(Json.encode(batch)) ?: false
+      if (!spooled) {
+        // The spool refused or failed. Fall back to the old behavior rather
+        // than silently dropping a capsule: a racing POST that usually wins
+        // beats no attempt at all.
+        post(config, Json.encode(batch), "/v1/capture-batches")
+      } else {
+        true
+      }
     } catch (_: Throwable) {
       false
+    }
+  }
+
+  /**
+   * Upload capsules spooled by a previous launch's crash, off the main thread.
+   * A capsule is claimed by rename before upload and deleted only once the POST
+   * is accepted, so delivery is at-most-once and a network failure defers it to
+   * the next launch instead of destroying it.
+   */
+  private fun drainSpooledCapsules(config: ReproItConfig) {
+    val spool = spool ?: return
+    if (config.endpoint == null) return
+    io.execute {
+      try {
+        for (claimed in spool.claimPending()) {
+          val body =
+            try {
+              claimed.readText()
+            } catch (_: Throwable) {
+              spool.release(claimed)
+              continue
+            }
+          if (post(config, body, "/v1/capture-batches")) spool.release(claimed)
+          else spool.restore(claimed)
+        }
+      } catch (_: Throwable) {}
     }
   }
 

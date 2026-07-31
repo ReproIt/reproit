@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "android-capsule-delivery",
+  "code": "environment-unreachable",
+  "detail": "Reproducing the loss needs a booted Android emulator, an installed sample app, and a controllable ingest latency, none of which exist inside this repository's policy worktrees. The retained evidence is the on-device before and after measurement, and validation/capsule-delivery.sh reproduces it on a machine with an emulator.",
+  "issue": "Android capsule delivery raced process death on the crash path",
+  "missingCapability": "a booted Android emulator inside a policy worktree",
+  "retainedEvidence": [
+    { "path": "validation/self-dogfood/evidence/android-capsule-delivery.log", "sha256": "sha256:101d42b2dd978e1ec666bd8aa110aabe18c7957646c5942c14d2efb97bf98575" }
+  ]
+}

@@ -118,14 +118,66 @@ all three paths that carry captured payloads: the capture body
 recorded marker (`bodyValue`). The event model's optional-field behavior is
 unchanged, pinned by a test.
 
-## Honest limits
+## 4. Capsule delivery on the crash path, measured and fixed
 
-- The crash-path capsule POST happens synchronously on the crashing thread.
-  Across five runs, four shipped the capture batch and one shipped only the
-  legacy event batch (the run immediately following a reinstall). Delivery is
-  therefore not 100 percent deterministic on device; the fallback is the
-  legacy finding, so evidence is never lost, but a capsule can be.
+The first pass shipped the capture batch with a synchronous POST on the
+crashing thread and reported delivery as "not 100 percent deterministic".
+That was not a limitation to accept: the capsule is the artifact hermetic
+replay depends on, so losing it to a race loses the product's whole claim.
+Measured on this device, the race is real on both sides:
+
+```
+window between FATAL EXCEPTION and process death   168 ms .. 768 ms
+first HTTP POST on a cold process (to LOCALHOST)    40 ms .. 316 ms
+```
+
+Those ranges overlap, which is exactly the intermittency. Adding a realistic
+2 s ingest latency makes the loss deterministic, which is the honest way to
+state the defect: on any real network the synchronous POST cannot win.
+
+```
+BEFORE, localhost ingest:      4 of 6 confirmed crashes delivered
+BEFORE, 2 s ingest latency:    0 of 2 confirmed crashes delivered
+AFTER,  2 s ingest latency:    9 of 9 confirmed crashes delivered
+```
+
+The fix is the standard crash-reporter shape, now in `CapsuleSpool`: during the
+crash do only a bounded LOCAL write (temp file plus atomic rename, milliseconds,
+no network), then upload on the next launch. The spool is bounded (8 capsules,
+1 MiB total, oldest dropped, an oversized capsule refused rather than
+truncated), delivery is at-most-once (claimed by rename, deleted only after the
+POST is accepted), and a claim orphaned by a process that died mid-upload is
+recovered by the next drain rather than stranded. That last property was itself
+found on device: the first post-fix run lost one capsule to exactly that case.
+
+Verified end to end, with the upstream unreachable during replay:
+
+```
+phase 1 (crash)   ingest=[]            spool: 1785495148657.capsule.json
+phase 2 (next)    drain: pending=1     upload ok=true    ingest=[/v1/capture-batches]
+                  spool after: (empty)
+capture-validate < delivered-batch.json   capture-batch-v1 valid
+replay from that capsule, upstream removed:
+  D reproit : CAPSULE:HIT spooled-0
+  E AndroidRuntime: org.json.JSONException: Value null at prices ... cannot be converted
+```
+
+The delivered batch still carries `deployment {version, commit}`, the envelope
+(`arch, observedAtMs, os, replaySeed, runtime, tz`), the response body with its
+`prices: null` intact, and `apiKey` reduced to a `$reproit` stub. The
+measurement is reproducible: `validation/capsule-delivery.sh [runs]`, which
+fails closed when no run reaches a confirmed crash so it can never report a
+false pass.
+
+## Honest limits
 - The proof used one AVD (Pixel_9a, API 37) and one architecture (arm64-v8a).
+- Delivery is at-most-once and eventually complete, not guaranteed: a capsule
+  written to the spool is uploaded on a LATER launch, so an app that is never
+  opened again keeps its capsule on disk until the spool's bound evicts it, and
+  an uninstall discards it (correct: a reinstall is a different install).
+- The spool survives a crash because filesDir does. It does not survive a
+  device running out of storage mid-write; that write fails and the SDK falls
+  back to the racing POST rather than silently reporting a delivery.
 - Capture covers calls made through `ReproIt.causalHttp`. Kotlin cannot
   monkeypatch, so OkHttp or Retrofit traffic is invisible unless routed
   through it. Stated, not implied.

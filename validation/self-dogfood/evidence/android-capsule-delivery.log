@@ -1,0 +1,17 @@
+Android capsule delivery, measured on a Pixel_9a emulator (2026-07-31).
+
+Cause: the crash-path POST races the OS killing the process.
+
+  window between FATAL EXCEPTION and process death   168 ms .. 768 ms
+  first HTTP POST on a cold process (to LOCALHOST)    40 ms .. 316 ms
+
+The windows overlap, which is the intermittency. Adding a realistic 2 s
+ingest latency makes the loss deterministic: on any real network the
+synchronous POST cannot win.
+
+  BEFORE, localhost ingest:      counted=6 capsules=4 nothing=2
+  BEFORE, 2 s ingest latency:    counted=2 capsules=0 nothing=2
+  AFTER,  2 s ingest latency:    9/9 delivered, 0 lost, 1 skipped
+
+Runs count only when the planted crash is confirmed in logcat, so install
+and launch failures are never miscounted as lost capsules.
