@@ -319,10 +319,10 @@
           "markdownDescription": "Denies the record_exchange command without any pre-configured scope."
         },
         {
-          "description": "Allows the Reproit bootstrap transport to read its action clock and record redacted exchanges.\n#### This default permission set includes:\n\n- `allow-action-index`\n- `allow-record-exchange`",
+          "description": "Allows the bootstrap transport to read its clock and record redacted exchanges.\n#### This default permission set includes:\n\n- `allow-action-index`\n- `allow-record-exchange`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Allows the Reproit bootstrap transport to read its action clock and record redacted exchanges.\n#### This default permission set includes:\n\n- `allow-action-index`\n- `allow-record-exchange`"
+          "markdownDescription": "Allows the bootstrap transport to read its clock and record redacted exchanges.\n#### This default permission set includes:\n\n- `allow-action-index`\n- `allow-record-exchange`"
         }
       ]
     }

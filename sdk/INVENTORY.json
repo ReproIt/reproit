@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "comment": [
+    "Every SDK that ships in this repository, and the CI gate that blocks a",
+    "release when it breaks. There is no tier field and there is no tier: if an",
+    "SDK is in ReproIt it is fully supported, which means its own suite runs on",
+    "every push and a failure fails the build. sdk/check-inventory.py refuses a",
+    "declaration that has drifted from that.",
+    "",
+    "`gate` is a list of literal strings that must appear in",
+    ".github/workflows/ci.yml. At least one of them must name the SDK's own",
+    "directory, so an entry cannot be satisfied by some unrelated step. This is",
+    "a wiring check and is stated as one: it proves the invocation is present",
+    "and blocking, not that the assertions inside it are good. The assertions",
+    "are proven by the suites themselves.",
+    "",
+    "`runs` is the human sentence for what that gate executes. It exists so a",
+    "reader can tell at a glance whether the whole suite runs or a subset does,",
+    "which is the drift that produced this file: seven SDKs had no CI mention",
+    "at all and four more ran only some of their test files."
+  ],
+  "sdks": {
+    "reproit-android": {
+      "runs": "the pure-Kotlin core suite on the host JVM, then validates the emitted batch",
+      "gate": ["sh sdk/reproit-android/run_host_test.sh"]
+    },
+    "reproit-backend-dotnet": {
+      "runs": "the full xunit project (trace, capture, instrument, e2e, canonical JSON, vectors)",
+      "gate": [
+        "dotnet test sdk/reproit-backend-dotnet/ReproitBackend.Tests/ReproitBackend.Tests.csproj"
+      ]
+    },
+    "reproit-backend-go": {
+      "runs": "go vet plus go test ./..., which includes the e2e and behavior-vector tests",
+      "gate": ["working-directory: sdk/reproit-backend-go"]
+    },
+    "reproit-backend-java": {
+      "runs": "mvn test, which runs all six JUnit classes including the behavior vectors",
+      "gate": ["mvn -B -f sdk/reproit-backend-java/pom.xml test"]
+    },
+    "reproit-backend-node": {
+      "runs": "every file under test/, e2e included (express and fastify devDependencies)",
+      "gate": [
+        "working-directory: sdk/reproit-backend-node",
+        "node --test test/e2e.test.js"
+      ]
+    },
+    "reproit-backend-php": {
+      "runs": "each of the seven test scripts, one php process per file",
+      "gate": [
+        "php sdk/reproit-backend-php/test/behavior_vectors_test.php",
+        "php sdk/reproit-backend-php/test/e2e_test.php"
+      ]
+    },
+    "reproit-backend-py": {
+      "runs": "every file under tests/, e2e included (the e2e dependency group)",
+      "gate": [
+        "working-directory: sdk/reproit-backend-py",
+        "uv run --group e2e -m pytest tests/test_e2e.py"
+      ]
+    },
+    "reproit-backend-rb": {
+      "runs": "each of the six test files in its own ruby process; see the note in ci.yml",
+      "gate": [
+        "ruby sdk/reproit-backend-rb/test/behavior_vectors_test.rb",
+        "ruby sdk/reproit-backend-rb/test/e2e_test.rb"
+      ]
+    },
+    "reproit-backend-rs": {
+      "runs": "clippy and tests with the instrument feature, which the default build never compiles",
+      "cargoPackage": "reproit-backend",
+      "gate": ["cargo test -p reproit-backend --features instrument"]
+    },
+    "reproit-ios": {
+      "runs": "swift test over the whole ReproItTests target",
+      "gate": ["swift test --package-path sdk/reproit-ios"]
+    },
+    "reproit-linux": {
+      "runs": "all seven suites under tests/, including causal, invariant, and protocol",
+      "gate": [
+        "python3 sdk/reproit-linux/tests/test_parity.py",
+        "sdk/reproit-linux/tests/test_causal.py",
+        "sdk/reproit-linux/tests/test_invariant.py",
+        "sdk/reproit-linux/tests/test_protocol.py"
+      ]
+    },
+    "reproit-react-native": {
+      "runs": "jest over every file under test/, plus build, typecheck, and pack",
+      "gate": ["working-directory: sdk/reproit-react-native"]
+    },
+    "reproit-recorder-node": {
+      "runs": "the recorder suite (bounds, correlation ids, transport refusals)",
+      "gate": ["node --test sdk/reproit-recorder-node/test/recorder.test.js"]
+    },
+    "reproit-tauri": {
+      "runs": "the JS plugin suite: behavior vectors and the document-start transport",
+      "gate": [
+        "node --test sdk/reproit-tauri/test/behavior_vectors.test.mjs \\",
+        "sdk/reproit-tauri/test/init.test.mjs"
+      ]
+    },
+    "reproit-tui-go": {
+      "runs": "go test ./..., which includes causal, invariant, and reporter",
+      "gate": ["working-directory: sdk/reproit-tui-go"]
+    },
+    "reproit-tui-py": {
+      "runs": "all five suites under tests/, including causal, invariant, and protocol",
+      "gate": [
+        "sdk/reproit-tui-py/tests/test_parity.py",
+        "sdk/reproit-tui-py/tests/test_causal.py",
+        "sdk/reproit-tui-py/tests/test_invariant.py",
+        "sdk/reproit-tui-py/tests/test_protocol.py"
+      ]
+    },
+    "reproit-tui-rs": {
+      "runs": "cargo test on the package by name, not incidentally via the workspace",
+      "cargoPackage": "reproit-tui-sdk",
+      "gate": ["cargo test -p reproit-tui-sdk --locked"]
+    },
+    "reproit-tui-ts": {
+      "runs": "node --test over all four suites: parity, vectors, causal, invariant",
+      "gate": [
+        "working-directory: sdk/reproit-tui-ts",
+        "test/causal.test.ts test/invariant.test.ts"
+      ]
+    },
+    "reproit-windows": {
+      "runs": "the full ReproIt.ParityTests project, then packs both NuGet packages",
+      "gate": [
+        "dotnet test sdk/reproit-windows/test/ReproIt.ParityTests/ReproIt.ParityTests.csproj"
+      ]
+    },
+    "reproit_flutter": {
+      "runs": "flutter test for the package and for the example fixture app, plus analyze and pack",
+      "gate": [
+        "working-directory: sdk/reproit_flutter",
+        "working-directory: sdk/reproit_flutter/example"
+      ]
+    }
+  }
+}

@@ -876,7 +876,7 @@
     }
   },
   "coverage": {
-    "rule": "Which vector groups each SDK under sdk/ must EXECUTE, and for the rest, why not. A vector nobody runs proves nothing: before this table bounds was executed by five of ten wired SDKs and the header cap by exactly one, so a language could quietly diverge on the very rules the vectors exist to pin. Every directory under sdk/ is accounted for here, either as capture (the full capture contract), causal (the frozen runner wire, whose only shared surface is the secret-key predicate), or notApplicable with the reason. sdk/check-behavior-coverage.py fails closed on an unlisted directory, on a listed file that does not exist, and on a test file that does not execute every group its role requires.",
+    "rule": "Which vector groups each SDK under sdk/ must EXECUTE, and for the rest, why not. A vector nobody runs proves nothing: before this table bounds was executed by five of ten wired SDKs and the header cap by exactly one, so a language could quietly diverge on the very rules the vectors exist to pin. Every directory under sdk/ is accounted for here, either as capture (the full capture contract), causal (the frozen runner wire, whose only shared surface is the secret-key predicate), or notApplicable with the reason. Directories that are not SDKs at all are listed separately under notAnSdk, so the not-applicable count means what it says. sdk/check-behavior-coverage.py fails closed on an unlisted directory, on a listed file that does not exist, and on a test file that does not execute every group its role requires.",
     "roles": {
       "capture": {
         "why": "Records a capture batch: an inline body budget, a header table, and the $reproit body placeholder the replay matcher wildcards on.",
@@ -975,7 +975,9 @@
       }
     },
     "notApplicable": {
-      "reproit-recorder-node": "The source-neutral capture-batch recorder. It is handed events by a caller and never observes an HTTP exchange itself, so it has no body budget, no header table, no secret-key predicate and no capsule matcher; its own 16 KiB text bound and 64 KiB JSON bound belong to a different contract with a different reason. Its batch SHAPE is already pinned by sdk/capture-conformance-v1.json.",
+      "reproit-recorder-node": "The source-neutral capture-batch recorder. It is handed events by a caller and never observes an HTTP exchange itself, so it has no body budget, no header table, no secret-key predicate and no capsule matcher; the caller passes the redaction disposition in as a token that the recorder only validates. Its own 16 KiB text bound and 64 KiB JSON bound belong to a different contract with a different reason. Its batch SHAPE is already pinned by sdk/capture-conformance-v1.json, and its own suite is gated by the tauri-and-recorder-sdks job."
+    },
+    "notAnSdk": {
       "src": "Not an SDK. The three concatenated source fragments that sdk/build-reproit-web.mjs assembles into sdk/reproit-web.js. No capture, no redaction, no divergence marker.",
       "test": "Not an SDK. The shared host test suite for the web SDK plus the cross-SDK backend batch gate."
     }

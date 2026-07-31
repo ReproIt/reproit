@@ -43,6 +43,12 @@ jobs:
         run: cargo build --workspace --locked
       - name: Test (incl. determinism replay)
         run: cargo test --workspace --locked
+      # Named explicitly rather than left to --workspace. The Rust TUI SDK is a
+      # workspace member today, so it was gated by accident of layout; if it
+      # ever leaves the workspace the accident goes away silently. This step is
+      # the declared gate sdk/INVENTORY.json points at.
+      - name: Rust TUI SDK (reproit-tui-rs)
+        run: cargo test -p reproit-tui-sdk --locked
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
@@ -278,24 +284,35 @@ jobs:
       # runners/test_signature.py parity gate is obsolete and its coverage now
       # lives in crates/reproit/src/model/signature.rs::tests (golden vectors +
       # the value-state plumbing tests), run by the `rust` job above.
+      # All seven suites, not the four that used to be listed here. test_causal,
+      # test_invariant and test_protocol existed on disk and ran nowhere, which
+      # is the same invisible-cost failure the tier file used to legitimize.
+      # test_causal and test_protocol import reproit_linux by name with no
+      # sys.path insert, so the PYTHONPATH is load bearing when they are run by
+      # path from the repository root (test_gate_environment_independence case 5).
+      - name: Install pytest (test_protocol.py is written as bare pytest functions)
+        run: python3 -m pip install --disable-pip-version-check pytest
       - name: Linux native SDK parity (pure-stdlib core, no GTK needed)
         run: |
           python3 sdk/reproit-linux/tests/test_parity.py
           python3 sdk/reproit-linux/tests/test_capture.py
           python3 sdk/reproit-linux/tests/test_context.py
           python3 sdk/reproit-linux/tests/test_behavior_vectors.py
+          PYTHONPATH=sdk/reproit-linux python3 sdk/reproit-linux/tests/test_causal.py
+          python3 sdk/reproit-linux/tests/test_invariant.py
+          PYTHONPATH=sdk/reproit-linux python3 -m pytest \
+            sdk/reproit-linux/tests/test_protocol.py -q
       - name: Linux SDK package builds with its license and metadata
         run: |
           python3 -m pip install --disable-pip-version-check build
           python3 -m build sdk/reproit-linux
 
-  # The four backend SDKs the product's thesis depends on. Before this job
-  # they had ONE shared conformance test in CI and no suite of their own,
-  # while eight UI SDKs each had a dedicated job: the gating was inverted from
-  # the thesis and nothing said so. sdk/TIERS.json declares the tier and
-  # sdk/check-tiers.py fails if a core SDK is not named here, so the parity
-  # promise has a mechanism rather than a claim.
-  sdk-backend-core:
+  # The four reference backend SDKs. There is no longer a "core" here: every
+  # SDK in this repository is fully supported, so every SDK's suite blocks a
+  # release. sdk/INVENTORY.json declares each SDK's gate and
+  # sdk/check-inventory.py fails when a declared gate is not actually in this
+  # file, so the promise has a mechanism rather than a claim.
+  sdk-backend-reference:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -311,8 +328,8 @@ jobs:
           rustup default stable
       - name: Install uv
         run: curl -LsSf https://astral.sh/uv/install.sh | sh
-      - name: SDK tier declaration matches reality
-        run: python3 sdk/check-tiers.py
+      - name: Every SDK is declared and gated, and no gate is advisory
+        run: python3 sdk/check-inventory.py
       # Every SDK under sdk/ either executes the shared behavioral vectors or
       # says why they are meaningless for it. Bounds was once executed by five
       # of ten wired SDKs and the header cap by exactly one, which is how nine
@@ -322,6 +339,13 @@ jobs:
       - name: node (reproit-backend-node)
         working-directory: sdk/reproit-backend-node
         run: node --test test/trace.test.js test/capture.test.js test/instrument.test.js test/replay.test.js test/behavior-vectors.test.js
+      # e2e stands up a real express and a real fastify app, so it needs the
+      # devDependencies. It was the one file in test/ that CI never ran.
+      - name: node e2e (reproit-backend-node)
+        working-directory: sdk/reproit-backend-node
+        run: |
+          npm install --no-save --no-audit --no-fund express fastify
+          node --test test/e2e.test.js
       - name: go (reproit-backend-go)
         working-directory: sdk/reproit-backend-go
         run: |
@@ -332,6 +356,13 @@ jobs:
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           uv run --group test -m pytest tests/test_trace.py tests/test_capture.py tests/test_instrument.py tests/test_replay.py tests/test_behavior_vectors.py
+      # The sixth file under tests/, which CI never ran: a real uvicorn-served
+      # FastAPI app with a planted 500 against a stub ingest.
+      - name: python e2e (reproit-backend-py)
+        working-directory: sdk/reproit-backend-py
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv run --group e2e -m pytest tests/test_e2e.py
       # The instrument feature carries the whole hermetic capture and replay
       # path and was never compiled by the workspace jobs, which build default
       # features only. A feature that CI never builds is a feature nothing
@@ -340,6 +371,91 @@ jobs:
         run: |
           cargo clippy -p reproit-backend --features axum,actix,instrument --all-targets -- -D warnings
           cargo test -p reproit-backend --features instrument
+
+  # The other four backend SDKs. Until this job they had no mention in ci.yml at
+  # all: their suites existed, passed, and gated nothing, which is what the
+  # "community" tier meant in practice. Ruby and PHP come preinstalled on the
+  # ubuntu runner image; if that ever stops being true this job fails loudly,
+  # which is the correct outcome for a promise that cannot be kept quietly.
+  sdk-backend-ports:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+      - name: java (reproit-backend-java)
+        run: mvn -B -f sdk/reproit-backend-java/pom.xml test
+      # The canonical-JSON test shells out to `node` to compare against the
+      # reference serializer byte for byte, which is why setup-node is here.
+      - name: dotnet (reproit-backend-dotnet)
+        run: |
+          dotnet test sdk/reproit-backend-dotnet/ReproitBackend.Tests/ReproitBackend.Tests.csproj
+      # One ruby process per file, deliberately. replay_test.rb sets
+      # REPROIT_REPLAY in the process environment and never unsets it, so a
+      # shared process leaves every later file replaying against a spent
+      # capture: 2 failures and 4 errors, none of them real. Splitting is
+      # honest about the SDK's process-global state instead of hiding it.
+      - name: ruby (reproit-backend-rb)
+        run: |
+          ruby sdk/reproit-backend-rb/test/trace_test.rb
+          ruby sdk/reproit-backend-rb/test/capture_test.rb
+          ruby sdk/reproit-backend-rb/test/instrument_test.rb
+          ruby sdk/reproit-backend-rb/test/replay_test.rb
+          ruby sdk/reproit-backend-rb/test/behavior_vectors_test.rb
+          ruby sdk/reproit-backend-rb/test/e2e_test.rb
+      - name: php (reproit-backend-php)
+        run: |
+          php sdk/reproit-backend-php/test/trace_test.php
+          php sdk/reproit-backend-php/test/capture_test.php
+          php sdk/reproit-backend-php/test/instrument_test.php
+          php sdk/reproit-backend-php/test/replay_test.php
+          php sdk/reproit-backend-php/test/psr15_test.php
+          php sdk/reproit-backend-php/test/behavior_vectors_test.php
+          php sdk/reproit-backend-php/test/e2e_test.php
+
+  # The Tauri plugin and the source-neutral recorder. Both shipped with a suite
+  # and no CI job at all, so a regression in either was a release problem rather
+  # than a push problem.
+  tauri-and-recorder-sdks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: tauri (reproit-tauri, JS plugin surface)
+        run: |
+          node --test sdk/reproit-tauri/test/behavior_vectors.test.mjs \
+            sdk/reproit-tauri/test/init.test.mjs
+      - name: recorder (reproit-recorder-node)
+        run: node --test sdk/reproit-recorder-node/test/recorder.test.js
+      # The plugin's Rust half is a SEPARATE cargo workspace, so no root
+      # workspace job ever compiled it, and its build script regenerates
+      # permissions/. Both committed generated files had drifted from
+      # permissions/default.toml because nothing rebuilt them. tauri 2 needs the
+      # webkit development libraries on linux.
+      - name: Install the libraries the Tauri plugin links
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev
+      - name: Install Rust (stable + clippy)
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+      - name: Clippy the Tauri plugin crate (warnings are errors)
+        working-directory: sdk/reproit-tauri
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: The generated permission surface matches permissions/default.toml
+        run: git diff --exit-code -- sdk/reproit-tauri/permissions
 
   react-native-sdk:
     runs-on: ubuntu-latest
@@ -387,6 +503,15 @@ jobs:
         run: |
           flutter analyze lib test
           flutter pub publish --dry-run
+      # The example app is where the operability, hygiene, invariant, lifecycle,
+      # stuck-keyboard and undo-inverse fixtures live. It is a separate pub
+      # package, so `flutter test` in the SDK root never reached it and six
+      # suites ran nowhere.
+      - name: Example fixture suites (separate pub package)
+        working-directory: sdk/reproit_flutter/example
+        run: |
+          flutter pub get
+          flutter test
       - name: Validate the generated Flutter scaffold
         working-directory: .
         run: bash .github/scripts/check-flutter-scaffold.sh
@@ -693,16 +818,27 @@ jobs:
         with:
           node-version: "24"
       - name: TS TUI SDK signature parity (node type-strips TS natively; no install)
-        run: node --test test/parity.test.ts test/behavior_vectors.test.ts
+        run: |
+          node --test test/parity.test.ts test/behavior_vectors.test.ts \
+            test/causal.test.ts test/invariant.test.ts
 
   tui-py-sdk:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Install pytest (test_protocol.py is written as bare pytest functions)
+        run: python3 -m pip install --disable-pip-version-check pytest
+      # test_causal and test_protocol import reproit_tui_py by name with no
+      # sys.path insert, so PYTHONPATH is load bearing here exactly as it is for
+      # test_behavior_vectors (test_gate_environment_independence case 5).
       - name: Python TUI SDK signature parity (pure stdlib)
         run: |
           python3 sdk/reproit-tui-py/tests/test_parity.py
           PYTHONPATH=sdk/reproit-tui-py python3 sdk/reproit-tui-py/tests/test_behavior_vectors.py
+          PYTHONPATH=sdk/reproit-tui-py python3 sdk/reproit-tui-py/tests/test_causal.py
+          python3 sdk/reproit-tui-py/tests/test_invariant.py
+          PYTHONPATH=sdk/reproit-tui-py python3 -m pytest \
+            sdk/reproit-tui-py/tests/test_protocol.py -q
 
   windows-sdk:
     runs-on: ubuntu-latest

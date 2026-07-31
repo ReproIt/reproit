@@ -1,6 +1,6 @@
 ## Default Permission
 
-Allows the Reproit bootstrap transport to read its action clock and record redacted exchanges.
+Allows the bootstrap transport to read its clock and record redacted exchanges.
 
 #### This default permission set includes the following:
 

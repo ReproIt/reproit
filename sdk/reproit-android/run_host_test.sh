@@ -75,12 +75,12 @@ TST="$HERE/src/test/kotlin/com/reproit/android"
   "$SRC/Signature.kt" "$SRC/Json.kt" "$SRC/Config.kt" "$SRC/Engine.kt" \
   "$SRC/Fingerprint.kt" "$SRC/Compose.kt" \
   "$SRC/IndicatorRelation.kt" "$SRC/StructuralContracts.kt" \
-  "$SRC/Exchange.kt" "$SRC/CaptureBatch.kt" \
+  "$SRC/Exchange.kt" "$SRC/CaptureBatch.kt" "$SRC/CapsuleSpool.kt" \
   "$TST/SignatureParityTest.kt" "$TST/ComposeMappingTest.kt" "$TST/InvariantTest.kt" \
   "$TST/IndicatorRelationTest.kt" "$TST/StructuralContractsTest.kt" \
   "$TST/CausalRedactionTest.kt" "$TST/ExchangeCaptureTest.kt" \
   "$TST/CaptureBatchTest.kt" "$TST/EmitCaptureBatch.kt" \
-  "$TST/BehaviorVectorsTest.kt" \
+  "$TST/BehaviorVectorsTest.kt" "$TST/CapsuleSpoolTest.kt" \
   -d "$OUT/classes.jar"
 
 # Locate kotlin-stdlib next to the compiler. Resolve symlinks (Homebrew points
@@ -118,7 +118,8 @@ java -cp "$OUT/classes.jar:$JUNIT_JAR:$HAMCREST_JAR:$STDLIB" \
   com.reproit.android.CausalRedactionTest \
   com.reproit.android.ExchangeCaptureTest \
   com.reproit.android.CaptureBatchTest \
-  com.reproit.android.BehaviorVectorsTest
+  com.reproit.android.BehaviorVectorsTest \
+  com.reproit.android.CapsuleSpoolTest
 
 # Wire proof: the batch the SDK actually builds must satisfy the protocol
 # validator, not just our own assertions about its shape. Skipped with a loud

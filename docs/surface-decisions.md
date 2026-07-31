@@ -17,28 +17,35 @@ is not mine.
 
 ## SDKs
 
-| SDK | lines | commits | CI job | released | tier | recommendation |
-| --- | ---: | ---: | --- | --- | --- | --- |
-| backend-node | 2,703 | 6 | sdk-backend-core (new) | no | core | keep |
-| backend-rs | 3,575 | 14 | sdk-backend-core (new) | no | core | keep |
-| backend-py | 3,124 | 7 | sdk-backend-core (new) | no | core | keep |
-| backend-go | 4,405 | 6 | sdk-backend-core (new) | no | core | keep |
-| backend-java | 3,952 | 7 | none | no | community | keep, ungated |
-| backend-dotnet | 4,221 | 8 | none | no | community | keep, ungated |
-| backend-rb | 2,605 | 7 | none | no | community | keep, ungated |
-| backend-php | 3,938 | 7 | none | no | community | keep, ungated |
-| android | 6,085 | 15 | android-sdk, 76s | yes | community | keep |
-| ios | 6,890 | 16 | apple-sdk, 374s | yes | community | keep |
-| react-native | 5,936 | 17 | react-native-sdk, 52s | yes | community | keep |
-| linux | 2,435 | 9 | inside signature-parity | yes | unmaintained | **decide** |
-| windows | 4,600 | 9 | windows-sdk, 22s | yes | unmaintained | **decide** |
-| tauri | 419 | 4 | none | yes | unmaintained | keep, trivial |
-| tui-go | 1,785 | 4 | tui-go-sdk, 26s | yes | unmaintained | **candidate to retire** |
-| tui-py | 1,680 | 7 | tui-py-sdk, 5s | yes | unmaintained | **candidate to retire** |
-| tui-rs | 945 | 5 | none | yes | unmaintained | **candidate to retire** |
-| tui-ts | 1,667 | 5 | tui-ts-sdk, 6s | yes | unmaintained | **candidate to retire** |
-| recorder-node | 755 | 1 | none | no | unmaintained | keep, it is a dependency |
-| flutter | 6,657 | 16 | flutter-sdk, 242s | yes | unmaintained | **decide** |
+The `tier` column this table used to carry is gone, because the tiers are gone:
+every SDK is fully supported and every one blocks a release. The `CI job` column
+now records where each is gated (`sdk/INVENTORY.json` is the enforced version of
+it). The recommendations below are unchanged and still the founder's to make;
+carrying a surface and gating it are separate decisions, and gating it is what
+tells you honestly what carrying it costs.
+
+| SDK | lines | commits | CI job | released | recommendation |
+| --- | ---: | ---: | --- | --- | --- |
+| backend-node | 2,703 | 6 | sdk-backend-reference | no | keep |
+| backend-rs | 3,575 | 14 | sdk-backend-reference | no | keep |
+| backend-py | 3,124 | 7 | sdk-backend-reference | no | keep |
+| backend-go | 4,405 | 6 | sdk-backend-reference | no | keep |
+| backend-java | 3,952 | 7 | sdk-backend-ports (new) | no | keep |
+| backend-dotnet | 4,221 | 8 | sdk-backend-ports (new) | no | keep |
+| backend-rb | 2,605 | 7 | sdk-backend-ports (new) | no | keep |
+| backend-php | 3,938 | 7 | sdk-backend-ports (new) | no | keep |
+| android | 6,085 | 15 | android-sdk, 76s | yes | keep |
+| ios | 6,890 | 16 | apple-sdk, 374s | yes | keep |
+| react-native | 5,936 | 17 | react-native-sdk, 52s | yes | keep |
+| linux | 2,435 | 9 | inside signature-parity | yes | **decide** |
+| windows | 4,600 | 9 | windows-sdk, 22s | yes | **decide** |
+| tauri | 419 | 4 | tauri-and-recorder-sdks (new) | yes | keep, trivial |
+| tui-go | 1,785 | 4 | tui-go-sdk, 26s | yes | **candidate to retire** |
+| tui-py | 1,680 | 7 | tui-py-sdk, 5s | yes | **candidate to retire** |
+| tui-rs | 945 | 5 | rust (named explicitly) | yes | **candidate to retire** |
+| tui-ts | 1,667 | 5 | tui-ts-sdk, 6s | yes | **candidate to retire** |
+| recorder-node | 755 | 1 | tauri-and-recorder-sdks (new) | no | keep, it is a dependency |
+| flutter | 6,657 | 16 | flutter-sdk, 242s | yes | **decide** |
 
 The four TUI SDKs are 6,077 lines and four separate ports of one small idea, for
 a target (Terminal UI) that is already Stable and served by the TUI runner. They
