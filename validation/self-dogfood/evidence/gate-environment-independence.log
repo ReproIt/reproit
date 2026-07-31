@@ -118,3 +118,36 @@ policy gate evaluates it:
 
     negative control, sys.path.insert removed -> FAILED (failures=1)
     restored                                  -> OK (5 cases)
+
+5. Job "sdk-backend-ports" on b962186: the Java SDK, first push after gating.
+
+  org.opentest4j.AssertionFailedError:
+    expected: <{version=1.2.3}>
+    but was:  <{version=1.2.3, commit=b962186ec5105623c171ba40881801672c1087a3}>
+  at dev.reproit.backend.CaptureTest.serverErrorBatchUsesUniversalCausalContract
+
+The SAME defect as case 2, in a different language, found six commits later.
+Capture.resolveCommit falls back to REPROIT_COMMIT then GITHUB_SHA, which is
+correct behaviour; a GitHub runner always sets GITHUB_SHA and a laptop never
+does, so the batch grew a commit key only in CI. It surfaced now and not
+earlier for one reason: this SDK had never been release-gating. Abolishing
+the support tiers is what exposed it.
+
+Java cannot unset its own environment in-process, so the fix mirrors the
+Python SDK's seam rather than inventing a new one: resolveCommit gains an
+overload taking the environment explicitly, backed by a replaceable
+Capture.environment field, and the suite swaps in an empty map per test.
+The fallback it used to exercise by accident is now pinned on purpose by
+aCiRunnerSuppliesTheCommitTheConfigOmits.
+
+Measured both ways, real exit codes:
+  GITHUB_SHA=b962186... mvn -B test  -> CaptureTest 7/7, BUILD SUCCESS
+  env -u GITHUB_SHA     mvn -B test  -> CaptureTest 7/7, BUILD SUCCESS
+
+Control on the seventh structural case:
+  Capture.environment replacement removed -> guard exit 1
+  restored                                -> guard exit 0
+
+Checked the sibling SDKs for the same shape while here: only the Rust SDK
+asserts a deployment, and it asserts the version FIELD rather than the whole
+map, so an extra commit key cannot break it. No other SDK was affected.

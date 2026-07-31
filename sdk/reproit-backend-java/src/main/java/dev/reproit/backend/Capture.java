@@ -130,14 +130,30 @@ public final class Capture implements TraceSink {
      * the common CI and platform environment. Never shells out to git.
      */
     static String resolveCommit(Config config) {
+        return resolveCommit(config, environment);
+    }
+
+    /**
+     * Overload taking the environment explicitly, mirroring the Python SDK's
+     * {@code resolve_commit(..., env=None)}. A suite that pins an exact
+     * deployment shape must STATE its environment rather than inherit it: a
+     * GitHub runner always sets GITHUB_SHA and a laptop never does, so the
+     * batch grows a commit key only in CI and the test is green locally and red
+     * on the runner. That is exactly how this surfaced, on the first push after
+     * this SDK started gating.
+     */
+    static String resolveCommit(Config config, Map<String, String> env) {
         String[] candidates = {
-            config.commit, System.getenv("REPROIT_COMMIT"), System.getenv("GITHUB_SHA"),
+            config.commit, env.get("REPROIT_COMMIT"), env.get("GITHUB_SHA"),
         };
         for (String candidate : candidates) {
             if (candidate != null && TOKEN.matcher(candidate).matches()) return candidate;
         }
         return null;
     }
+
+    /** The ambient environment, replaceable by tests so the suite states it. */
+    static Map<String, String> environment = System.getenv();
 
     private Capture(Config config) {
         this.endpoint = config.endpoint;

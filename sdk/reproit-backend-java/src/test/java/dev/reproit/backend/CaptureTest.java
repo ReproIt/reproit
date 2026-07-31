@@ -13,9 +13,38 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class CaptureTest {
+    // Keep the suite hermetic against the runner. Capture.resolveCommit falls
+    // back to REPROIT_COMMIT then GITHUB_SHA, which is correct behavior, but a
+    // GitHub runner always sets GITHUB_SHA and a laptop never does, so the
+    // exact-shape deployment assertions below passed locally and failed in CI
+    // the first time this SDK gated. The fallback itself is proven on purpose
+    // by aCiRunnerSuppliesTheCommitTheConfigOmits.
+    private Map<String, String> savedEnvironment;
+
+    @BeforeEach
+    void clearAmbientCodeIdentity() {
+        savedEnvironment = Capture.environment;
+        Capture.environment = Map.of();
+    }
+
+    @AfterEach
+    void restoreAmbientCodeIdentity() {
+        Capture.environment = savedEnvironment;
+    }
+
+    @Test
+    void aCiRunnerSuppliesTheCommitTheConfigOmits() {
+        String sha = "f857cb7740a5f857cb7740a5f857cb7740a5f857";
+        Capture.environment = Map.of("GITHUB_SHA", sha);
+        assertEquals(
+            Map.of("version", "1.2.3", "commit", sha),
+            batchFor(500, false).get("deployment"));
+    }
     private static Capture capture(String build) {
         return Capture.create(new Capture.Config()
             .endpoint("http://127.0.0.1:9/v1/events")

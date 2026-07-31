@@ -38,6 +38,9 @@ PY_CONFTEST = ROOT / "sdk/reproit-backend-py/tests/conftest.py"
 WORKFLOW = ROOT / ".github/workflows/native-gates.yml"
 CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
 ANDROID_HOST_TEST = ROOT / "sdk/reproit-android/run_host_test.sh"
+JAVA_CAPTURE_TEST = ROOT / (
+    "sdk/reproit-backend-java/src/test/java/dev/reproit/backend/CaptureTest.java"
+)
 AMBIENT_CODE_IDENTITY = ("REPROIT_COMMIT", "GITHUB_SHA")
 
 # A static ESM import of webdriverio, e.g. `import{remote as Yt}from"webdriverio"`.
@@ -180,6 +183,30 @@ class GateEnvironmentIndependenceTests(unittest.TestCase):
         )
 
 
+    def test_the_java_capture_suite_states_its_environment(self) -> None:
+        # Sixth instance, and a direct consequence of abolishing SDK tiers. The
+        # Java SDK pinned an exact `deployment` shape while resolveCommit falls
+        # back to GITHUB_SHA, so it was green on a laptop and red on the runner.
+        # It had simply never gated before, so nobody saw it. Same defect as the
+        # Python suite, found six commits later in a different language, which is
+        # the argument for one shared rule rather than one fix per SDK.
+        source = JAVA_CAPTURE_TEST.read_text(encoding="utf-8", errors="replace")
+        for name in AMBIENT_CODE_IDENTITY:
+            self.assertIn(
+                name,
+                source,
+                f"the Java capture suite never mentions {name}, which the SDK "
+                "reads as code identity, so its exact-shape deployment "
+                "assertions inherit the runner's environment",
+            )
+        self.assertRegex(
+            source,
+            r"Capture\.environment\s*=\s*Map\.of\(\)",
+            "the Java capture suite names the ambient variables but never "
+            "replaces the environment, so it still inherits GITHUB_SHA in CI",
+        )
+
+
 def _python_sdk_invocations(workflow: str) -> list[tuple[str, str]]:
     """Yield (enclosing step text, command) for `python3 sdk/.../*.py` lines."""
     found = []
@@ -217,8 +244,8 @@ def main() -> int:
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(GateEnvironmentIndependenceTests)
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     # Case accounting: an empty or short run is the failure this file exists for.
-    if result.testsRun != 6:
-        print(f"expected 6 cases, ran {result.testsRun}", file=sys.stderr)
+    if result.testsRun != 7:
+        print(f"expected 7 cases, ran {result.testsRun}", file=sys.stderr)
         return 1
     return 0 if result.wasSuccessful() else 1
 
