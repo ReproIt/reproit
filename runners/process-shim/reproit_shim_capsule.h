@@ -38,6 +38,11 @@ typedef enum {
     K_READLINK,
     K_GETCWD,
     K_DIRENT,
+    /* Phase 2: the timed input stream. A session-shaped program's trigger is
+     * input arriving over time, not a single request, so an input read is
+     * stamped with the TICK it arrived on and replay holds it back until the
+     * program reaches that tick again. */
+    K_INPUT,
     K_KINDS
 } kind_t;
 
@@ -82,7 +87,31 @@ typedef struct {
 
     long last_sec;
     long last_nsec;
+    /* Where the REAL clock stood when the capsule's clock ran out. A replay
+     * that outlives its recording (a fixed program that no longer crashes)
+     * must keep time MOVING, or a loop waiting for wall clock progress spins
+     * forever. Past the recording the run is no longer reproducing it, which
+     * clock_overrun already reports. */
+    int overrun_anchored;
+    long overrun_real_sec;
+    long overrun_real_nsec;
     uint64_t rng_state;
+
+    /* The logical clock Phase 2 schedules input against: the ordinal of the
+     * clock reads the program has made. Replay serves clock reads from the
+     * capsule IN ORDER, so the Nth clock read at replay is the Nth clock read
+     * of the recording, which makes this ordinal aligned between the two runs
+     * without the program needing to expose a frame counter. A fixed timestep
+     * loop reads the clock once per frame, so this counts frames. */
+    size_t tick;
+    size_t input_served;
+    /* Bounds the hold back so a program that never advances its clock cannot
+     * spin forever waiting for input that is scheduled in its future. */
+    size_t input_holds;
+    size_t input_hold_tick;
+    /* Input served before its recorded tick because the fd was blocking and
+     * holding it back would have hung the program. Counted, never hidden. */
+    size_t input_early;
 
     /* Set in the seccomp SUPERVISOR only. The supervisor does its own file
      * work (materializing recorded content, rebuilding directories) and must

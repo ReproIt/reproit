@@ -202,5 +202,9 @@ module.exports = {
   matches,
   tryJson,
   urlPathAndQuery,
+  // Exported for the shared behavioral vectors; the matchers are pure and the
+  // vectors pin them directly rather than through a live replay.
+  httpRequestMatcher,
+  pgRequestMatcher,
   DIVERGENCE_MARKER,
 };

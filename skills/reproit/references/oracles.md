@@ -64,6 +64,26 @@ Useful exact contract identities include:
 When one of these returns `ABSTAIN`, report which required signal was absent. Do not replace the
 missing signal with a screenshot or language-dependent text guess.
 
+## Process capsule categories
+
+A process capsule records a whole program session at the operating system boundary and judges how
+the program DIED, which is the session-shaped analogue of the request-shaped backend family. The
+capsule's recorded outcome is the contract, so a replay is compared against it rather than against
+a rule about what programs ought to do.
+
+- `process-signal`: the program died on a fatal signal and the replay died on the same one. The
+  operating system's own verdict, so there is nothing to judge.
+- `process-assertion`: the program aborted on a failed assertion or a panic and the replay aborted
+  on the same one, compared by normalized failure text. A signal alone cannot tell two assertions
+  apart, because every failed assert dies with `SIGABRT`; without the text, a replay that aborted
+  for an unrelated reason would be reported as a reproduction.
+- `process-exit`: the program exited non-zero with the status the capsule recorded. A non-zero exit
+  is not a defect on its own, since many programs exit non-zero by design, so only the recorded
+  status makes it decidable.
+
+A capsule that reaches zero divergences at the boundary has still not reproduced anything unless
+the outcome matches. Zero divergences plus a different outcome is `INCONCLUSIVE`, never a pass.
+
 ## Backend categories
 
 Backend support is experimental. A result needs a schema-owned or authored contract and a runtime

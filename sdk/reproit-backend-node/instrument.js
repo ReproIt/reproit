@@ -529,5 +529,11 @@ module.exports = {
   install,
   wrapPg,
   MAX_EXCHANGE_BODY_BYTES,
+  MAX_EXCHANGE_HEADERS,
+  // Pure bounds helpers, exported so the shared behavioral vectors in
+  // sdk/capture-behavior-v1.json can exercise them directly. Node is the
+  // reference implementation for those vectors.
+  boundedBody,
+  boundedHeaders,
   stats: () => ({ ...state.stats }),
 };

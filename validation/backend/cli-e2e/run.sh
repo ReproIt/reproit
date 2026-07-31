@@ -11,6 +11,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Case accounting. A harness that stops early looks exactly like one that
+# passed everything it printed, so reaching the end is not the pass condition:
+# the count of completed cases matching what this script intends to run is.
+CASES_RUN=0
+EXPECTED_CASES=11
+
 run_case() {
   local valid="$1" expected="$2"
   rm -rf "$FIXTURE/.reproit"
@@ -33,6 +39,7 @@ run_case() {
     echo "expected scan exit $expected, got $STATUS" >&2
     exit 1
   fi
+  CASES_RUN=$((CASES_RUN + 1))
 }
 
 run_case 1 0
@@ -81,6 +88,7 @@ run_headless_case() {
   kill "$SERVER_PID" 2>/dev/null || true
   wait "$SERVER_PID" 2>/dev/null || true
   SERVER_PID=""
+  CASES_RUN=$((CASES_RUN + 1))
 }
 
 run_headless_case 1 0
@@ -121,6 +129,7 @@ run_server_error_case() {
   kill "$SERVER_PID" 2>/dev/null || true
   wait "$SERVER_PID" 2>/dev/null || true
   SERVER_PID=""
+  CASES_RUN=$((CASES_RUN + 1))
 }
 
 run_server_error_case
@@ -142,6 +151,7 @@ run_finance_case() {
   wait "$SERVER_PID" 2>/dev/null || true
   SERVER_PID=""
   [[ "$STATUS" -eq "$expected" ]]
+  CASES_RUN=$((CASES_RUN + 1))
 }
 
 run_finance_case 1 0
@@ -185,6 +195,7 @@ run_stateful_fuzz_case() {
   kill "$SERVER_PID" 2>/dev/null || true
   wait "$SERVER_PID" 2>/dev/null || true
   SERVER_PID=""
+  CASES_RUN=$((CASES_RUN + 1))
 }
 
 run_stateful_fuzz_case 1 0
@@ -220,6 +231,7 @@ run_proof_case() {
     echo "expected proof scan exit $expected, got $STATUS" >&2
     exit 1
   fi
+  CASES_RUN=$((CASES_RUN + 1))
 }
 
 run_proof_case 1 0
@@ -237,4 +249,8 @@ jq -s -e \
   '[.[] | .nodes[]? | .payload.violations[]? |
     select(.oracle == "authorization-matrix")] | length >= 1' \
   "${PROOF_EVIDENCE[@]}" >/dev/null
-echo "real reproit internal scan backend contract gate passed"
+if [[ "$CASES_RUN" -ne "$EXPECTED_CASES" ]]; then
+  echo "FAIL harness accounting: $CASES_RUN of $EXPECTED_CASES cases ran" >&2
+  exit 1
+fi
+echo "real reproit internal scan backend contract gate passed ($CASES_RUN/$EXPECTED_CASES cases)"

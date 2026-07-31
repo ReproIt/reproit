@@ -67,6 +67,13 @@ pub(super) async fn run(
         InternalCmd::ProcessCapture { out, command } => {
             super::process_capsule::capture(ctx, &out, &command)
         }
+        InternalCmd::ProcessAnchor {
+            capsule,
+            exec,
+            image,
+            after_lines,
+        } => super::checkpoint::anchor(ctx, &capsule, &exec, &image, after_lines),
+        InternalCmd::ProcessRestore { capsule } => super::checkpoint::restore(ctx, &capsule),
         InternalCmd::Surface => backend_learn::surface(ctx, &std::env::current_dir()?),
         InternalCmd::Reset {
             all,

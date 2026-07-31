@@ -411,7 +411,10 @@ fn secret_field(name: &str) -> bool {
     .any(|part| name.contains(part))
 }
 
-fn redact(value: Value) -> Value {
+/// Structural redaction: a secret named field becomes a `$reproit`
+/// placeholder, everything else recurses. Public so the shared behavioral
+/// vectors in `sdk/capture-behavior-v1.json` can exercise it directly.
+pub fn redact(value: Value) -> Value {
     match value {
         Value::Object(object) => Value::Object(
             object

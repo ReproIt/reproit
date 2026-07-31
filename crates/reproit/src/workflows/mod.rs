@@ -31,6 +31,7 @@ mod backend_target;
 mod capture;
 mod change_selection;
 mod check;
+mod checkpoint;
 mod cloud;
 mod create_command;
 mod device;

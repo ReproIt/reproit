@@ -29,6 +29,60 @@ use crate::workflows::backend_headless::HermeticVerdict;
 const FORMAT: &str = "reproit-process-capsule";
 const VERSION: u16 = 1;
 const DIVERGENCE_MARKER: &str = "REPROIT:DIVERGENCE ";
+/// Bounded stderr retention: enough to hold an assertion plus a short
+/// backtrace, never enough for a looping program to exhaust memory.
+const MAX_STDERR_LINES: usize = 64;
+
+/// The failure text a program prints when it aborts on a declared invariant.
+/// These are exact formats emitted by the runtime itself, not prose guesses:
+/// glibc `assert`, Rust panics, C++ `terminate`, and Go panics.
+const ASSERTION_MARKERS: [&str; 5] = [
+    "Assertion `",
+    "assertion failed",
+    "panicked at",
+    "terminate called",
+    "panic: ",
+];
+
+/// Reduce one failure line to an identity that survives a rerun. ONLY
+/// hexadecimal addresses are folded, because ASLR moves them between two runs
+/// of the same defect while nothing else in the line moves: a record and its
+/// replay run the same binary, so file names, line numbers, and the asserted
+/// predicate are all stable.
+///
+/// Folding decimal digits as well was tried and rejected. It made
+/// `Assertion `n < 8'` and `Assertion `n < 9'` compare EQUAL, which is exactly
+/// the false proof this identity exists to prevent: two different assertions
+/// reported as one reproduction. When a signature must be loosened, the cost
+/// is always paid in the direction of calling different failures the same, so
+/// the bias here is to fold as little as possible.
+fn normalize_failure(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '0' && chars.peek() == Some(&'x') {
+            chars.next();
+            while chars.peek().is_some_and(|n| n.is_ascii_hexdigit()) {
+                chars.next();
+            }
+            out.push_str("0xADDR");
+        } else {
+            out.push(c);
+        }
+    }
+    out.trim().to_string()
+}
+
+/// The recorded or observed failure identity: the normalized assertion or
+/// panic line, when the program declared one. `None` means the program died
+/// without declaring why, in which case the signal is the whole story.
+fn failure_signature(stderr: &[String]) -> Option<String> {
+    stderr
+        .iter()
+        .rev()
+        .find(|line| ASSERTION_MARKERS.iter().any(|m| line.contains(m)))
+        .map(|line| normalize_failure(line))
+}
 const COUNTER_MARKER: &str = "REPROIT:PROCESS-REPLAY ";
 /// Environment names whose VALUES a capsule refuses to carry. Everything else
 /// is recorded verbatim and restored at replay, because an interpreter's
@@ -88,6 +142,11 @@ pub struct ProcessCapsule {
     pub env: BTreeMap<String, String>,
     pub envelope: Value,
     pub oracle: String,
+    /// The normalized assertion or panic line the program printed when it
+    /// died, when it declared one. Absent for a program that died silently,
+    /// where the signal is the whole story.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
     pub outcome: Outcome,
     /// The shim's tab separated boundary log, one entry per line.
     pub entries: Vec<String>,
@@ -309,13 +368,44 @@ pub fn capture(ctx: &Ctx, out: &Path, command: &[String]) -> Result<ExitCode> {
     }
     let log = tempfile_path("record");
     let seed = format!("{:016x}", rand_seed());
-    let status = std::process::Command::new(program)
+    // stderr is piped rather than inherited so the program's own failure text
+    // can be recorded as the capsule's failure identity, and echoed as it
+    // arrives so the operator still sees the run exactly as before.
+    let mut child = std::process::Command::new(program)
         .args(arguments)
         .env(preload_var(), &shim)
         .env("REPROIT_RECORD", &log)
         .env("REPROIT_REPLAY_SEED", &seed)
-        .status()
+        .stderr(Stdio::piped())
+        .spawn()
         .with_context(|| format!("spawn {program}"))?;
+    let recorded_stderr = Arc::new(Mutex::new(Vec::<String>::new()));
+    let reader = child.stderr.take().map(|stderr| {
+        let sink = Arc::clone(&recorded_stderr);
+        std::thread::spawn(move || {
+            for line in std::io::BufReader::new(stderr)
+                .lines()
+                .map_while(Result::ok)
+            {
+                eprintln!("{line}");
+                if let Ok(mut lines) = sink.lock() {
+                    if lines.len() < MAX_STDERR_LINES {
+                        lines.push(line);
+                    }
+                }
+            }
+        })
+    });
+    let status = child.wait()?;
+    if let Some(reader) = reader {
+        let _ = reader.join();
+    }
+    let failure = failure_signature(
+        &recorded_stderr
+            .lock()
+            .map_err(|_| anyhow::anyhow!("stderr reader panicked"))?
+            .clone(),
+    );
 
     let mut entries: Vec<String> = std::fs::read_to_string(&log)
         .unwrap_or_default()
@@ -358,11 +448,17 @@ pub fn capture(ctx: &Ctx, out: &Path, command: &[String]) -> Result<ExitCode> {
             "arch": std::env::consts::ARCH,
             "replaySeed": seed,
         }),
-        oracle: if outcome.signal.is_some() {
+        // A declared assertion or panic is a stronger identity than the
+        // signal: every failed assert dies with SIGABRT, so the signal alone
+        // cannot tell two of them apart.
+        oracle: if failure.is_some() {
+            "process-assertion".to_string()
+        } else if outcome.signal.is_some() {
             "process-signal".to_string()
         } else {
             "process-exit".to_string()
         },
+        failure,
         outcome,
         entries,
         truncated_entries: truncated,
@@ -406,12 +502,17 @@ struct Counters {
 struct ReplayObservation {
     divergences: Vec<Value>,
     counters: Option<Counters>,
+    /// Every non marker stderr line, kept so the replay's failure identity can
+    /// be compared with the recording's. Bounded: a program that dies in a
+    /// loop must not be able to grow this without limit.
+    stderr: Vec<String>,
 }
 
 fn watch(child: &mut std::process::Child) -> Arc<Mutex<ReplayObservation>> {
     let sink = Arc::new(Mutex::new(ReplayObservation {
         divergences: Vec::new(),
         counters: None,
+        stderr: Vec::new(),
     }));
     if let Some(stderr) = child.stderr.take() {
         let sink = Arc::clone(&sink);
@@ -441,6 +542,11 @@ fn watch(child: &mut std::process::Child) -> Arc<Mutex<ReplayObservation>> {
                         }
                     }
                 } else {
+                    if let Ok(mut observation) = sink.lock() {
+                        if observation.stderr.len() < MAX_STDERR_LINES {
+                            observation.stderr.push(line.clone());
+                        }
+                    }
                     eprintln!("{line}");
                 }
             }
@@ -491,15 +597,29 @@ pub async fn check_exec(ctx: &Ctx, file: &Path, command: &str, _auto: bool) -> R
         exit_code: status.code(),
         signal: exit_signal(&status),
     };
-    let (divergences, counters) = {
+    let (divergences, counters, observed_failure) = {
         let guard = observation
             .lock()
             .map_err(|_| anyhow::anyhow!("stderr reader panicked"))?;
-        (guard.divergences.clone(), guard.counters)
+        (
+            guard.divergences.clone(),
+            guard.counters,
+            failure_signature(&guard.stderr),
+        )
+    };
+    // A capsule that recorded a DECLARED failure (an assertion or a panic)
+    // demands the same one back. Without this, two unrelated assertions both
+    // die with SIGABRT and the outcome comparison alone calls the second a
+    // reproduction of the first, which is a false proof in the one direction
+    // this product must never get wrong.
+    let failure_matches = match (&capsule.failure, &observed_failure) {
+        (Some(recorded), Some(seen)) => recorded == seen,
+        (Some(_), None) => false,
+        (None, _) => true,
     };
     let verdict = if !divergences.is_empty() {
         HermeticVerdict::Diverged
-    } else if observed.same_as(&capsule.outcome) {
+    } else if observed.same_as(&capsule.outcome) && failure_matches {
         HermeticVerdict::Reproduced
     } else if !observed.failed() {
         HermeticVerdict::Fixed
@@ -519,6 +639,8 @@ pub async fn check_exec(ctx: &Ctx, file: &Path, command: &str, _auto: bool) -> R
             "verdict": verdict.as_str(),
             "recordedOutcome": capsule.outcome,
             "observedOutcome": observed,
+            "recordedFailure": capsule.failure,
+            "observedFailure": observed_failure,
             "divergences": divergences,
             "counters": counters.map(|c| json!({
                 "served": c.served,
@@ -705,5 +827,59 @@ mod tests {
         assert!(is_process_capsule(&capsule));
         assert!(!is_process_capsule(&directory.join("absent.json")));
         let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn two_different_assertions_are_not_the_same_failure() {
+        // Both of these die with SIGABRT, so the exit status alone cannot
+        // tell them apart. This is the false proof the failure identity
+        // exists to prevent.
+        let recorded = failure_signature(&[
+            "engine: engine.c:52: main: Assertion `thrust <= MAX_THRUST' failed.".to_string(),
+        ]);
+        let other = failure_signature(&[
+            "engine: engine.c:81: main: Assertion `fuel >= 0' failed.".to_string(),
+        ]);
+        assert!(recorded.is_some());
+        assert_ne!(recorded, other);
+    }
+
+    #[test]
+    fn only_addresses_fold_because_everything_else_is_stable_across_a_replay() {
+        // ASLR moves addresses between two runs of the same defect, so they
+        // fold. Nothing else does: a replay runs the same binary, so the file,
+        // the line, and the predicate are all stable.
+        let first = failure_signature(&[
+            "app: src/main.c:52: run: Assertion `n < 8' failed. at 0x7ffd12ab".to_string(),
+        ]);
+        let second = failure_signature(&[
+            "app: src/main.c:52: run: Assertion `n < 8' failed. at 0x55aa9001".to_string(),
+        ]);
+        assert_eq!(first, second);
+        // A different asserted value is a DIFFERENT failure. Folding decimal
+        // digits would have made these equal, which is the false proof this
+        // guards against.
+        let third = failure_signature(&[
+            "app: src/main.c:52: run: Assertion `n < 9' failed. at 0x55aa9001".to_string(),
+        ]);
+        assert_ne!(first, third);
+    }
+
+    #[test]
+    fn a_program_that_dies_without_declaring_why_has_no_signature() {
+        // A silent SIGSEGV leaves the signal as the whole story, so the
+        // capsule must not invent an identity it never observed.
+        assert_eq!(failure_signature(&["Segmentation fault".to_string()]), None);
+        assert_eq!(failure_signature(&[]), None);
+    }
+
+    #[test]
+    fn rust_and_go_failure_text_is_recognized_too() {
+        assert!(
+            failure_signature(&["thread 'main' panicked at src/lib.rs:9:5:".to_string()]).is_some()
+        );
+        assert!(
+            failure_signature(&["panic: runtime error: index out of range".to_string()]).is_some()
+        );
     }
 }

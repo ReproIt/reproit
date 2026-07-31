@@ -1,0 +1,695 @@
+{
+  "version": 1,
+  "purpose": "Language neutral BEHAVIORAL vectors every SDK must reproduce byte for byte. capture-conformance-v1.json pins batch SHAPE; this file pins BEHAVIOR. It exists because eleven SDKs hand implement one contract, so a defect must otherwise be found eleven times. Each group below was written against a real defect that shipped.",
+  "constants": {
+    "maxExchangeBodyBytes": 8192,
+    "maxExchangeHeaders": 32,
+    "maxPgRows": 64,
+    "divergenceMarker": "REPROIT:DIVERGENCE ",
+    "placeholderKey": "$reproit"
+  },
+  "bounds": {
+    "rule": "A body at or under maxExchangeBodyBytes is recorded inline. Over it, the body is dropped and only provable identity remains: bodyBytes, bodySha256 over EVERY byte, and truncated true. An empty or absent body records neither field.",
+    "cases": [
+      {
+        "name": "absent",
+        "input": {
+          "body": null,
+          "contentType": "text/plain"
+        },
+        "expect": {}
+      },
+      {
+        "name": "empty",
+        "input": {
+          "body": "",
+          "contentType": "text/plain"
+        },
+        "expect": {}
+      },
+      {
+        "name": "atLimit",
+        "input": {
+          "bodyRepeat": [
+            "a",
+            8192
+          ],
+          "contentType": "text/plain"
+        },
+        "expect": {
+          "body": {
+            "repeat": [
+              "a",
+              8192
+            ]
+          }
+        }
+      },
+      {
+        "name": "oneOver",
+        "input": {
+          "bodyRepeat": [
+            "b",
+            8193
+          ],
+          "contentType": "text/plain"
+        },
+        "expect": {
+          "bodyBytes": 8193,
+          "bodySha256": "c8e6a47ac3c853d7a9eab26dc7c0beaf0e312d73d4d9fa8c713af4817556fd66",
+          "truncated": true
+        }
+      },
+      {
+        "name": "farOver",
+        "input": {
+          "bodyRepeat": [
+            "c",
+            40000
+          ],
+          "contentType": "text/plain"
+        },
+        "expect": {
+          "bodyBytes": 40000,
+          "bodySha256": "5c9f50ce09a992479505a65942188c050f51fba2468108b8aac722758f1a7524",
+          "truncated": true
+        }
+      },
+      {
+        "name": "jsonParsedWhenDeclared",
+        "input": {
+          "body": "{\"a\":1}",
+          "contentType": "application/json"
+        },
+        "expect": {
+          "body": {
+            "a": 1
+          }
+        }
+      },
+      {
+        "name": "declaredJsonThatDoesNotParseStaysText",
+        "input": {
+          "body": "{not json",
+          "contentType": "application/json"
+        },
+        "expect": {
+          "body": "{not json"
+        }
+      }
+    ],
+    "atLimitSha256": "dd4e6730520932767ec0a9e33fe19c4ce24399d6eba4ff62f13013c9ed30ef87"
+  },
+  "headers": {
+    "rule": "Header names lowercase. At most maxExchangeHeaders are recorded, and the selection MUST be deterministic across runs. Go recorded a different subset each run because it capped before sorting a randomized map, so the cap is defined over NAME SORTED order.",
+    "cases": [
+      {
+        "name": "lowercasesNames",
+        "input": {
+          "headers": {
+            "Content-Type": "application/json",
+            "X-Trace": "abc"
+          }
+        },
+        "expect": {
+          "headers": {
+            "content-type": "application/json",
+            "x-trace": "abc"
+          }
+        }
+      },
+      {
+        "name": "capIsDeterministicBySortedName",
+        "inputGenerated": {
+          "headerCount": 40,
+          "namePattern": "x-h%02d",
+          "value": "v"
+        },
+        "expect": {
+          "headerCount": 32,
+          "firstName": "x-h00",
+          "lastName": "x-h31",
+          "note": "sorted by name, first 32 kept, identical across runs"
+        }
+      },
+      {
+        "name": "emptyRecordsNothing",
+        "input": {
+          "headers": {}
+        },
+        "expect": {}
+      }
+    ]
+  },
+  "redaction": {
+    "rule": "A field whose name folds to contain any secret part is replaced by a placeholder object. Folding strips every non alphanumeric character and lowercases. Non secret fields recurse unchanged.",
+    "secretParts": [
+      "password",
+      "passwd",
+      "secret",
+      "token",
+      "authorization",
+      "cookie",
+      "email",
+      "phone",
+      "apikey",
+      "publishablekey",
+      "privatekey",
+      "accesskey",
+      "signingkey",
+      "idempotencykey"
+    ],
+    "placeholderShape": {
+      "$reproit": {
+        "redacted": true,
+        "type": "<kind>",
+        "length": "<int or null>"
+      }
+    },
+    "typeCases": [
+      {
+        "input": {
+          "password": "hunter2"
+        },
+        "expect": {
+          "password": {
+            "$reproit": {
+              "redacted": true,
+              "type": "string",
+              "length": 7
+            }
+          }
+        }
+      },
+      {
+        "input": {
+          "token": 42
+        },
+        "expect": {
+          "token": {
+            "$reproit": {
+              "redacted": true,
+              "type": "integer",
+              "length": null
+            }
+          }
+        }
+      },
+      {
+        "input": {
+          "secret": 1.5
+        },
+        "expect": {
+          "secret": {
+            "$reproit": {
+              "redacted": true,
+              "type": "number",
+              "length": null
+            }
+          }
+        }
+      },
+      {
+        "input": {
+          "cookie": true
+        },
+        "expect": {
+          "cookie": {
+            "$reproit": {
+              "redacted": true,
+              "type": "boolean",
+              "length": null
+            }
+          }
+        }
+      },
+      {
+        "input": {
+          "apiKey": null
+        },
+        "expect": {
+          "apiKey": {
+            "$reproit": {
+              "redacted": true,
+              "type": "null",
+              "length": null
+            }
+          }
+        }
+      },
+      {
+        "input": {
+          "authorization": [
+            "a",
+            "b"
+          ]
+        },
+        "expect": {
+          "authorization": {
+            "$reproit": {
+              "redacted": true,
+              "type": "array",
+              "length": 2
+            }
+          }
+        }
+      },
+      {
+        "input": {
+          "privateKey": {
+            "k": 1
+          }
+        },
+        "expect": {
+          "privateKey": {
+            "$reproit": {
+              "redacted": true,
+              "type": "object",
+              "length": null
+            }
+          }
+        }
+      }
+    ],
+    "foldingCases": [
+      {
+        "field": "api-key",
+        "secret": true
+      },
+      {
+        "field": "Access Key",
+        "secret": true
+      },
+      {
+        "field": "X-Authorization",
+        "secret": true
+      },
+      {
+        "field": "signingKey",
+        "secret": true
+      },
+      {
+        "field": "idempotency_key",
+        "secret": true
+      },
+      {
+        "field": "user_email",
+        "secret": true
+      },
+      {
+        "field": "username",
+        "secret": false
+      },
+      {
+        "field": "tokenizer",
+        "secret": true,
+        "note": "substring match is intentional; tokenizer contains token"
+      },
+      {
+        "field": "id",
+        "secret": false
+      },
+      {
+        "field": "phoneme",
+        "secret": true,
+        "note": "substring match is intentional; phoneme contains phone"
+      }
+    ],
+    "nestingCases": [
+      {
+        "input": {
+          "outer": {
+            "password": "x"
+          }
+        },
+        "expect": {
+          "outer": {
+            "password": {
+              "$reproit": {
+                "redacted": true,
+                "type": "string",
+                "length": 1
+              }
+            }
+          }
+        }
+      },
+      {
+        "input": {
+          "list": [
+            {
+              "token": "t"
+            }
+          ]
+        },
+        "expect": {
+          "list": [
+            {
+              "token": {
+                "$reproit": {
+                  "redacted": true,
+                  "type": "string",
+                  "length": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "input": {
+          "keep": "visible"
+        },
+        "expect": {
+          "keep": "visible"
+        }
+      }
+    ]
+  },
+  "matching": {
+    "rule": "A recorded exchange matches a live call when protocol, method and the path plus query of the URL are equal and the body matches structurally. A recorded placeholder wildcards any live value. Host and scheme are NOT compared, because a replayed app dials a different origin.",
+    "cases": [
+      {
+        "name": "identicalMatches",
+        "recorded": {
+          "method": "GET",
+          "url": "http://svc.internal/prices?tier=gold"
+        },
+        "live": {
+          "method": "GET",
+          "url": "http://127.0.0.1:19971/prices?tier=gold"
+        },
+        "expect": {
+          "matches": true
+        }
+      },
+      {
+        "name": "differentMethodDoesNotMatch",
+        "recorded": {
+          "method": "GET",
+          "url": "http://svc/prices"
+        },
+        "live": {
+          "method": "POST",
+          "url": "http://svc/prices"
+        },
+        "expect": {
+          "matches": false
+        }
+      },
+      {
+        "name": "differentPathDoesNotMatch",
+        "recorded": {
+          "method": "GET",
+          "url": "http://svc/prices"
+        },
+        "live": {
+          "method": "GET",
+          "url": "http://svc/quotes"
+        },
+        "expect": {
+          "matches": false
+        }
+      },
+      {
+        "name": "differentQueryDoesNotMatch",
+        "recorded": {
+          "method": "GET",
+          "url": "http://svc/prices?tier=gold"
+        },
+        "live": {
+          "method": "GET",
+          "url": "http://svc/prices?tier=silver"
+        },
+        "expect": {
+          "matches": false
+        }
+      },
+      {
+        "name": "differentBodyDoesNotMatch",
+        "recorded": {
+          "method": "POST",
+          "url": "http://svc/c",
+          "body": {
+            "amount": 5
+          }
+        },
+        "live": {
+          "method": "POST",
+          "url": "http://svc/c",
+          "body": {
+            "amount": 6
+          }
+        },
+        "expect": {
+          "matches": false
+        }
+      },
+      {
+        "name": "recordedPlaceholderWildcardsLiveValue",
+        "recorded": {
+          "method": "POST",
+          "url": "http://svc/c",
+          "body": {
+            "token": {
+              "$reproit": {
+                "redacted": true,
+                "type": "string",
+                "length": 7
+              }
+            }
+          }
+        },
+        "live": {
+          "method": "POST",
+          "url": "http://svc/c",
+          "body": {
+            "token": "anything"
+          }
+        },
+        "expect": {
+          "matches": true,
+          "why": "a redacted value cannot be compared, so it must not block replay"
+        }
+      },
+      {
+        "name": "absentRecordedBodyWildcards",
+        "recorded": {
+          "method": "POST",
+          "url": "http://svc/c"
+        },
+        "live": {
+          "method": "POST",
+          "url": "http://svc/c",
+          "body": {
+            "any": 1
+          }
+        },
+        "expect": {
+          "matches": true
+        }
+      }
+    ],
+    "pgCases": [
+      {
+        "name": "identicalStatementMatches",
+        "recorded": {
+          "text": "SELECT id FROM t WHERE k = $1",
+          "values": [
+            "a"
+          ]
+        },
+        "live": {
+          "text": "SELECT id FROM t WHERE k = $1",
+          "values": [
+            "a"
+          ]
+        },
+        "expect": {
+          "matches": true
+        }
+      },
+      {
+        "name": "differentStatementDoesNotMatch",
+        "recorded": {
+          "text": "SELECT id FROM t",
+          "values": []
+        },
+        "live": {
+          "text": "SELECT id FROM u",
+          "values": []
+        },
+        "expect": {
+          "matches": false
+        }
+      }
+    ]
+  },
+  "divergence": {
+    "rule": "An unmatched call is a divergence. The marker is written to STDERR with the exact prefix and a JSON report. Ruby wrote it through warn, whose file:line: warning: prefix broke the CLI's match, so a diverged run reported as reproduced. The prefix must start the line.",
+    "markerPrefix": "REPROIT:DIVERGENCE ",
+    "stream": "stderr",
+    "prefixMustStartLine": true,
+    "reportFields": {
+      "required": [
+        "protocol",
+        "got",
+        "consumed",
+        "total"
+      ],
+      "optional": [
+        "expected"
+      ],
+      "note": "expected is null when no unconsumed exchange of that protocol remains"
+    },
+    "cases": [
+      {
+        "name": "unmatchedCallDiverges",
+        "capsuleExchanges": [
+          {
+            "protocol": "http",
+            "request": {
+              "method": "GET",
+              "url": "http://svc/prices"
+            }
+          }
+        ],
+        "live": {
+          "protocol": "http",
+          "method": "GET",
+          "url": "http://svc/unknown"
+        },
+        "expect": {
+          "diverged": true,
+          "consumed": 0,
+          "total": 1,
+          "expectedRequest": {
+            "method": "GET",
+            "url": "http://svc/prices"
+          }
+        }
+      },
+      {
+        "name": "truncatedRecordedBodyFailsClosed",
+        "capsuleExchanges": [
+          {
+            "protocol": "http",
+            "request": {
+              "method": "GET",
+              "url": "http://svc/blob"
+            },
+            "response": {
+              "status": 200,
+              "bodyBytes": 40000,
+              "bodySha256": "5c9f50ce09a992479505a65942188c050f51fba2468108b8aac722758f1a7524",
+              "truncated": true
+            }
+          }
+        ],
+        "live": {
+          "protocol": "http",
+          "method": "GET",
+          "url": "http://svc/blob"
+        },
+        "expect": {
+          "diverged": true,
+          "why": "the capsule kept identity but not bytes; serving a guessed body would be a silent lie"
+        }
+      }
+    ]
+  },
+  "envelope": {
+    "rule": "The determinism envelope rides as a checkpoint named determinism-envelope. A field a platform CANNOT know must be ABSENT, never guessed. React Native omits arch and imageDigest for exactly this reason.",
+    "checkpointName": "determinism-envelope",
+    "required": [
+      "observedAtMs",
+      "replaySeed"
+    ],
+    "optional": [
+      "tz",
+      "runtime",
+      "os",
+      "arch",
+      "imageDigest",
+      "buildDigest",
+      "osVersion",
+      "locale"
+    ],
+    "forbidden": {
+      "rule": "an optional field the platform cannot determine is ABSENT, not null and not a placeholder string",
+      "examples": [
+        "arch on react native",
+        "imageDigest without REPROIT_IMAGE_DIGEST"
+      ]
+    },
+    "deployment": {
+      "fields": [
+        "version",
+        "commit"
+      ],
+      "commitSources": [
+        "config",
+        "REPROIT_COMMIT",
+        "GITHUB_SHA"
+      ],
+      "rule": "deployment is absent entirely when neither version nor commit resolves"
+    }
+  },
+  "triggerTokens": {
+    "rule": "The trigger token vocabulary is fixed by the protocol. iOS and React Native independently emitted user-action, which is not in it, and the protocol validator caught both. A backend request is http-request; a device failure is ui-action.",
+    "allowed": [
+      "ui-action",
+      "http-request",
+      "rpc-request",
+      "command",
+      "message",
+      "timer",
+      "process-startup",
+      "installer",
+      "upgrade",
+      "migration",
+      "filesystem-event",
+      "signal",
+      "resource-pressure",
+      "concurrency-schedule",
+      "device-interaction"
+    ],
+    "rejected": [
+      "user-action",
+      "userAction",
+      "ui_action",
+      "http_request"
+    ],
+    "bySdkKind": {
+      "backend": "http-request",
+      "mobile": "ui-action",
+      "web": "ui-action"
+    }
+  },
+  "capabilities": {
+    "rule": "A capture claims the network capability only when exchanges were actually recorded. A failure with zero exchanges must send no capture batch at all, rather than one claiming a capability it lacks.",
+    "cases": [
+      {
+        "name": "exchangesRecorded",
+        "exchangeCount": 1,
+        "expect": {
+          "networkCapability": "complete",
+          "batchSent": true
+        }
+      },
+      {
+        "name": "noExchanges",
+        "exchangeCount": 0,
+        "expect": {
+          "networkCapability": null,
+          "batchSent": false
+        }
+      }
+    ]
+  },
+  "encoding": {
+    "rule": "A written capture file is UTF-8 with NO byte order mark. dotnet used File.WriteAllText with Encoding.UTF8, which prepends one, and the CLI's JSON sniff rejected the file.",
+    "byteOrderMark": "forbidden",
+    "firstByteMustBe": "0x7B"
+  }
+}

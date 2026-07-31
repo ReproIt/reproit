@@ -39,6 +39,17 @@ cli() {
   (cd "$dir" && cargo run --quiet --manifest-path "$ROOT/Cargo.toml" -p reproit -- "$@")
 }
 
+# Case accounting. A harness that stops early looks exactly like one that
+# passed everything it printed, so reaching the end is not the pass condition:
+# the count of completed cases matching what this script intends to run is.
+CASES_RUN=0
+EXPECTED_CASES=7
+
+pass_case() {
+  CASES_RUN=$((CASES_RUN + 1))
+  echo "$1"
+}
+
 # Project A: backend-only, one GET the scan exercises; the server 500s on it.
 mkdir -p "$WORK/a"
 cat > "$WORK/a/openapi.yaml" << 'YAML'
@@ -68,10 +79,10 @@ backend:
 YAML
 
 boot_server SERVER_ERROR=1
-set +e
-cli "$WORK/a" --json internal scan > "$WORK/scan.json" 2>&1
-SCAN_STATUS="$?"
-set -e
+# Capture the status instead of toggling errexit: this scan exits non-zero on
+# purpose, and a leaked `set +e` would silence every later failure.
+SCAN_STATUS=0
+cli "$WORK/a" --json internal scan > "$WORK/scan.json" 2>&1 || SCAN_STATUS="$?"
 test "$SCAN_STATUS" -eq 1 || { echo "expected scan exit 1, got $SCAN_STATUS" >&2; cat "$WORK/scan.json" >&2; exit 1; }
 
 FID="$(python3 - "$WORK/scan.json" << 'EOF'
@@ -91,12 +102,13 @@ assert artifact["failing"]["request"]["url"].startswith("/"), artifact["failing"
 assert artifact["schema"] == "openapi.yaml", artifact["schema"]
 print("artifact v3 shape holds")
 EOF
+CASES_RUN=$((CASES_RUN + 1))
 
 # The whole project moves to a different absolute path; nothing else changes.
 cp -R "$WORK/a" "$WORK/b"
 OUT="$(cli "$WORK/b" "$FID" 2>&1 || true)"
 grep -q "reproduced exactly" <<< "$OUT" || { echo "v3 replay from the copy did not reproduce: $OUT" >&2; exit 1; }
-echo "PASS v3 artifact replays from a moved checkout (reproduced)"
+pass_case "PASS v3 artifact replays from a moved checkout (reproduced)"
 
 # Legacy: the same finding hand-lowered to version 2 (absolute URLs, no
 # origin) replays through the old retarget path with REPROIT_BACKEND_URL.
@@ -118,13 +130,13 @@ EOF
 OUT="$( (cd "$WORK/c" && REPROIT_BACKEND_URL="http://127.0.0.1:$PORT" \
   cargo run --quiet --manifest-path "$ROOT/Cargo.toml" -p reproit -- "$FID") 2>&1 || true)"
 grep -q "reproduced exactly" <<< "$OUT" || { echo "v2 legacy replay failed: $OUT" >&2; exit 1; }
-echo "PASS v2 artifact still replays through the legacy path"
+pass_case "PASS v2 artifact still replays through the legacy path"
 
 # Fix the service; the moved-checkout artifact proves the fix.
 boot_server VALID_RESPONSE=1
 OUT="$(cli "$WORK/b" "$FID" 2>&1 || true)"
 grep -qi "fixed\|no longer reproduces\|held" <<< "$OUT" || { echo "v3 replay did not certify the fix: $OUT" >&2; exit 1; }
-echo "PASS v3 artifact certifies the fix from the moved checkout"
+pass_case "PASS v3 artifact certifies the fix from the moved checkout"
 
 # The SCHEMA artifact (backend-schema.json) gets the same treatment at
 # version 2: a schema-level violation is recorded with a project-relative
@@ -155,9 +167,7 @@ backend:
   schemas: [openapi.yaml]
   target: http://127.0.0.1:$PORT
 YAML
-set +e
-cli "$WORK/s" --json internal scan > "$WORK/schema-scan.json" 2>&1
-set -e
+cli "$WORK/s" --json internal scan > "$WORK/schema-scan.json" 2>&1 || true
 SCHEMA_ARTIFACT="$(ls "$WORK"/s/.reproit/findings/*/backend-schema.json 2>/dev/null | head -1)"
 if [[ -z "$SCHEMA_ARTIFACT" ]]; then
   echo "expected a backend-schema.json finding for the duplicate parameter" >&2
@@ -172,6 +182,7 @@ assert artifact["schema"] == "openapi.yaml", artifact["schema"]
 assert not artifact.get("schemaOutsideRoot", False), artifact
 print("schema artifact v2 shape holds (project-relative path)")
 EOF
+CASES_RUN=$((CASES_RUN + 1))
 SFID="$(python3 -c "
 import json,sys
 print(json.load(open('$SCHEMA_ARTIFACT'))['finding']['id'])
@@ -182,7 +193,7 @@ cp -R "$WORK/s" "$WORK/s-moved"
 OUT="$(cli "$WORK/s-moved" "$SFID" 2>&1 || true)"
 grep -q "reproduced exactly" <<< "$OUT" \
   || { echo "v2 schema artifact did not replay from the moved checkout: $OUT" >&2; exit 1; }
-echo "PASS v2 schema artifact replays from a moved checkout"
+pass_case "PASS v2 schema artifact replays from a moved checkout"
 
 # Legacy: the same artifact hand-lowered to version 1 with the absolute path
 # it used to store still replays, so old findings keep working.
@@ -199,6 +210,10 @@ EOF
 OUT="$(cli "$WORK/s-legacy" "$SFID" 2>&1 || true)"
 grep -q "reproduced exactly" <<< "$OUT" \
   || { echo "v1 schema artifact legacy path failed: $OUT" >&2; exit 1; }
-echo "PASS v1 schema artifact still replays through the legacy absolute path"
+pass_case "PASS v1 schema artifact still replays through the legacy absolute path"
 
-echo "artifact-portability-e2e: both artifacts are portable, both legacy versions still replay"
+if [[ "$CASES_RUN" -ne "$EXPECTED_CASES" ]]; then
+  echo "FAIL harness accounting: $CASES_RUN of $EXPECTED_CASES cases ran" >&2
+  exit 1
+fi
+echo "artifact-portability-e2e: both artifacts are portable, both legacy versions still replay ($CASES_RUN/$EXPECTED_CASES cases)"

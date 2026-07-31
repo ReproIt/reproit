@@ -1,0 +1,12 @@
+{
+  "id": "77fe5b41f678",
+  "alias": "self-dogfood-check-flag-callers",
+  "status": "required",
+  "seed": 0,
+  "created": "2026-07-31T12:43:15.547822+00:00",
+  "last_checked": "2026-07-31T06:42:55.559728-07:00",
+  "last_result": "pass",
+  "trigger_index": 0,
+  "trigger_sig": "cli:check-flag-callers",
+  "oracle": "exact-occurrence"
+}

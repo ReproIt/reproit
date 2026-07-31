@@ -482,3 +482,67 @@ impl Drop for KillOnDrop {
         let _ = self.0.wait();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The invariant ledger found `Diverged` defended by shell scripts alone:
+    /// it appeared in production code and in zero Rust tests, so a refactor
+    /// that collapsed it into `Inconclusive` would keep every acceptance
+    /// script green while destroying the distinction drift quarantine is
+    /// built on. A diverged run means the code no longer makes the captured
+    /// calls, which is neither a reproduction nor a proof of a fix.
+    #[test]
+    fn diverged_is_its_own_verdict_and_never_certifies() {
+        assert_eq!(HermeticVerdict::Diverged.as_str(), "diverged");
+        for verdict in [
+            HermeticVerdict::Reproduced,
+            HermeticVerdict::Fixed,
+            HermeticVerdict::Inconclusive,
+        ] {
+            assert_ne!(
+                verdict.as_str(),
+                HermeticVerdict::Diverged.as_str(),
+                "diverged must not share an identity with {verdict:?}"
+            );
+        }
+    }
+
+    /// The rule this project has paid for twice (the verify false-open and the
+    /// gate blindness) was enforced only by a ratchet that greps for the token
+    /// `Inconclusive` in four named files, which is a spelling check rather
+    /// than a behavioral one. Absence of an observed failure is not a fix, so
+    /// only `Fixed` may exit zero.
+    #[test]
+    fn only_a_proven_fix_exits_zero() {
+        let success = format!("{:?}", ExitCode::SUCCESS);
+        assert_eq!(format!("{:?}", HermeticVerdict::Fixed.exit()), success);
+        for verdict in [
+            HermeticVerdict::Reproduced,
+            HermeticVerdict::Diverged,
+            HermeticVerdict::Inconclusive,
+        ] {
+            assert_ne!(
+                format!("{:?}", verdict.exit()),
+                success,
+                "{verdict:?} must never exit zero: absence of evidence is not a fix"
+            );
+        }
+    }
+
+    /// Reproduced is the regression stop, and the two fail-closed verdicts
+    /// must be distinguishable from it so CI can block on a real regression
+    /// while merely reporting drift.
+    #[test]
+    fn a_regression_is_distinguishable_from_failing_closed() {
+        let reproduced = format!("{:?}", HermeticVerdict::Reproduced.exit());
+        let diverged = format!("{:?}", HermeticVerdict::Diverged.exit());
+        let inconclusive = format!("{:?}", HermeticVerdict::Inconclusive.exit());
+        assert_ne!(reproduced, diverged);
+        assert_eq!(
+            diverged, inconclusive,
+            "both fail-closed verdicts share the stale exit class by design"
+        );
+    }
+}

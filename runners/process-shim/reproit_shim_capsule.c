@@ -13,7 +13,8 @@ shim_state_t G;
 
 static const char *KIND_NAMES[K_KINDS] = {"open",  "read",   "connect",  "send",   "recv",
                                           "clock", "time",   "random",   "env",    "stat",
-                                          "statx", "access", "readlink", "getcwd", "dirent"};
+                                          "statx", "access", "readlink", "getcwd", "dirent",
+                                          "input"};
 
 /* This half resolves its own libc pointers so it never depends on the
  * interposition half's resolution order. */
@@ -283,7 +284,12 @@ size_t gather(kind_t kind, const char *key, unsigned char **out) {
 /* Open the append-only record log. */
 void reproit_open_log(const char *path) {
     cap_resolve();
-    G.log_fd = cap_open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    /* O_TRUNC because a capsule describes ONE session. Appending to a stale
+     * log silently merged two runs into a capsule that never happened, which
+     * replay would then be unable to satisfy. The CLI always passes a fresh
+     * temp path, so this only bites a hand run, which is exactly when a
+     * confusing capsule is hardest to spot. */
+    G.log_fd = cap_open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 }
 
 /* Counters at replay exit. Best effort: a program that dies on a fatal signal
@@ -296,8 +302,10 @@ void reproit_report(void) {
     static char line[512];
     int n = snprintf(line, sizeof(line),
                      "REPROIT:PROCESS-REPLAY {\"served\":%zu,\"diverged\":%zu,"
-                     "\"clockOverrun\":%zu,\"randomOverrun\":%zu,\"envFallthrough\":%zu}\n",
-                     G.served, G.diverged, G.clock_overrun, G.random_overrun, G.env_fallthrough);
+                     "\"clockOverrun\":%zu,\"randomOverrun\":%zu,\"envFallthrough\":%zu,"
+                     "\"inputServed\":%zu,\"inputEarly\":%zu,\"ticks\":%zu}\n",
+                     G.served, G.diverged, G.clock_overrun, G.random_overrun, G.env_fallthrough,
+                     G.input_served, G.input_early, G.tick);
     if (n > 0) {
         cap_resolve();
         if (cap_write) {

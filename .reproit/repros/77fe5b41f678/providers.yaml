@@ -1,0 +1,21 @@
+version: 1
+providers:
+  local-occ_00e941e87a6d9542:
+    authority: explicit-local-approval
+    phase: trigger
+    capabilities: []
+    source:
+      path: validation/self-dogfood/cli-defect-verifier.mjs
+      sha256: sha256:60d8508e2d12cfd1db05043c7d1267606c02a8de695e89c12372f750afc0a844
+    argv:
+    - node
+    - validation/self-dogfood/cli-defect-verifier.mjs
+    - check-flag-callers
+    environment: {}
+    timeoutMs: 300000
+    cleanExitCodes:
+    - 0
+    observation:
+      identity: cli:check-flag-callers
+      kind: exit-code
+      code: 17

@@ -66,6 +66,8 @@ static int (*real_openat)(int, const char *, int, ...);
 static ssize_t (*real_read)(int, void *, size_t);
 static ssize_t (*real_pread)(int, void *, size_t, off_t);
 static int (*real_close)(int);
+/* Only ever called with F_GETFL, which takes no third argument. */
+static int (*real_fcntl_getfl)(int, int);
 static int (*real_connect)(int, const struct sockaddr *, socklen_t);
 static ssize_t (*real_send)(int, const void *, size_t, int);
 static ssize_t (*real_sendto)(int, const void *, size_t, int, const struct sockaddr *, socklen_t);
@@ -297,6 +299,64 @@ int openat(int dirfd, const char *path, int flags, ...) {
     return fd;
 }
 
+/* Phase 2: is this fd the program's input stream rather than a file it
+ * opened? An inherited descriptor has no recorded path, and stdin is the
+ * input source a headless interactive program is driven through. */
+/* Consecutive input reads tolerated at one tick before the schedule gives up
+ * and serves early. A tick driven loop advances its clock every frame, so it
+ * never comes close; a program that blocks on input without a clock does. */
+#define MAX_INPUT_HOLDS 4096
+
+static int is_input_stream(int fd) {
+    return fd == 0 && (fd >= MAX_FDS || !G.paths[fd][0]);
+}
+
+/* Serve one recorded input event, but only once the program has reached the
+ * TICK it arrived on. A fixed timestep loop reads the clock once per frame,
+ * so holding an event back until its tick reproduces the timing relationship
+ * between input and frames instead of delivering the whole session at once.
+ *
+ * A blocking fd cannot be held back without hanging the program, so it is
+ * served early and counted. Nothing is silently reordered. */
+static ssize_t serve_input(int fd, void *buf, size_t count) {
+    entry_t *e = next_entry(K_INPUT, "stdin");
+    if (!e) {
+        /* The recording's input is exhausted: end of stream, not a
+         * divergence. A replayed loop may poll more often than the recorded
+         * one did, and an extra poll finding nothing is not drift. */
+        return 0;
+    }
+    if ((size_t)e->b > G.tick) {
+        /* Hold it back until the program reaches the tick this input arrived
+         * on. The real descriptor's flags are deliberately NOT consulted: at
+         * replay the input comes from the capsule, not from that descriptor,
+         * and an inherited stdin that happens to be blocking would otherwise
+         * defeat the schedule entirely.
+         *
+         * The only real risk is a program that waits for input without ever
+         * reading its clock, which would spin. That is bounded: after
+         * MAX_INPUT_HOLDS consecutive asks with no tick advance, the input is
+         * served early and COUNTED, so the schedule is never quietly dropped. */
+        if (G.tick != G.input_hold_tick) {
+            G.input_hold_tick = G.tick;
+            G.input_holds = 0;
+        }
+        if (++G.input_holds <= MAX_INPUT_HOLDS) {
+            e->consumed = 0; /* not yet: let the next frame ask again */
+            errno = EAGAIN;
+            return -1;
+        }
+        G.input_early++;
+    }
+    size_t take = e->blob_len < count ? e->blob_len : count;
+    if (take) {
+        memcpy(buf, e->blob, take);
+    }
+    G.input_served++;
+    G.served++;
+    return (ssize_t)take;
+}
+
 ssize_t read(int fd, void *buf, size_t count) {
     int return_real = 0;
     RESOLVE(read);
@@ -305,6 +365,11 @@ ssize_t read(int fd, void *buf, size_t count) {
         return real_read(fd, buf, count);
     }
     ssize_t got;
+    if (G.mode == 2 && is_input_stream(fd)) {
+        got = serve_input(fd, buf, count);
+        LEAVE();
+        return got;
+    }
     if (G.mode == 2 && fd >= 0 && fd < MAX_FDS && G.fds[fd].active && !G.fds[fd].is_socket) {
         /* A replayed FILE: the kernel serves the memfd. An EOF on a fd whose
          * capture was partial means the program wanted bytes the capsule
@@ -338,7 +403,11 @@ ssize_t read(int fd, void *buf, size_t count) {
         return (ssize_t)take;
     }
     got = real_read(fd, buf, count);
-    if (G.mode == 1 && got > 0 && fd >= 0 && fd < MAX_FDS && G.paths[fd][0]) {
+    if (G.mode == 1 && got > 0 && is_input_stream(fd)) {
+        /* b carries the tick this input arrived on, which is what replay
+         * schedules against. */
+        record_blob(K_INPUT, "stdin", (const unsigned char *)buf, (size_t)got, fd, (long)G.tick);
+    } else if (G.mode == 1 && got > 0 && fd >= 0 && fd < MAX_FDS && G.paths[fd][0]) {
         record_blob(K_READ, G.paths[fd], (const unsigned char *)buf, (size_t)got, fd, 0);
     }
     LEAVE();
@@ -539,6 +608,7 @@ int clock_gettime(clockid_t id, struct timespec *ts) {
         return real_clock_gettime(id, ts);
     }
     int result = 0;
+    G.tick++;
     if (G.mode == 2) {
         char key[32];
         snprintf(key, sizeof(key), "%d", (int)id);
@@ -551,10 +621,38 @@ int clock_gettime(clockid_t id, struct timespec *ts) {
             G.served++;
         } else {
             /* Policy, not divergence: a replayed run makes a different NUMBER
-             * of clock reads while depending on the same external inputs. */
-            G.last_nsec++;
-            ts->tv_sec = G.last_sec;
-            ts->tv_nsec = G.last_nsec;
+             * of clock reads while depending on the same external inputs.
+             *
+             * Past the end of the recording, time must keep MOVING at a real
+             * rate. Incrementing by a nanosecond per call hung a fixed program
+             * whose frame loop waits five milliseconds of wall clock: it
+             * outlived its recording, so the clock never advanced far enough
+             * and the loop spun forever. The served clock therefore continues
+             * from the last recorded instant at the real elapsed rate. */
+            struct timespec now;
+            if (real_clock_gettime(CLOCK_MONOTONIC, &now) == 0) {
+                if (!G.overrun_anchored) {
+                    G.overrun_anchored = 1;
+                    G.overrun_real_sec = now.tv_sec;
+                    G.overrun_real_nsec = now.tv_nsec;
+                }
+                long delta_sec = now.tv_sec - G.overrun_real_sec;
+                long delta_nsec = now.tv_nsec - G.overrun_real_nsec;
+                if (delta_nsec < 0) {
+                    delta_sec--;
+                    delta_nsec += 1000000000L;
+                }
+                ts->tv_sec = G.last_sec + delta_sec;
+                ts->tv_nsec = G.last_nsec + delta_nsec;
+                if (ts->tv_nsec >= 1000000000L) {
+                    ts->tv_sec++;
+                    ts->tv_nsec -= 1000000000L;
+                }
+            } else {
+                G.last_nsec++;
+                ts->tv_sec = G.last_sec;
+                ts->tv_nsec = G.last_nsec;
+            }
             G.clock_overrun++;
         }
     } else {
@@ -575,6 +673,7 @@ int gettimeofday(struct timeval *tv, void *tz) {
         return real_gettimeofday(tv, tz);
     }
     int result = 0;
+    G.tick++;
     if (G.mode == 2) {
         entry_t *e = next_entry(K_TIME, "gettimeofday");
         if (e) {
@@ -602,6 +701,7 @@ time_t time(time_t *out) {
         return real_time(out);
     }
     time_t value;
+    G.tick++;
     if (G.mode == 2) {
         entry_t *e = next_entry(K_TIME, "time");
         if (e) {

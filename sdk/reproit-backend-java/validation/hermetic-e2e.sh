@@ -27,14 +27,20 @@ FIXTURE=(java -cp "$CLASSPATH" dev.reproit.backend.HermeticFixture)
 MODE=capture CAPTURE_OUT="$WORK/capture.json" "${FIXTURE[@]}" >/dev/null
 test -s "$WORK/capture.json"
 
+# Case accounting. A harness that stops early looks exactly like one that
+# passed everything it printed, so reaching the end is not the pass condition:
+# the count of completed cases matching what this script intends to run is.
+CASES_RUN=0
+EXPECTED_CASES=4
+
 run_case() {
   local capture="$1" prefix="$2" expected="$3" label="$4"
-  set +e
+  # Capture the status instead of toggling errexit, so a subject that
+  # exits non-zero on purpose cannot leave the shell in the wrong mode.
+  local status=0
   # shellcheck disable=SC2086
   "$CLI" check "$capture" --exec "$prefix java -cp '$CLASSPATH' dev.reproit.backend.HermeticFixture" \
-    >"$WORK/out.txt" 2>&1
-  local status="$?"
-  set -e
+    >"$WORK/out.txt" 2>&1 || status="$?"
   if [[ "$status" -ne "$expected" ]]; then
     echo "FAIL $label: expected exit $expected, got $status" >&2
     cat "$WORK/out.txt" >&2
@@ -54,6 +60,7 @@ run_case() {
     cat "$WORK/out.txt" >&2
     exit 1
   fi
+  CASES_RUN=$((CASES_RUN + 1))
   echo "PASS $label (exit $status)"
 }
 
@@ -72,4 +79,8 @@ json.dump(capture, open(sys.argv[2], 'w'))
 EOF
 run_case "$WORK/tampered.json" "" 3 "java missing exchange diverges"
 
-echo "java hermetic-e2e: all four verdicts hold"
+if [[ "$CASES_RUN" -ne "$EXPECTED_CASES" ]]; then
+  echo "FAIL harness accounting: $CASES_RUN of $EXPECTED_CASES cases ran" >&2
+  exit 1
+fi
+echo "java hermetic-e2e: all four verdicts hold ($CASES_RUN/$EXPECTED_CASES cases)"

@@ -11,6 +11,14 @@
 # a platform fact, not a bug in this script.
 set -u
 
+# Case accounting. An acceptance script that stops early prints only PASS
+# lines and looks exactly like one that passed everything it printed, which is
+# the shape this project hit four separate times in one day. Every case
+# increments this counter after it has fully asserted, and the run fails
+# loudly if the total does not match.
+CASES_RUN=0
+EXPECTED_CASES=13
+
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 REPROIT="${REPROIT_BINARY:-$ROOT/target/debug/reproit}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/reproit-process.XXXXXX")"
@@ -73,6 +81,7 @@ if ! grep -q "fatal signal" "$WORK/capture.txt"; then
   cat "$WORK/capture.txt" >&2
   exit 1
 fi
+CASES_RUN=$((CASES_RUN + 1))
 echo "PASS captured the planted abort into a process capsule"
 
 # HERMETIC STATE: no config file, no upstream, for every run below.
@@ -95,6 +104,7 @@ run_case() {
     cat "$WORK/out.txt" >&2
     exit 1
   fi
+  CASES_RUN=$((CASES_RUN + 1))
   echo "PASS $label (exit $status)"
 }
 
@@ -160,6 +170,7 @@ if ! cmp -s "$WORK/stdout.record" "$WORK/stdout.replay"; then
   echo "  replayed: $(tr '\n' '|' < "$WORK/stdout.replay")" >&2
   exit 1
 fi
+CASES_RUN=$((CASES_RUN + 1))
 echo "PASS python3 replayed stdout is byte identical to the recording"
 
 # An interpreted runtime this boundary does NOT replay correctly. Ruby reaches
@@ -183,4 +194,77 @@ else
   echo "SKIP ruby case: no ruby in this image"
 fi
 
-echo "process-e2e: all four verdicts hold"
+# PHASE 2: a timed input stream. A session shaped program's trigger is input
+# arriving over time, not a single request, so the capsule stamps each input
+# with the TICK it arrived on and replay holds it back until the program
+# reaches that tick again.
+#
+# The engine's planted defect is a STALE COMBO, which fires only when presses
+# arrive FAR APART. That direction is what makes this a test of the schedule
+# rather than of the bytes: the same two presses back to back are safe, so a
+# replay that delivered the recorded input immediately would NOT reproduce the
+# crash. The first assertion below pins that premise.
+if command -v sdl2-config > /dev/null 2>&1; then
+  gcc -O1 -o "$WORK/engine" "$ROOT/validation/process/engine.c" \
+    $(sdl2-config --cflags --libs) 2>/dev/null
+  if [[ -x "$WORK/engine" ]]; then
+    export SDL_VIDEODRIVER=dummy ENGINE_FRAMES=120
+    printf 'uuu' > "$WORK/burst.in"
+    "$WORK/engine" < "$WORK/burst.in" > "$WORK/burst.out" 2>/dev/null
+    if [[ $? -ne 0 ]]; then
+      echo "FAIL premise: the same bytes back to back should be SAFE" >&2
+      cat "$WORK/burst.out" >&2
+      exit 1
+    fi
+    CASES_RUN=$((CASES_RUN + 1))
+    echo "PASS premise: the same bytes back to back are safe, so timing is the defect"
+
+    cat > "$WORK/feeder.py" <<'FEEDER'
+import sys, time
+for _ in range(3):
+    sys.stdout.buffer.write(b"u")
+    sys.stdout.buffer.flush()
+    time.sleep(0.25)
+FEEDER
+    python3 "$WORK/feeder.py" 2>/dev/null | "$REPROIT" --yes internal process-capture \
+      --out "$WORK/spread.json" -- "$WORK/engine" > "$WORK/spread.txt" 2>&1
+    if ! grep -q "fatal signal" "$WORK/spread.txt"; then
+      echo "FAIL capture: the spread session did not crash as planted" >&2
+      cat "$WORK/spread.txt" >&2
+      exit 1
+    fi
+    # No shell redirect on purpose: replay serves stdin FROM THE CAPSULE, and a
+    # `< /dev/null` inside --exec is itself an open the recording never made,
+    # which the boundary correctly reports as a divergence.
+    run_case "$WORK/spread.json" "$WORK/engine" 1 \
+      "a crash that depends on input TIMING reproduces with no real input" \
+      "reproduced by re-execution"
+    run_case "$WORK/spread.json" "REPROIT_FIXED=1 $WORK/engine" 0 \
+      "discarding the stale combo certifies the fix" "the program now exits cleanly"
+  else
+    echo "SKIP phase 2 engine case: SDL2 present but the engine did not build"
+  fi
+else
+  echo "SKIP phase 2 engine case: no sdl2-config in this image"
+fi
+
+# PHASE 3: failure identity. Every failed assertion dies with SIGABRT, so the
+# exit status alone cannot tell two of them apart. Without the recorded
+# failure text, a replay that aborted for an UNRELATED reason was reported as
+# a reproduction, which is a false proof in the one direction that matters.
+gcc -O1 -o "$WORK/twoasserts" "$ROOT/validation/process/twoasserts.c"
+mkdir -p /tmp/reproit-subject
+printf 'boom' > /tmp/reproit-subject/input.txt
+"$REPROIT" --yes internal process-capture --out "$WORK/assert.json" -- \
+  "$WORK/twoasserts" > "$WORK/assert.txt" 2>&1
+rm -rf /tmp/reproit-subject
+run_case "$WORK/assert.json" "$WORK/twoasserts" 1 \
+  "the same assertion reproduces" "reproduced by re-execution"
+run_case "$WORK/assert.json" "OTHER_BUG=1 $WORK/twoasserts" 3 \
+  "a DIFFERENT assertion with the same signal is not a reproduction" "INCONCLUSIVE"
+
+if [[ "$CASES_RUN" -ne "$EXPECTED_CASES" ]]; then
+  echo "FAIL harness accounting: $CASES_RUN of $EXPECTED_CASES cases ran" >&2
+  exit 1
+fi
+echo "process-e2e: all four verdicts hold ($CASES_RUN/$EXPECTED_CASES cases)"

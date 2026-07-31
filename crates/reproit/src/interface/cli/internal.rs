@@ -36,6 +36,32 @@ pub(crate) enum InternalCmd {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         command: Vec<String>,
     },
+    /// Checkpoint a replaying process so a later replay restores the anchor
+    /// and re-executes only the tail. Linux and criu only; the anchor
+    /// accelerates investigating a failure and is never used to verify a fix,
+    /// because a criu image carries the old binary's memory.
+    ProcessAnchor {
+        /// The process capsule to anchor. The anchor is written into it.
+        #[arg(long = "capsule", value_name = "CAPSULE")]
+        capsule: PathBuf,
+        /// The command that re-executes the program, as `check --exec` takes.
+        #[arg(long = "exec", value_name = "COMMAND")]
+        exec: String,
+        /// Directory to hold the checkpoint image.
+        #[arg(long = "image", value_name = "DIR")]
+        image: PathBuf,
+        /// Checkpoint once the replaying program has produced this many lines
+        /// of output, an observable stand-in for how far it has got.
+        #[arg(long = "after-lines", value_name = "N")]
+        after_lines: usize,
+    },
+    /// Restore a capsule's anchor and judge the tail, without replaying the
+    /// head. Refuses, loudly, any anchor it cannot restore faithfully.
+    ProcessRestore {
+        /// The anchored process capsule.
+        #[arg(long = "capsule", value_name = "CAPSULE")]
+        capsule: PathBuf,
+    },
     /// Print the HTTP surface a backend serves, read from its source, and
     /// write nothing. Works with no schema, no running service and no
     /// credentials, and reports each service of a monorepo separately. Where a

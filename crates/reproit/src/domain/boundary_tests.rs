@@ -90,7 +90,7 @@ mod tests {
     // classify become order-dependent.
     #[test]
     fn oracle_table_has_one_unambiguous_row_per_variant() {
-        assert_eq!(ORACLES.len(), 57, "row count tracks the Oracle enum");
+        assert_eq!(ORACLES.len(), 60, "row count tracks the Oracle enum");
         let mut ids = BTreeSet::new();
         let mut invariants = BTreeSet::new();
         let mut kinds = BTreeSet::new();

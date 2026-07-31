@@ -199,6 +199,25 @@ pub enum Oracle {
     /// whole event pipeline, so "known input, zero effect, nobody consumed
     /// it" is an equality check, not a judgment.
     DeadInput,
+    /// Process capsule family (Class B, session shaped programs). A capsule
+    /// records a whole process session at the OS boundary and judges how the
+    /// program DIED, so these are the program analogue of the HTTP shaped
+    /// backend family below. All three replay exactly: the capsule carries the
+    /// recorded outcome and the replay is compared against it.
+    /// The program died on a fatal signal, and the replay died on the same
+    /// one. A signal death is the operating system's own verdict, so there is
+    /// nothing to judge.
+    ProcessSignal,
+    /// The program exited non-zero with the same status the capsule recorded.
+    /// The RECORDED outcome is the contract here: a non-zero exit is not a
+    /// defect on its own, since plenty of programs exit non-zero by design.
+    ProcessExit,
+    /// The program aborted on a failed assertion or a panic, and the replay
+    /// aborted on the SAME one, compared by its normalized failure text. This
+    /// exists because a signal alone cannot tell two assertions apart: every
+    /// failed assert dies with SIGABRT, so without the text a replay that
+    /// aborted for an unrelated reason would be reported as a reproduction.
+    ProcessAssertion,
     /// Backend contract family: one category per backend evaluate/ check.
     /// Every one requires a declared or schema-owned contract plus a runtime
     /// witness correlated to the exact operation, and replays exactly (the
@@ -505,6 +524,30 @@ pub const ORACLES: &[OracleMeta] = &[
         invariants: &["no-dead-input"],
         kinds: &["DEADINPUT"],
         stable: false,
+    },
+    // Process capsule family. The ids are the `oracle` field a process capsule
+    // stamps on its finding, so they are registry ids like every other
+    // category rather than free strings.
+    OracleMeta {
+        oracle: Oracle::ProcessSignal,
+        id: "process-signal",
+        invariants: &["process:signal"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::ProcessExit,
+        id: "process-exit",
+        invariants: &["process:exit"],
+        kinds: &[],
+        stable: true,
+    },
+    OracleMeta {
+        oracle: Oracle::ProcessAssertion,
+        id: "process-assertion",
+        invariants: &["process:assertion"],
+        kinds: &[],
+        stable: true,
     },
     // Backend contract family. Ids are "backend-" + the per-check oracle
     // string stamped on BackendViolation, and every finding also carries

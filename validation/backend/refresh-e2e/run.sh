@@ -18,6 +18,17 @@ trap cleanup EXIT
 
 cli() { (cd "$WORK/project" && cargo run --quiet --manifest-path "$ROOT/Cargo.toml" -p reproit -- "$@"); }
 
+# Case accounting. A harness that stops early looks exactly like one that
+# passed everything it printed, so reaching the end is not the pass condition:
+# the count of completed cases matching what this script intends to run is.
+CASES_RUN=0
+EXPECTED_CASES=5
+
+pass_case() {
+  CASES_RUN=$((CASES_RUN + 1))
+  echo "$1"
+}
+
 mkdir -p "$WORK/project"
 
 # Guard birth: capture the planted failure with the ORIGINAL call sequence.
@@ -38,13 +49,11 @@ json.dump(recipe, open(sys.argv[1], 'w'))
 EOF
 
 # 1. Drift is visible as DIVERGED, not as a pass and not as a regression.
-set +e
-cli check --repro-id quote-guard > "$WORK/drifted.txt" 2>&1
-DRIFT_STATUS="$?"
-set -e
+DRIFT_STATUS=0
+cli check --repro-id quote-guard > "$WORK/drifted.txt" 2>&1 || DRIFT_STATUS="$?"
 test "$DRIFT_STATUS" -eq 3 || { echo "FAIL drifted guard exit: want 3, got $DRIFT_STATUS" >&2; cat "$WORK/drifted.txt" >&2; exit 1; }
 grep -q "DIVERGED" "$WORK/drifted.txt" || { echo "FAIL no DIVERGED verdict" >&2; cat "$WORK/drifted.txt" >&2; exit 1; }
-echo "PASS drifted guard reports DIVERGED (exit 3)"
+pass_case "PASS drifted guard reports DIVERGED (exit 3)"
 
 # The capture as it stands, so step 3 can prove the trigger survived.
 TRIGGER_BEFORE="$(python3 -c "
@@ -55,16 +64,14 @@ print(json.dumps([e for e in events if e.get('kind')=='start'][0]['input'],sort_
 
 # 2. Refresh WITHOUT --yes: the diff is shown, nothing is rewritten.
 BEFORE_HASH="$(shasum -a 256 "$GUARD_DIR/capture.json" | cut -d' ' -f1)"
-set +e
-cli keep quote-guard --refresh > "$WORK/dry.txt" 2>&1
-DRY_STATUS="$?"
-set -e
+DRY_STATUS=0
+cli keep quote-guard --refresh > "$WORK/dry.txt" 2>&1 || DRY_STATUS="$?"
 test "$DRY_STATUS" -eq 3 || { echo "FAIL unconfirmed refresh exit: want 3, got $DRY_STATUS" >&2; cat "$WORK/dry.txt" >&2; exit 1; }
 grep -q "NOT rewritten" "$WORK/dry.txt" || { echo "FAIL no refusal notice" >&2; cat "$WORK/dry.txt" >&2; exit 1; }
 grep -q "+ http GET /inventory" "$WORK/dry.txt" || { echo "FAIL diff did not name the added call" >&2; cat "$WORK/dry.txt" >&2; exit 1; }
 AFTER_DRY="$(shasum -a 256 "$GUARD_DIR/capture.json" | cut -d' ' -f1)"
 test "$BEFORE_HASH" = "$AFTER_DRY" || { echo "FAIL an unconfirmed refresh rewrote the guard" >&2; exit 1; }
-echo "PASS unconfirmed refresh shows the diff and refuses to rewrite (exit 3)"
+pass_case "PASS unconfirmed refresh shows the diff and refuses to rewrite (exit 3)"
 
 # 3. Refresh WITH --yes: rewritten, trigger and oracle preserved.
 cli --yes keep quote-guard --refresh > "$WORK/refresh.txt" 2>&1 \
@@ -85,16 +92,14 @@ urls = [
 assert any("/inventory" in u for u in urls), urls
 print("refreshed capture keeps trigger and oracle, and records the new call")
 EOF
-echo "PASS confirmed refresh rewrites, preserving trigger and oracle"
+pass_case "PASS confirmed refresh rewrites, preserving trigger and oracle"
 
 # 4. The refreshed guard now replays cleanly against the drifted code.
-set +e
-cli check --repro-id quote-guard > "$WORK/after.txt" 2>&1
-AFTER_STATUS="$?"
-set -e
+AFTER_STATUS=0
+cli check --repro-id quote-guard > "$WORK/after.txt" 2>&1 || AFTER_STATUS="$?"
 test "$AFTER_STATUS" -eq 1 || { echo "FAIL refreshed guard exit: want 1 (reproduces), got $AFTER_STATUS" >&2; cat "$WORK/after.txt" >&2; exit 1; }
 grep -q "reproduced by re-execution" "$WORK/after.txt" || { echo "FAIL refreshed guard did not reproduce" >&2; cat "$WORK/after.txt" >&2; exit 1; }
-echo "PASS refreshed guard replays hermetically against the drifted code"
+pass_case "PASS refreshed guard replays hermetically against the drifted code"
 
 # 5. A guard that has not drifted reports no change and rewrites nothing.
 STABLE_HASH="$(shasum -a 256 "$GUARD_DIR/capture.json" | cut -d' ' -f1)"
@@ -103,6 +108,10 @@ cli --yes keep quote-guard --refresh > "$WORK/nochange.txt" 2>&1 \
 grep -q "no change" "$WORK/nochange.txt" || { echo "FAIL no-change refresh did not say so" >&2; cat "$WORK/nochange.txt" >&2; exit 1; }
 test "$STABLE_HASH" = "$(shasum -a 256 "$GUARD_DIR/capture.json" | cut -d' ' -f1)" \
   || { echo "FAIL a no-change refresh rewrote the guard anyway" >&2; exit 1; }
-echo "PASS refresh on an undrifted guard reports no change and rewrites nothing"
+pass_case "PASS refresh on an undrifted guard reports no change and rewrites nothing"
 
-echo "refresh-e2e: drift is re-recorded only after an explicit, diffed confirmation"
+if [[ "$CASES_RUN" -ne "$EXPECTED_CASES" ]]; then
+  echo "FAIL harness accounting: $CASES_RUN of $EXPECTED_CASES cases ran" >&2
+  exit 1
+fi
+echo "refresh-e2e: drift is re-recorded only after an explicit, diffed confirmation ($CASES_RUN/$EXPECTED_CASES cases)"

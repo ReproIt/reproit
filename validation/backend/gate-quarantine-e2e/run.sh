@@ -63,17 +63,25 @@ MODE=capture CAPTURE_OUT="$WORK/capture.json" node "$MONEY/app.mjs" >/dev/null
 run_cli() {
   (cd "$WORK/project" && cargo run --quiet --manifest-path "$ROOT/Cargo.toml" -p reproit -- "$@")
 }
+# Case accounting. A harness that stops early looks exactly like one that
+# passed everything it printed, so reaching the end is not the pass condition:
+# the count of completed cases matching what this script intends to run is.
+CASES_RUN=0
+EXPECTED_CASES=4
+
 run_cli keep "$WORK/capture.json" --exec "node $MONEY/app.mjs" --as gate-guard \
   > "$WORK/keep.txt"
 grep -q "verdict now: reproduced" "$WORK/keep.txt"
+CASES_RUN=$((CASES_RUN + 1))
+echo "PASS guard lands reproducing"
 
 expect_gate() {
   local expected="$1" marker="$2" label="$3"
-  set +e
+  # Capture the status instead of toggling errexit, so a gate that exits
+  # non-zero on purpose cannot leave the shell in the wrong mode.
+  local status=0
   (cd "$WORK/project" && cargo run --quiet --manifest-path "$ROOT/Cargo.toml" -p reproit -- \
-    check > "$WORK/gate.txt" 2>&1)
-  local status="$?"
-  set -e
+    check > "$WORK/gate.txt" 2>&1) || status="$?"
   if [[ "$status" -ne "$expected" ]]; then
     echo "FAIL $label: expected gate exit $expected, got $status" >&2
     cat "$WORK/gate.txt" >&2
@@ -84,6 +92,7 @@ expect_gate() {
     cat "$WORK/gate.txt" >&2
     exit 1
   fi
+  CASES_RUN=$((CASES_RUN + 1))
   echo "PASS $label (exit $status)"
 }
 
@@ -115,4 +124,8 @@ json.dump(capture, open(path, 'w'))
 EOF
 expect_gate 0 "DRIFTED (quarantined, not blocking)" "drifted guard is quarantined, gate green"
 
-echo "gate-quarantine-e2e: quarantine semantics hold"
+if [[ "$CASES_RUN" -ne "$EXPECTED_CASES" ]]; then
+  echo "FAIL harness accounting: $CASES_RUN of $EXPECTED_CASES cases ran" >&2
+  exit 1
+fi
+echo "gate-quarantine-e2e: quarantine semantics hold ($CASES_RUN/$EXPECTED_CASES cases)"

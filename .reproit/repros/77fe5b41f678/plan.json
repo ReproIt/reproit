@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "id": "plan_8d467858ff59032a",
+  "occurrenceId": "occ_00e941e87a6d9542",
+  "target": "current-checkout",
+  "destination": {
+    "kind": "local-process"
+  },
+  "bindings": [
+    {
+      "requirementId": "req_001_trigger",
+      "providerId": "local-occ_00e941e87a6d9542",
+      "mechanismAuthority": "explicit-local-approval",
+      "templateDigest": "sha256:078ff113e5aef4fc0e507fdd0b5029a6d135f70f8d95d7a10c79402d17d198aa",
+      "evidenceArtifactIds": [
+        "sha256:97be2f81488dce7fa2f06a648d222ed0381725b236eebb9df1d9808959a82559"
+      ]
+    }
+  ],
+  "observation": {
+    "observation": "exit",
+    "identity": "cli:check-flag-callers",
+    "authority": "runtime-diagnosis"
+  }
+}

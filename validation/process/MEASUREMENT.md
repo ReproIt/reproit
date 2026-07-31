@@ -34,6 +34,108 @@ Three rounds of fixes moved python from 2 divergences to 1 and closed two real
 bug classes on the way (below). It did NOT reach a correct replay. The
 remaining cause is named, with evidence, rather than guessed.
 
+## Phase 2: a timed input stream (measured)
+
+A session shaped program's trigger is input arriving OVER TIME, not a single
+request. The capsule now stamps every input read with the TICK it arrived on,
+and replay holds an input back until the program reaches that tick again.
+
+The tick is the ordinal of the program's clock reads. That choice matters:
+replay serves clock reads from the capsule IN ORDER, so the Nth clock read at
+replay is the Nth clock read of the recording, which makes the ordinal aligned
+between the two runs without the program having to expose a frame counter. A
+fixed timestep loop reads the clock once per frame, so the ordinal counts
+frames.
+
+**What a program must do to be replayable this way.** It has to take its time
+from the clock (a fixed timestep loop already does) and poll its input rather
+than block on it. A program that blocks on input without ever reading its clock
+cannot be scheduled, and is served early with `inputEarly` counted rather than
+being quietly reordered. Frame perfect replay is not free and this says so.
+
+### The acceptance, and why it is discriminating
+
+`validation/process/engine.c` is a fixed timestep loop on SDL2: SDL's timer,
+SDL's event pump, input on stdin because a container has no evdev or X11 and an
+engine that cannot run headless cannot be tested. Its planted defect is a STALE
+COMBO that fires only when presses arrive FAR APART.
+
+That direction is deliberate. The same bytes back to back are SAFE, so a replay
+that delivered the recorded input immediately would NOT reproduce the crash.
+The test therefore fails if the schedule is ignored, which is what makes it a
+test of timing rather than of bytes. `run.sh` asserts the premise first.
+
+| program | entries | input events | divergences | record | replay | stdout identical |
+| --- | ---: | ---: | ---: | --- | --- | --- |
+| SDL2 engine, presses 0.25s apart | 1479 | 2 | 0 | exit 134 | exit 134 | yes |
+| SDL2 engine, same bytes back to back | n/a | n/a | n/a | exit 0 | n/a | n/a |
+
+A surviving run of the same engine reports `inputServed=3, inputEarly=0,
+ticks=714, clockOverrun=0` from the target process. The crashing run reports
+nothing, because a program that dies on a fatal signal never runs the reporting
+destructor; the divergence LINES are the authority there, as before.
+
+### Two defects this phase exposed
+
+**A replay that OUTLIVES its recording used to hang.** Once the capsule's clock
+entries ran out, the served clock advanced by one nanosecond per call, so a
+frame loop waiting for five milliseconds of wall clock spun forever. That is
+exactly the shape of a FIXED program: it no longer crashes, so it runs longer
+than the recording did. Past the end of the recording the served clock now
+continues from the last recorded instant at the REAL elapsed rate, which keeps
+the program live; `clockOverrun` already reports that the run went past what
+the capsule describes.
+
+**The record log appended instead of truncating.** A capsule describes ONE
+session, and a stale log silently merged two runs into a capsule that never
+happened. The CLI always passes a fresh temp path, so this only bit a hand run,
+which is exactly when a confusing capsule is hardest to spot.
+
+**Usage note found the same way:** a shell redirect inside `--exec`, such as
+`< /dev/null`, is itself an open the recording never made, so the boundary
+correctly diverges on it. Replay serves stdin from the capsule, so the redirect
+is unnecessary as well as wrong.
+
+## Phase 3: the oracle vocabulary for programs (measured)
+
+Class A oracles are HTTP shaped. A process capsule judges how a program DIED,
+so it needs its own. Three are now first class registry ids rather than free
+strings, which they had been: `process-signal`, `process-exit`, and
+`process-assertion`. Phase 1 had been stamping `process-signal` and
+`process-exit` onto findings while the registry's own note says every emitted
+`oracle` value is one of its ids, so that was a live contract violation.
+
+### The false proof this closed
+
+Every failed assertion dies with `SIGABRT`. The verdict compared only the
+signal and the exit code, so a replay that aborted for a COMPLETELY UNRELATED
+reason was reported as a reproduction. That is a false proof in the one
+direction this product must never get wrong.
+
+A capsule now records the program's own failure text, normalized, and a replay
+must produce the same one. Measured on two different assertions in one binary,
+both dying with signal 6:
+
+```
+recorded oracle:  process-assertion
+recorded failure: two: twoasserts.c:16: main: Assertion `n < 8 && "thrust budget exceeded"' failed.
+
+WITH identity, different assertion -> exit 3   (INCONCLUSIVE, correct)
+WITHOUT it (the old behaviour)     -> exit 1   (FALSE reproduction)
+```
+
+The second line is a negative control: the identity was stripped from the same
+capsule to confirm the check is what closes the gap, rather than assuming it.
+
+**Only hexadecimal addresses are folded** when comparing failure text. Folding
+decimal digits as well was tried and REJECTED because it made
+``Assertion `n < 8'`` and ``Assertion `n < 9'`` compare equal, which is the
+same false proof arriving by a different route. A record and its replay run the
+same binary, so file names, line numbers, and the predicate are all stable and
+comparing them literally is safe. When a signature must be loosened the cost is
+always paid in the direction of calling two different failures one, so the bias
+is to fold as little as possible.
+
 ## What the syscall layer changed
 
 The libc boundary only sees calls that cross the dynamic linking boundary. A

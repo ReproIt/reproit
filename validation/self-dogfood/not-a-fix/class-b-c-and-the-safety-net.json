@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "class-b-c-and-the-safety-net",
+  "changeType": "feature",
+  "detail": "Completes class B (timed input streams and the program oracle vocabulary), adds class C checkpoint anchoring, measures class D's honest limits, and builds the safety net that makes the simplification plans executable: behavioral conformance vectors across nine SDKs, an invariant ledger with a fail-closed checker, case accounting across all fourteen acceptance scripts, and Rust tests for the two verdict distinctions that had none. The runtime defects it carries were introduced by unreleased work in this same series and are proven by negative controls rather than asserted.",
+  "evidence": [
+    { "path": "validation/invariants/LEDGER.md", "sha256": "sha256:0d46738e85f4470b47cd26e33e1377dfeff6d53d0b230a165162d3777a2f8886" },
+    { "path": "validation/process/MEASUREMENT.md", "sha256": "sha256:07b69ebb062752db7cad10263a89d03751372a70bb93411ff2f2cea3b97f8ecc" },
+    { "path": "validation/process-checkpoint/MEASUREMENT.md", "sha256": "sha256:0b9cc6eef7bc799414a537ec8af405fb1c4b7992913db2c92d384f6a967a2aba" },
+    { "path": "sdk/capture-behavior-v1.json", "sha256": "sha256:cf83a1d5bc26c824a2ac0f40feef4f1ba2b5236bfd3b12a6c165538819c492c4" }
+  ]
+}
