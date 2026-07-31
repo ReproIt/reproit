@@ -29,6 +29,15 @@ typedef enum {
     K_TIME,
     K_RANDOM,
     K_ENV,
+    /* Syscall layer kinds (reproit_seccomp.c). Path metadata is what an
+     * interpreted runtime spends its startup on, and none of it crosses the
+     * dynamic linking boundary. */
+    K_STAT,
+    K_STATX,
+    K_ACCESS,
+    K_READLINK,
+    K_GETCWD,
+    K_DIRENT,
     K_KINDS
 } kind_t;
 
@@ -74,6 +83,16 @@ typedef struct {
     long last_sec;
     long last_nsec;
     uint64_t rng_state;
+
+    /* Set when the replay runner restored the capsule's whole environment
+     * block at exec, which makes the live environ authoritative and lets the
+     * program's own setenv writes be seen. */
+    int env_pinned;
+
+    /* Set when the seccomp supervisor is live. The libc file interposition
+     * then steps aside completely, so files and path metadata have exactly
+     * one source of truth and cannot be recorded twice under two keys. */
+    int seccomp_files;
 } shim_state_t;
 
 extern shim_state_t G;
@@ -84,6 +103,11 @@ void record_blob(kind_t kind, const char *key, const unsigned char *blob, size_t
 void diverge(const char *kind, const char *detail);
 void load_replay(const char *path);
 entry_t *next_entry(kind_t kind, const char *key);
+/* Like next_entry, but a repeat lookup of an already consumed key returns
+ * that entry again instead of nothing. A program legitimately stats or opens
+ * the same path many times during startup, and punishing the second lookup
+ * with a divergence would report drift that did not happen. */
+entry_t *find_entry(kind_t kind, const char *key);
 size_t gather(kind_t kind, const char *key, unsigned char **out);
 void reproit_report(void);
 
@@ -92,6 +116,15 @@ void reproit_report(void);
  */
 void shim_init(void);
 ssize_t serve_recv(int fd, void *buf, size_t len);
+
+/* The syscall completeness layer. Returns 1 when a supervisor is live, 0 when
+ * the platform or the environment declined it, in which case the libc
+ * boundary keeps working exactly as before. */
+#ifdef __linux__
+int reproit_seccomp_start(void);
+#else
+static inline int reproit_seccomp_start(void) { return 0; }
+#endif
 
 #define ENTER()                                                                                    \
     shim_init();                                                                                   \

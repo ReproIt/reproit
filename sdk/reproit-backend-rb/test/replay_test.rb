@@ -69,6 +69,30 @@ class ReplayTest < Minitest::Test
     assert draw >= 0 && draw < 1
   end
 
+  def test_the_wall_clock_is_anchored_to_the_capture_instant
+    # Replayed code reading Time.now sees the capture's moment, not today's,
+    # so time-dependent behavior reproduces instead of drifting by however
+    # long ago the capture was taken.
+    drift_ms = ((Time.now.to_f * 1000) - 1_753_747_200_000).abs
+    assert drift_ms < 60_000, "wall clock not anchored: drift #{drift_ms}ms"
+    realtime_ms = Process.clock_gettime(Process::CLOCK_REALTIME, :millisecond)
+    assert ((realtime_ms - 1_753_747_200_000).abs < 60_000),
+           "CLOCK_REALTIME not anchored"
+  end
+
+  def test_the_anchored_clock_still_elapses
+    # Offsetting, not freezing: a timeout loop must still terminate.
+    first = Time.now
+    sleep 0.01
+    assert Time.now > first, "an anchored clock must still advance"
+  end
+
+  def test_the_monotonic_clock_is_left_alone
+    # Anchoring the monotonic clock would corrupt duration math, which reads
+    # differences rather than instants.
+    assert Process.clock_gettime(Process::CLOCK_MONOTONIC) < 1e11
+  end
+
   def test_database_calls_serve_recorded_rows_without_a_driver
     result = R::Instrument.db("SELECT id FROM issuers WHERE symbol = $1", ["ACME"]) do
       raise "the live driver must never be reached during hermetic replay"

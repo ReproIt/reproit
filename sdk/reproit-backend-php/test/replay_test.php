@@ -124,6 +124,26 @@ try {
 }
 check($raised, 'a diverged database call fails closed');
 
+// The clock is NOT pinned, and that is a measured platform limit rather than
+// an oversight: redeclaring an internal is fatal, and PHP's namespaced
+// fallback shadows only calls made from inside the SDK's own namespace, so it
+// can never reach the application's time(). This test pins BOTH halves of the
+// documented contract so neither can silently regress.
+check(
+    abs((time() * 1000) - 1_753_747_200_000) > 60_000,
+    'the wall clock is honestly NOT pinned (documented platform limit)'
+);
+check_same(
+    1_753_747_200_000,
+    Instrument::replayObservedAtMs(),
+    'the capture instant is exposed for apps that must anchor time themselves'
+);
+check_same(
+    'Europe/Berlin',
+    date_default_timezone_get(),
+    'the timezone IS pinned from the envelope'
+);
+
 @unlink($path);
 @unlink($errorLog);
 report('replay_test');

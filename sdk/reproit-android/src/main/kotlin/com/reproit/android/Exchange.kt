@@ -126,13 +126,33 @@ internal fun boundedBody(body: ByteArray?, contentType: String?): Map<String, An
   val text = body.toString(Charsets.UTF_8)
   if (contentType != null && contentType.contains("application/json")) {
     try {
-      return linkedMapOf("body" to Json.decode(text))
+      // Mark decoded nulls as DATA so the encoder keeps them: a response of
+      // {"prices": null} must replay as {"prices": null}, not as a body with
+      // the key missing, which would reproduce a different error.
+      return linkedMapOf("body" to markJsonNulls(Json.decode(text)))
     } catch (_: Throwable) {
       // Declared JSON that does not parse is recorded as text below.
     }
   }
   return linkedMapOf("body" to text)
 }
+
+/**
+ * Recursively replace decoded JSON nulls with [JsonNull] so [Json] encodes
+ * them instead of dropping the key. Applies only to captured payloads, never
+ * to the SDK's own optional event fields.
+ */
+internal fun markJsonNulls(value: Any?): Any? =
+  when (value) {
+    null -> JsonNull
+    is Map<*, *> -> {
+      val marked = LinkedHashMap<String, Any?>(value.size)
+      for ((k, v) in value) marked[k.toString()] = markJsonNulls(v)
+      marked
+    }
+    is List<*> -> value.map { markJsonNulls(it) }
+    else -> value
+  }
 
 /** Bound and lowercase one exchange side's headers. */
 internal fun boundedHeaders(headers: Map<String, String>): Map<String, Any?> {

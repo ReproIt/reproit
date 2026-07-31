@@ -35,8 +35,19 @@ pub(super) async fn replay_artifact(
     if artifact_path.file_name().and_then(|value| value.to_str()) == Some("backend-schema.json") {
         let artifact: BackendSchemaFindingArtifact =
             serde_json::from_slice(&std::fs::read(artifact_path)?)?;
-        let schema = Path::new(&artifact.schema);
-        let document = load_document(schema)?;
+        if !(1..=2).contains(&artifact.version) {
+            bail!(
+                "unsupported backend schema artifact version {}; this reproit is older than the \
+                 artifact",
+                artifact.version
+            );
+        }
+        let schema = resolve_artifact_schema(
+            artifact_path,
+            &artifact.schema,
+            artifact.version >= 2 && !artifact.schema_outside_root,
+        )?;
+        let document = load_document(&schema)?;
         // A static schema check is deterministic: it either reproduces or not.
         // Retraction does not apply here, because the schema IS the subject:
         // editing it away is a real fix of the recorded defect, not a withdrawn
@@ -243,6 +254,37 @@ fn resolve_relative_url(url: &mut String, base: Option<&str>) -> Result<()> {
     };
     *url = format!("{}{}", base.trim_end_matches('/'), url);
     Ok(())
+}
+
+/// Resolve a stored schema path for replay. A version-2 schema artifact keeps
+/// the path PROJECT-RELATIVE, so it is resolved against the project root that
+/// owns the artifact (the artifact sits under the findings directory, three
+/// levels below the root), which is what lets a moved checkout replay. Version
+/// 1, and any version-2 artifact whose schema genuinely lives outside the
+/// root, stored an absolute path and is used as written.
+fn resolve_artifact_schema(
+    artifact_path: &Path,
+    stored: &str,
+    project_relative: bool,
+) -> Result<PathBuf> {
+    let stored_path = Path::new(stored);
+    if !project_relative || stored_path.is_absolute() {
+        return Ok(stored_path.to_path_buf());
+    }
+    let root = artifact_path
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .with_context(|| {
+            format!(
+                "{} is not inside a {}/<id>/ directory, so its project-relative schema path \
+                 cannot be resolved",
+                artifact_path.display(),
+                layout::findings_dir_rel()
+            )
+        })?;
+    Ok(root.join(stored_path))
 }
 
 fn retarget_url(recorded: &str, base: &reqwest::Url) -> Option<String> {

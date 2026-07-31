@@ -209,3 +209,69 @@ def test_commit_identity_resolves_from_config_then_environment():
     assert Capture.resolve_commit(None, {"GITHUB_SHA": "ghi789"}) == "ghi789"
     assert Capture.resolve_commit(None, {}) is None
     assert Capture.resolve_commit(None, {"REPROIT_COMMIT": "bad commit"}) is None
+
+
+def test_httpx_sync_exchange_is_captured(upstream):
+    """httpx carries its own httpcore transport and never touches
+    http.client, so the stdlib hook cannot see it. The transport hook must."""
+    httpx = pytest.importorskip("httpx")
+    assert instrument_module._STATE["httpx"] is True, "install() should hook httpx"
+    trace = _trace()
+    token = use_trace(trace)
+    try:
+        response = httpx.get(upstream + "/prices?tier=gold")
+        body = response.json()
+    finally:
+        clear_trace(token)
+    # The application still sees the real bytes after the tee.
+    assert body["prices"] == [1, 2]
+    assert response.status_code == 200
+    exchange = _exchanges(trace)[0]
+    assert exchange["protocol"] == "http"
+    assert exchange["request"]["method"] == "GET"
+    assert exchange["request"]["url"].endswith("/prices?tier=gold")
+    assert exchange["response"]["status"] == 200
+    assert exchange["response"]["body"]["prices"] == [1, 2]
+    # Redaction reaches inside an httpx-captured body exactly as it does the
+    # stdlib path.
+    assert exchange["response"]["body"]["apiKey"]["$reproit"]["redacted"] is True
+
+
+def test_httpx_request_bodies_are_captured(upstream):
+    httpx = pytest.importorskip("httpx")
+    trace = _trace()
+    token = use_trace(trace)
+    try:
+        httpx.post(upstream + "/convert", json={"amount": 5})
+    finally:
+        clear_trace(token)
+    exchange = _exchanges(trace)[0]
+    assert exchange["request"]["method"] == "POST"
+    assert exchange["request"]["body"] == {"amount": 5}
+
+
+def test_httpx_async_exchange_is_captured(upstream):
+    httpx = pytest.importorskip("httpx")
+    import asyncio
+
+    async def fetch():
+        async with httpx.AsyncClient() as client:
+            return await client.get(upstream + "/prices?tier=gold")
+
+    trace = _trace()
+    token = use_trace(trace)
+    try:
+        response = asyncio.run(fetch())
+    finally:
+        clear_trace(token)
+    assert response.json()["prices"] == [1, 2]
+    exchange = _exchanges(trace)[0]
+    assert exchange["protocol"] == "http"
+    assert exchange["response"]["body"]["prices"] == [1, 2]
+
+
+def test_httpx_outside_a_trace_records_nothing(upstream):
+    httpx = pytest.importorskip("httpx")
+    before = instrument_module.stats()["captured_exchanges"]
+    httpx.get(upstream + "/prices")
+    assert instrument_module.stats()["captured_exchanges"] == before

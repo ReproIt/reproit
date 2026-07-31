@@ -202,6 +202,17 @@ pub(crate) async fn auto_target(
     None
 }
 
+/// The boot command `reproit init` records as `backend.exec`, so hermetic
+/// replay of an occurrence or a kept guard needs no `--exec` flag. This is
+/// exactly the command bare init already boots for live enrichment, so the
+/// recorded recipe is the one this machine proved it can start, not a guess.
+/// None when nothing is inferable; the config field is then simply absent and
+/// `--exec` remains the way in.
+pub(crate) fn inferred_exec(root: &Path) -> Option<String> {
+    let (name, _) = start_script(root)?;
+    Some(format!("npm run {name}"))
+}
+
 /// The package.json script bare init may boot: `start` first, then `dev`.
 fn start_script(root: &Path) -> Option<(String, String)> {
     let raw = std::fs::read_to_string(root.join("package.json")).ok()?;

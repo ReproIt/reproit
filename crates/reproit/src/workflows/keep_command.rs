@@ -2,9 +2,18 @@
 //! local findings all land through the one command.
 
 use crate::interface::cli::context::Ctx;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::Path;
 use std::process::ExitCode;
+
+/// `backend.exec` from the project's reproit.yaml, the repo-local boot recipe
+/// for hermetic replay. A capture never supplies a command; only config does.
+fn configured_exec(config_path: Option<&Path>) -> Option<String> {
+    super::backend_target::find(config_path)
+        .ok()
+        .flatten()
+        .and_then(|project| project.config.exec.clone())
+}
 
 pub(super) async fn run(
     ctx: &Ctx,
@@ -13,15 +22,30 @@ pub(super) async fn run(
     as_name: Option<&str>,
     strict: bool,
     exec: Option<&str>,
+    refresh: bool,
 ) -> Result<ExitCode> {
-    // A capture file with an exec recipe lands as a hermetic guard: proven by
-    // re-execution at keep time, replayed by every check.
-    if let (Some(reference), Some(exec)) = (id, exec) {
+    if refresh {
+        let reference = id.context("keep --refresh needs the guard to re-record")?;
+        return super::backend_headless::refresh_capture_guard(ctx, reference).await;
+    }
+    // A capture file lands as a hermetic guard: proven by re-execution at keep
+    // time, replayed by every check. The boot recipe comes from --exec, or
+    // from backend.exec in reproit.yaml when the flag is absent, so an
+    // initialized project keeps a guard without repeating the command.
+    if let Some(reference) = id {
         if super::backend_headless::is_capture_file(Path::new(reference)) {
+            let resolved = match exec {
+                Some(exec) => exec.to_string(),
+                None => configured_exec(config_path).context(
+                    "keeping a capture as a hermetic guard needs a boot command: pass --exec, or \
+                     set backend.exec in reproit.yaml (reproit init records it when it can infer \
+                     one)",
+                )?,
+            };
             return super::backend_headless::keep_capture_guard(
                 ctx,
                 Path::new(reference),
-                exec,
+                &resolved,
                 as_name,
                 strict,
             )

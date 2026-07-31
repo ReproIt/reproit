@@ -236,6 +236,51 @@ public class InstrumentTests : IDisposable
     }
 
     // A version-2 capture carrying one pg and one http exchange.
+    [Fact]
+    public void ReplayPinsTheProcessTimeZoneOnUnix()
+    {
+        // The zone is not merely exposed: on Unix .NET resolves
+        // TimeZoneInfo.Local from TZ, so the session pins it and replayed code
+        // reading DateTime.Now sees what production saw. Windows resolves the
+        // zone from the registry and ignores TZ, so it keeps the fallback.
+        var originalTz = Environment.GetEnvironmentVariable("TZ");
+        try
+        {
+            var path = WriteCapture();
+            var replay = Replay.Load(path);
+            Assert.NotNull(replay);
+            var pinned = replay!.PinTimeZone();
+            if (OperatingSystem.IsWindows())
+            {
+                Assert.False(pinned);
+            }
+            else
+            {
+                Assert.True(pinned);
+                Assert.Equal("Europe/Berlin", TimeZoneInfo.Local.Id);
+                Assert.Equal(TimeSpan.FromHours(2), DateTimeOffset.Now.Offset);
+            }
+            File.Delete(path);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TZ", originalTz);
+            TimeZoneInfo.ClearCachedData();
+        }
+    }
+
+    [Fact]
+    public void ThePinnedZoneStaysReadableForAppsThatNeedItExplicitly()
+    {
+        // The exposed-zone contract is what Windows falls back to; pin it with
+        // a test so it cannot silently regress.
+        var path = WriteCapture();
+        var replay = Replay.Load(path);
+        Assert.NotNull(replay);
+        Assert.Equal("Europe/Berlin", replay!.PinnedTimeZone()?.Id);
+        File.Delete(path);
+    }
+
     private static string WriteCapture()
     {
         const string payload = """

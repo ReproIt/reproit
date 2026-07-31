@@ -139,11 +139,13 @@ pub(super) fn persist_schema_findings(
         });
         let directory = layout::finding_dir(root, &raw_id);
         std::fs::create_dir_all(&directory)?;
+        let (schema_stored, schema_outside_root) = portable_schema(root, schema);
         let artifact = BackendSchemaFindingArtifact {
             format: "reproit-backend-schema-finding".into(),
-            version: 1,
-            schema: schema.to_string_lossy().into_owned(),
+            version: 2,
+            schema: schema_stored,
             schema_sha256: schema_sha256.into(),
+            schema_outside_root,
             violation,
             finding: finding.clone(),
         };

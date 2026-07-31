@@ -14,7 +14,9 @@
  * `REPROIT:DIVERGENCE` line and answers 599 (HTTP) or throws (db).
  *
  * The ambient trace is a ThreadLocal, so a handler that hands work to
- * another thread must re-scope it there with {@link #scope}; an unscoped
+ * another thread must carry it there: wrap the task with
+ * {@link #propagate(Runnable)} / {@link #propagate(Callable)} at SUBMISSION
+ * time, or hand out a {@link #propagate(Executor)} executor. An unscoped
  * call is simply not recorded, never half-recorded.
  */
 package dev.reproit.backend;
@@ -30,6 +32,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.Executor;
 
 public final class Instrument {
     private static final ThreadLocal<BackendTrace> AMBIENT = new ThreadLocal<>();
@@ -69,6 +72,67 @@ public final class Instrument {
     /** A body that may throw, for {@link #scopeRun}. */
     public interface ThrowingRunnable {
         void run() throws Exception;
+    }
+
+    /**
+     * Carry the CURRENT ambient trace onto whichever thread runs `body`.
+     *
+     * The trace is read at wrap time, on the calling thread, and re-scoped
+     * inside the task, so `pool.submit(Instrument.propagate(task))` records
+     * the pool thread's dependency calls onto the originating request. Wrap
+     * at submission, never inside the task: by then the ambient is gone.
+     *
+     * With no ambient trace this is an identity wrapper, so it is always safe
+     * to apply and an unscoped call stays unrecorded rather than
+     * half-recorded.
+     */
+    public static Runnable propagate(Runnable body) {
+        BackendTrace carried = AMBIENT.get();
+        if (carried == null) {
+            return body;
+        }
+        return () -> {
+            BackendTrace previous = AMBIENT.get();
+            AMBIENT.set(carried);
+            try {
+                body.run();
+            } finally {
+                restore(previous);
+            }
+        };
+    }
+
+    /** {@link #propagate(Runnable)} for a value-returning task. */
+    public static <T> Callable<T> propagate(Callable<T> body) {
+        BackendTrace carried = AMBIENT.get();
+        if (carried == null) {
+            return body;
+        }
+        return () -> {
+            BackendTrace previous = AMBIENT.get();
+            AMBIENT.set(carried);
+            try {
+                return body.call();
+            } finally {
+                restore(previous);
+            }
+        };
+    }
+
+    /**
+     * An executor that propagates the trace ambient at the moment each task
+     * is handed to it, so `execute` needs no per-call wrapping.
+     */
+    public static Executor propagate(Executor delegate) {
+        return command -> delegate.execute(propagate(command));
+    }
+
+    private static void restore(BackendTrace previous) {
+        if (previous == null) {
+            AMBIENT.remove();
+        } else {
+            AMBIENT.set(previous);
+        }
     }
 
     static BackendTrace ambient() {

@@ -101,6 +101,8 @@ void shim_init(void) {
     if (!G.rng_state) {
         G.rng_state = 0x9e3779b97f4a7c15ULL;
     }
+    const char *pinned = real_getenv ? real_getenv("REPROIT_ENV_PINNED") : NULL;
+    G.env_pinned = pinned && pinned[0] == '1';
     if (replay && replay[0]) {
         G.mode = 2;
         load_replay(replay);
@@ -108,6 +110,10 @@ void shim_init(void) {
         G.mode = 1;
         reproit_open_log(record);
     }
+    /* Start the syscall completeness layer LAST, so it inherits the open log
+     * and the loaded replay entries. When it comes up it owns files and path
+     * metadata and the interposed file calls below become passthrough. */
+    reproit_seccomp_start();
 }
 
 __attribute__((destructor)) static void shim_report(void) { reproit_report(); }
@@ -202,7 +208,11 @@ int open(const char *path, int flags, ...) {
     }
     RESOLVE(open);
     ENTER();
-    if (return_real) {
+    /* The syscall layer owns files when it is live: this call still issues
+     * the openat the supervisor sees, so serving it here too would record the
+     * same read under two different keys. */
+    if (return_real || G.seccomp_files) {
+        LEAVE();
         return real_open(path, flags, mode);
     }
     int fd;
@@ -239,7 +249,8 @@ int openat(int dirfd, const char *path, int flags, ...) {
     }
     RESOLVE(openat);
     ENTER();
-    if (return_real) {
+    if (return_real || G.seccomp_files) {
+        LEAVE();
         return real_openat(dirfd, path, flags, mode);
     }
     int fd;
@@ -665,6 +676,19 @@ char *getenv(const char *name) {
     }
     char *value;
     if (G.mode == 2) {
+        /* When the whole environment block is pinned at exec (the CLI clears
+         * and restores it), the live environ IS the recorded one, and serving
+         * a capsule snapshot on top of it is worse than useless: it replays a
+         * value from before the PROGRAM's own setenv. Measured: CPython
+         * coerces LC_CTYPE at startup, the stale snapshot hid that write, and
+         * glibc then looked for a locale named "UTF-8" that the recorded run
+         * never opened. Falling through honours the program's own writes. */
+        if (G.env_pinned) {
+            G.env_fallthrough++;
+            value = real_getenv(name);
+            LEAVE();
+            return value;
+        }
         entry_t *e = next_entry(K_ENV, name);
         if (e && e->blob) {
             static char stash[4096];
@@ -737,7 +761,11 @@ FILE *fopen(const char *path, const char *mode) {
     int return_real = 0;
     RESOLVE(fopen);
     ENTER();
-    if (return_real) {
+    /* stdio opens a descriptor underneath, which the syscall layer already
+     * sees and serves; recording here as well would store the same bytes
+     * twice and replay them concatenated (measured: "boomboom"). */
+    if (return_real || G.seccomp_files) {
+        LEAVE();
         return real_fopen(path, mode);
     }
     FILE *handle;

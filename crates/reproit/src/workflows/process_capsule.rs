@@ -30,9 +30,47 @@ const FORMAT: &str = "reproit-process-capsule";
 const VERSION: u16 = 1;
 const DIVERGENCE_MARKER: &str = "REPROIT:DIVERGENCE ";
 const COUNTER_MARKER: &str = "REPROIT:PROCESS-REPLAY ";
-/// Environment names a capsule pins verbatim. An allowlist, not the whole
-/// environment: a developer's shell carries credentials a capsule must not.
-const ENV_ALLOWLIST: [&str; 6] = ["PATH", "LANG", "LC_ALL", "TZ", "HOME", "SHELL"];
+/// Environment names whose VALUES a capsule refuses to carry. Everything else
+/// is recorded verbatim and restored at replay, because an interpreter's
+/// startup path is decided by its environment: measured, a python3 replay
+/// resolved a different locale and a different prefix than the recorded run
+/// and diverged on both. Pinning the block is what makes the two runs take
+/// the same path. Secret shaped names are dropped rather than shipped, on the
+/// same fold-to-alphanumerics rule the SDKs use.
+const ENV_SECRET_PARTS: [&str; 14] = [
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "authorization",
+    "cookie",
+    "email",
+    "phone",
+    "apikey",
+    "publishablekey",
+    "privatekey",
+    "accesskey",
+    "signingkey",
+    "idempotencykey",
+];
+
+fn env_is_secret(name: &str) -> bool {
+    let folded: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    ENV_SECRET_PARTS.iter().any(|part| folded.contains(part))
+}
+
+/// The environment a capsule carries: the whole block minus secret shaped
+/// names, minus the tool's own control variables, which replay sets itself.
+fn capture_env() -> BTreeMap<String, String> {
+    std::env::vars()
+        .filter(|(name, _)| !name.starts_with("REPROIT_"))
+        .filter(|(name, _)| !env_is_secret(name))
+        .collect()
+}
 /// A capsule holds a bounded log; a program that reads without limit is
 /// truncated with the count stated rather than silently trimmed.
 const MAX_ENTRIES: usize = 8192;
@@ -157,6 +195,84 @@ fn preload_var() -> &'static str {
     }
 }
 
+/// Resolve a command word to a file, through PATH when it carries no slash,
+/// so the guard below judges the binary that will actually run.
+fn which_program(program: &str) -> Result<std::path::PathBuf> {
+    let direct = Path::new(program);
+    if program.contains('/') {
+        return Ok(direct.to_path_buf());
+    }
+    let path = std::env::var("PATH").unwrap_or_default();
+    for directory in path.split(':').filter(|entry| !entry.is_empty()) {
+        let candidate = Path::new(directory).join(program);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    bail!("{program} is not on PATH")
+}
+
+/// Whether an ELF executable is dynamically linked, read from its program
+/// headers. A statically linked program resolves no dynamic symbols, so the
+/// shim's entry points are never called and the boundary sees nothing at all.
+/// That must be a refusal to capture, never a capsule of nothing that would
+/// later replay as a silent success.
+///
+/// `None` means "not an ELF we can judge" (a script, a wrapper, another
+/// format), which is not evidence of static linking and so never refuses.
+fn elf_is_dynamic(path: &Path) -> Option<bool> {
+    let bytes = std::fs::read(path).ok()?;
+    if bytes.len() < 64 || &bytes[0..4] != b"\x7fELF" {
+        return None;
+    }
+    let sixty_four = bytes[4] == 2;
+    let little = bytes[5] == 1;
+    if !sixty_four {
+        // A 32 bit ELF is judged by its PT_INTERP too, but this tool's
+        // supported targets are 64 bit; saying nothing beats guessing.
+        return None;
+    }
+    let word = |offset: usize| -> Option<u64> {
+        let slice = bytes.get(offset..offset + 8)?;
+        let mut raw = [0u8; 8];
+        raw.copy_from_slice(slice);
+        Some(if little {
+            u64::from_le_bytes(raw)
+        } else {
+            u64::from_be_bytes(raw)
+        })
+    };
+    let half = |offset: usize| -> Option<u16> {
+        let slice = bytes.get(offset..offset + 2)?;
+        let mut raw = [0u8; 2];
+        raw.copy_from_slice(slice);
+        Some(if little {
+            u16::from_le_bytes(raw)
+        } else {
+            u16::from_be_bytes(raw)
+        })
+    };
+    let program_headers = word(0x20)? as usize;
+    let entry_size = half(0x36)? as usize;
+    let entry_count = half(0x38)? as usize;
+    const PT_INTERP: u32 = 3;
+    for index in 0..entry_count {
+        let offset = program_headers + index * entry_size;
+        let slice = bytes.get(offset..offset + 4)?;
+        let mut raw = [0u8; 4];
+        raw.copy_from_slice(slice);
+        let kind = if little {
+            u32::from_le_bytes(raw)
+        } else {
+            u32::from_be_bytes(raw)
+        };
+        if kind == PT_INTERP {
+            return Some(true);
+        }
+    }
+    Some(false)
+}
+
 fn digest_of(path: &Path) -> Option<String> {
     use sha2::{Digest, Sha256};
     let bytes = std::fs::read(path).ok()?;
@@ -177,6 +293,20 @@ pub fn capture(ctx: &Ctx, out: &Path, command: &[String]) -> Result<ExitCode> {
         bail!("process capture needs a command to run");
     };
     let shim = shim_path()?;
+    // Refuse a target the boundary cannot see, BEFORE running it. A static
+    // binary would produce a capsule of nothing, and a capsule of nothing
+    // replays as a silent success.
+    if let Ok(resolved) = which_program(program) {
+        if elf_is_dynamic(&resolved) == Some(false) {
+            bail!(
+                "{} is statically linked, so no dynamic symbol resolution happens and the process \
+                 boundary observes nothing. Capturing it would produce an empty capsule that \
+                 replays as a false success. Rebuild the subject dynamically, or wait for the \
+                 syscall-only capture path",
+                resolved.display()
+            );
+        }
+    }
     let log = tempfile_path("record");
     let seed = format!("{:016x}", rand_seed());
     let status = std::process::Command::new(program)
@@ -203,14 +333,17 @@ pub fn capture(ctx: &Ctx, out: &Path, command: &[String]) -> Result<ExitCode> {
     if !outcome.failed() {
         ctx.say("the command exited cleanly, so there is no failure to capture");
     }
-    let env = ENV_ALLOWLIST
-        .iter()
-        .filter_map(|name| {
-            std::env::var(name)
-                .ok()
-                .map(|value| (name.to_string(), value))
-        })
-        .collect::<BTreeMap<_, _>>();
+    // A program that ran and read nothing at all did not have its boundary
+    // observed; the shim failed to load. Refuse rather than write a capsule
+    // whose replay would trivially "succeed" because it serves nothing.
+    if entries.is_empty() {
+        bail!(
+            "the boundary observed nothing while {program} ran, so the shim was not loaded (a \
+             static binary, or a loader that dropped the preload). Refusing to write a capsule \
+             that would replay as a false success"
+        );
+    }
+    let env = capture_env();
     let capsule = ProcessCapsule {
         format: FORMAT.to_string(),
         version: VERSION,
@@ -331,13 +464,21 @@ pub async fn check_exec(ctx: &Ctx, file: &Path, command: &str, _auto: bool) -> R
         .and_then(Value::as_str)
         .unwrap_or("c0ffee00c0ffee00")
         .to_string();
+    // Restore the recorded environment as the WHOLE block, not as additions
+    // to the developer's shell. An interpreter decides where its prefix and
+    // its locale live from this block, so an inherited variable the recording
+    // did not have sends replay down a different path and diverges.
     let mut child = std::process::Command::new("sh")
         .arg("-c")
         .arg(command)
+        .env_clear()
+        .envs(capsule.env.clone())
         .env(preload_var(), &shim)
         .env("REPROIT_REPLAY_LOG", &log)
         .env("REPROIT_REPLAY_SEED", &seed)
-        .envs(capsule.env.clone())
+        // The block above is authoritative, so the shim must not serve a
+        // stale getenv snapshot over it.
+        .env("REPROIT_ENV_PINNED", "1")
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
@@ -505,6 +646,50 @@ mod tests {
         assert_eq!(through_shell.describe(), "fatal signal 6");
         assert!(!through_shell.same_as(&nonzero));
         assert!(!clean.same_as(&aborted));
+    }
+
+    /// A minimal 64 bit little endian ELF carrying one program header of the
+    /// given type. Synthetic on purpose: the host running these tests may not
+    /// be an ELF platform at all, and the property under test is how the
+    /// parser reads program headers, not what this machine links.
+    fn synthetic_elf(program_header_type: u32) -> Vec<u8> {
+        const HEADER: usize = 64;
+        const ENTRY: usize = 56;
+        let mut bytes = vec![0u8; HEADER + ENTRY];
+        bytes[0..4].copy_from_slice(b"\x7fELF");
+        bytes[4] = 2; // 64 bit
+        bytes[5] = 1; // little endian
+        bytes[0x20..0x28].copy_from_slice(&(HEADER as u64).to_le_bytes()); // e_phoff
+        bytes[0x36..0x38].copy_from_slice(&(ENTRY as u16).to_le_bytes()); // e_phentsize
+        bytes[0x38..0x3a].copy_from_slice(&1u16.to_le_bytes()); // e_phnum
+        bytes[HEADER..HEADER + 4].copy_from_slice(&program_header_type.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn static_linkage_is_judged_from_the_program_headers() {
+        let directory = std::env::temp_dir().join(format!("reproit-elf-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        // PT_INTERP present: the loader resolves symbols, so the shim is
+        // reachable and capture may proceed.
+        let dynamic = directory.join("dynamic.elf");
+        std::fs::write(&dynamic, synthetic_elf(3)).unwrap();
+        assert_eq!(elf_is_dynamic(&dynamic), Some(true));
+        // PT_LOAD only: nothing is interposed, so capture must refuse rather
+        // than write a capsule of nothing.
+        let statik = directory.join("static.elf");
+        std::fs::write(&statik, synthetic_elf(1)).unwrap();
+        assert_eq!(elf_is_dynamic(&statik), Some(false));
+        // Not an ELF: say nothing rather than guess, so a script or a wrapper
+        // is never refused as "static".
+        let script = directory.join("script.sh");
+        std::fs::write(&script, b"#!/bin/sh\necho hi\n").unwrap();
+        assert_eq!(elf_is_dynamic(&script), None);
+        // A truncated header is unjudgeable too.
+        let stub = directory.join("stub.elf");
+        std::fs::write(&stub, b"\x7fELF\x02\x01").unwrap();
+        assert_eq!(elf_is_dynamic(&stub), None);
+        let _ = std::fs::remove_dir_all(&directory);
     }
 
     #[test]

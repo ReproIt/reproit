@@ -146,7 +146,22 @@ export function installCausalFetch(options: {
           e.method.toUpperCase() === method &&
           canonicalUrl(e.url) === canonicalUrl(url),
       );
-      if (idx < 0) throw new Error(`CAPSULE:MISS ${method} ${url} action=${actionIndex}`);
+      if (idx < 0) {
+        // The runner contract (CAPSULE:MISS) is frozen and consumed byte for
+        // byte by the fuzz harness, so the structured marker the CLI's
+        // verdict path parses is emitted ALONGSIDE it, never instead of it.
+        // Written to stderr rather than through `emit`, because the CLI's
+        // verdict path reads stderr and `emit` is the console marker channel
+        // the fuzz harness owns.
+        const report = JSON.stringify({
+          protocol: 'http',
+          got: { method, url },
+          action: actionIndex,
+        });
+        (globalThis as { process?: { stderr?: { write?: (s: string) => void } } }).process
+          ?.stderr?.write?.(`REPROIT:DIVERGENCE ${report}\n`);
+        throw new Error(`CAPSULE:MISS ${method} ${url} action=${actionIndex}`);
+      }
       used.add(idx);
       const e = exchanges[idx];
       emit(`CAPSULE:HIT ${e.id}`);

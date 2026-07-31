@@ -69,6 +69,8 @@ A different failure never counts as a reproduction.
 
 ```sh
 reproit keep fnd_... [--as NAME]
+reproit keep capture.json [--exec "node server.js"]   # hermetic guard
+reproit keep GUARD --refresh [--yes]                  # re-record a drifted guard
 reproit check [CAPTURE]
 reproit check [CAPTURE] --exec "node server.js"
 reproit check --changed [BASE]   # repeat count and device matrix come from reproit.yaml `gate:`
@@ -87,6 +89,20 @@ reproduced, fixed, diverged (the code no longer makes the captured calls), or
 inconclusive. Diverged and inconclusive fail closed. This needs a version-2
 capture with recorded exchanges, currently produced by the Node backend SDK
 with `instrument.install()`, and an app that listens on `$PORT`.
+
+`--exec` is optional when the project sets `backend.exec` in reproit.yaml;
+`reproit init` records it whenever it can infer the boot command, and the flag
+remains the override. A capture never supplies a command: only repo-local
+config does.
+
+`keep <guard> --refresh` re-records a guard whose code has DRIFTED (a diverged
+verdict). It boots the guard's own stored recipe with recording on and replay
+off, fires the guard's recorded inbound trigger, and prints the old-versus-new
+exchange diff: added calls, removed calls, or the same calls reordered. Nothing
+is rewritten without `--yes`, and an unconfirmed refresh exits 3 having changed
+nothing. A refresh preserves the inbound trigger and the oracle, so it
+re-records how the operation reaches its dependencies, never what was asked of
+it or what counts as failure.
 
 Exit classifications are stable:
 

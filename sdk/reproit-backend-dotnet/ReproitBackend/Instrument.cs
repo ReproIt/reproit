@@ -68,8 +68,9 @@ public static class Instrument
     // The seeded replay stream, or null outside replay mode.
     public static ReplayRng? ReplayRng() => Session()?.Rng();
 
-    // The capture's time zone, or null outside replay mode. .NET cannot set a process time
-    // zone, so the app reads this rather than the SDK silently failing to pin it.
+    // The capture's time zone, or null outside replay mode. On Unix the session
+    // also PINS it at load, so this is the app-readable fallback for Windows,
+    // where the local zone comes from the registry and TZ is ignored.
     public static TimeZoneInfo? ReplayTimeZone() => Session()?.PinnedTimeZone();
 
     internal static Replay? Session()
@@ -80,7 +81,13 @@ public static class Instrument
             {
                 _sessionResolved = true;
                 var path = Environment.GetEnvironmentVariable("REPROIT_REPLAY");
-                if (!string.IsNullOrWhiteSpace(path)) _session = Replay.Load(path);
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    _session = Replay.Load(path);
+                    // Pin the zone as early as the session resolves, before any
+                    // zone-sensitive application code reads the clock.
+                    _session?.PinTimeZone();
+                }
             }
             return _session;
         }

@@ -130,6 +130,16 @@ final class ReproItCausalURLProtocol: URLProtocol {
       let message =
         "CAPSULE:MISS \(request.httpMethod ?? "GET") \(url.absoluteString) action=\(action)"
       NSLog("%@", message)
+      // The runner contract (CAPSULE:MISS) is frozen and consumed byte for
+      // byte by the fuzz harness, so the structured marker the CLI's verdict
+      // path parses is emitted ALONGSIDE it rather than replacing it. Without
+      // this a mobile capsule replayed through `reproit check` could never
+      // report Diverged.
+      let report =
+        "{\"protocol\":\"http\",\"got\":{\"method\":\"\(request.httpMethod ?? "GET")\","
+        + "\"url\":\"\(url.absoluteString)\"},\"action\":\(action)}"
+      FileHandle.standardError.write(
+        Data("REPROIT:DIVERGENCE \(report)\n".utf8))
       client?.urlProtocol(
         self,
         didFailWithError: NSError(

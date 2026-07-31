@@ -15,6 +15,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 pub(super) mod boot;
+pub(crate) use boot::inferred_exec;
 mod discovery;
 mod django_urls;
 mod dotnet_ast;

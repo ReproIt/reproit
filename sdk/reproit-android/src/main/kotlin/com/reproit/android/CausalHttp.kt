@@ -140,13 +140,31 @@ class CausalHttp {
             ?.also { used += it.index }
             ?.value
         }
-          ?: throw IllegalStateException(
-            "CAPSULE:MISS ${method.uppercase(Locale.ROOT)} $url action=$action"
-          )
+          ?: run {
+            // The runner contract (CAPSULE:MISS) is frozen and consumed byte
+            // for byte by the fuzz harness, so the structured marker the
+            // CLI's verdict path parses is emitted ALONGSIDE it rather than
+            // replacing it. Without this a mobile capsule replayed through
+            // `reproit check` could never report Diverged.
+            System.err.println(
+              "REPROIT:DIVERGENCE {\"protocol\":\"http\",\"got\":{\"method\":\"" +
+                method.uppercase(Locale.ROOT) + "\",\"url\":\"" + url + "\"},\"action\":" +
+                action + "}"
+            )
+            throw IllegalStateException(
+              "CAPSULE:MISS ${method.uppercase(Locale.ROOT)} $url action=$action"
+            )
+          }
       val responseBody = match["responseBody"] ?: match["response_body"]
       val bytes =
         if (responseBody is String) responseBody.toByteArray()
-        else Json.encode(responseBody).toByteArray()
+        // markJsonNulls: a recorded {"prices": null} must be SERVED as
+        // {"prices": null}. Encoding the decoded map directly drops null
+        // entries, so replay handed the app a body the upstream never sent
+        // and reproduced a different error than production (observed on a
+        // real emulator: "No value for prices" instead of "Value null at
+        // prices cannot be converted to JSONArray").
+        else Json.encode(markJsonNulls(responseBody)).toByteArray()
       @Suppress("UNCHECKED_CAST")
       val responseHeaders =
         (match["responseHeaders"] ?: match["response_headers"] ?: emptyMap<String, String>())
@@ -267,7 +285,10 @@ class CausalHttp {
       headers.entries.any { it.key.equals("content-type", true) && it.value.contains("json", true) }
     if (!json) return "<reproit:body:length=${body.size}>"
     return try {
-      redact(Json.decode(body.toString(Charsets.UTF_8)))
+      // markJsonNulls keeps a meaningful null in the recorded body: the
+      // encoder drops null map entries, and a capsule that loses one serves a
+      // body the dependency never sent.
+      markJsonNulls(redact(Json.decode(body.toString(Charsets.UTF_8))))
     } catch (_: Throwable) {
       "<reproit:invalid-json>"
     }

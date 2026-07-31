@@ -23,6 +23,10 @@ pub(crate) mod visual;
 mod auth;
 mod authored_contract;
 mod backend_learn;
+/// The boot command `reproit init` records as `backend.exec`. Exposed so the
+/// scaffold writes the same recipe the live-enrichment boot already uses,
+/// which is what removes `--exec` from the hermetic replay path.
+pub(crate) use backend_learn::inferred_exec as inferred_backend_exec;
 mod backend_target;
 mod capture;
 mod change_selection;
@@ -167,6 +171,7 @@ where
             as_name,
             strict,
             exec,
+            refresh,
         } => {
             keep_command::run(
                 &ctx,
@@ -175,6 +180,7 @@ where
                 as_name.as_deref(),
                 strict,
                 exec.as_deref(),
+                refresh,
             )
             .await
         }

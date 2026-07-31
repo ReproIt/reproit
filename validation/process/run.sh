@@ -30,9 +30,12 @@ if [[ ! -x "$REPROIT" ]]; then
   exit 0
 fi
 
-gcc -shared -fPIC -O1 -o "$WORK/reproit_shim.so" "$ROOT/runners/process-shim/reproit_shim.c" \
-  "$ROOT/runners/process-shim/reproit_shim_capsule.c" \
-  "$ROOT/runners/process-shim/reproit_shim_movers.c" -ldl
+SHIM_SOURCES=("$ROOT/runners/process-shim/reproit_shim.c"
+  "$ROOT/runners/process-shim/reproit_shim_capsule.c"
+  "$ROOT/runners/process-shim/reproit_shim_movers.c")
+# The syscall completeness layer is Linux only; this script already is.
+SHIM_SOURCES+=("$ROOT/runners/process-shim/reproit_seccomp.c")
+gcc -shared -fPIC -O1 -o "$WORK/reproit_shim.so" "${SHIM_SOURCES[@]}" -ldl
 gcc -O1 -o "$WORK/subject" "$ROOT/validation/process/subject.c"
 export REPROIT_PROCESS_SHIM="$WORK/reproit_shim.so"
 
@@ -109,5 +112,41 @@ json.dump(capsule, open(sys.argv[2], "w"))
 PY
 run_case "$WORK/tampered.json" "$WORK/subject" 3 \
   "missing socket bytes diverges" "DIVERGED"
+
+# An INTERPRETED runtime. Measured separately because its boundary coverage
+# is not the compiled case: see validation/process/MEASUREMENT.md. Whatever it
+# does, it must never report a passing or reproducing verdict for a replay
+# that did not re-execute, so this case pins the fail-closed property rather
+# than assuming a reproduction.
+mkdir -p /tmp/reproit-subject
+printf 'boom' > /tmp/reproit-subject/input.txt
+cat > "$WORK/script.py" <<'PY_SUBJECT'
+import sys
+data = open('/tmp/reproit-subject/input.txt').read().strip()
+print("read:" + data)
+sys.exit(3 if data == "boom" else 0)
+PY_SUBJECT
+"$REPROIT" --yes internal process-capture --out "$WORK/py-capsule.json" --   python3 "$WORK/script.py" > "$WORK/py-capture.txt" 2>&1
+PY_CAPTURED=$?
+rm -rf /tmp/reproit-subject
+if [[ "$PY_CAPTURED" -eq 0 ]]; then
+  set +e
+  "$REPROIT" --yes check "$WORK/py-capsule.json" --exec "python3 $WORK/script.py" \
+    > "$WORK/py-out.txt" 2>&1
+  PY_STATUS=$?
+  set -e
+  if grep -qE "reproduced by re-execution" "$WORK/py-out.txt"; then
+    echo "PASS python3 subject reproduces hermetically (exit $PY_STATUS)"
+  elif [[ "$PY_STATUS" -eq 3 ]]; then
+    echo "PASS python3 subject fails closed rather than claiming a reproduction (exit 3)"
+    grep -E "DIVERGED|INCONCLUSIVE" "$WORK/py-out.txt" | head -2 | sed 's/^/     /'
+  else
+    echo "FAIL python3 subject: exit $PY_STATUS neither reproduced nor failed closed" >&2
+    cat "$WORK/py-out.txt" >&2
+    exit 1
+  fi
+else
+  echo "SKIP python3 subject: capture refused (see py-capture.txt)"
+fi
 
 echo "process-e2e: all four verdicts hold"

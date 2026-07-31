@@ -57,7 +57,7 @@ must show why execution is blocked when no exact trusted adapter is available.
 | --- | --- |
 | Eligible UI replay | Run the occurrence in the trusted app adapter. |
 | Eligible process plan | Run the plan selected by the checkout's provider catalog. |
-| Backend capture with recorded exchanges | Re-execute hermetically (preview): `reproit check <capture.json> --exec "<command>"` boots the service with the SDK serving every recorded dependency exchange, and verdicts reproduced, fixed, diverged, or inconclusive from the live response. Node SDK only today. |
+| Backend capture with recorded exchanges | Re-execute hermetically (preview): `reproit check <capture.json>` boots the service with the SDK serving every recorded dependency exchange, and verdicts reproduced, fixed, diverged, or inconclusive from the live response. The boot command comes from `backend.exec` in reproit.yaml (recorded by `reproit init`), or from `--exec` as the override. Node SDK only today. |
 | Backend capture without exchanges | Re-evaluate the recorded events offline; honest about not re-running code. |
 | Incomplete | Show the smallest missing fact and the action that can collect it. |
 | Environment-bound | Offer an approved disposable worker, simulator, or VM path. |

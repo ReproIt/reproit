@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "close-the-open-defects",
+  "changeType": "feature",
+  "detail": "This commit closes the deferred features and documented platform limits, proves the mobile SDKs on real emulators and simulators, and adds the seccomp completeness layer to the process capsule. The runtime defects it fixes were introduced by unshipped work in this same series (the Android null-payload encoding and the mobile marker split were both found before any release carried them), so it is recorded as feature work with the device and measurement evidence retained rather than as a fix to shipped behavior.",
+  "evidence": [
+    { "path": "sdk/reproit-android/validation/EMULATOR-PROOF.md", "sha256": "sha256:d77be3d5964051ce81fd9c619d8218e44c6084690b522344fd9bcc3415c2b878" },
+    { "path": "sdk/reproit-ios/validation/MEASUREMENT.md", "sha256": "sha256:3375fd7553ed1933018e0c8a9771a55cd1a13326d7e468490bdd835a4907e77b" },
+    { "path": "validation/process/MEASUREMENT.md", "sha256": "sha256:0c04d92fd00afafb93c74d92ccd2d62c2d9454bd187b6db88be231d9c0f73429" }
+  ]
+}

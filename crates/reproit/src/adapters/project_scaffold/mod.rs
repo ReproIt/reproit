@@ -258,13 +258,13 @@ fn init_backend(dir: &Path, config: &Path, force: bool) -> Result<bool> {
             .unwrap_or(&schema)
             .to_string_lossy()
             .into_owned();
-        write(config, &backend_config(&relative, None)?, force)?;
+        write(config, &backend_config(&relative, None, dir)?, force)?;
         return Ok(false);
     }
     // No schema and nothing derivable: scaffold the shape anyway. An empty
     // draft the user can fill beats an error whose only action is a flag.
     write(&dir.join(EMPTY_DRAFT_NAME), &empty_draft_schema(dir), force)?;
-    write(config, &backend_config(EMPTY_DRAFT_NAME, None)?, force)?;
+    write(config, &backend_config(EMPTY_DRAFT_NAME, None, dir)?, force)?;
     Ok(true)
 }
 
@@ -319,15 +319,26 @@ pub fn backend_schema_guide(dir: &Path) -> String {
     }
 }
 
-fn backend_config(schema_relative: &str, target: Option<&str>) -> Result<String> {
+fn backend_config(schema_relative: &str, target: Option<&str>, dir: &Path) -> Result<String> {
     let relative = serde_json::to_string(schema_relative)?;
     let target = match target {
         Some(target) => format!("  target: {}\n", serde_json::to_string(target)?),
         None => String::new(),
     };
+    // The boot command for hermetic replay. Recording it here is what makes
+    // `reproit occ_<id>` and a kept guard run without `--exec`; the flag
+    // stays as the override. Absent when nothing was inferable, so the
+    // config never claims a command this machine has not started.
+    let exec = match crate::workflows::inferred_backend_exec(dir) {
+        Some(command) => format!(
+            "  # Boot command for hermetic replay; --exec overrides it.\n  exec: {}\n",
+            serde_json::to_string(&command)?
+        ),
+        None => String::new(),
+    };
     Ok(format!(
         "# Reproit backend config. The schema owns structural contracts.\nbackend:\n  enabled: \
-         true\n  schemas:\n    - {relative}\n{target}"
+         true\n  schemas:\n    - {relative}\n{target}{exec}"
     ))
 }
 
@@ -353,7 +364,7 @@ pub fn init_backend_url(
     println!("  write {}", snapshot.display());
     write(
         &config,
-        &backend_config(snapshot_name, Some(target_origin))?,
+        &backend_config(snapshot_name, Some(target_origin), dir)?,
         force,
     )?;
     ensure_gitignore(dir)?;
@@ -384,7 +395,7 @@ pub fn init_backend_learned(
     }
     std::fs::write(&schema, schema_yaml)?;
     println!("  write {} (derived draft)", schema.display());
-    write(&config, &backend_config(schema_name, target)?, force)?;
+    write(&config, &backend_config(schema_name, target, dir)?, force)?;
     ensure_gitignore(dir)
 }
 

@@ -11,8 +11,9 @@
 
 shim_state_t G;
 
-static const char *KIND_NAMES[K_KINDS] = {"open",  "read", "connect", "send",  "recv",
-                                          "clock", "time", "random",  "env"};
+static const char *KIND_NAMES[K_KINDS] = {"open",  "read",   "connect",  "send",   "recv",
+                                          "clock", "time",   "random",   "env",    "stat",
+                                          "statx", "access", "readlink", "getcwd", "dirent"};
 
 /* This half resolves its own libc pointers so it never depends on the
  * interposition half's resolution order. */
@@ -225,6 +226,25 @@ entry_t *next_entry(kind_t kind, const char *key) {
         return e;
     }
     return NULL;
+}
+
+entry_t *find_entry(kind_t kind, const char *key) {
+    entry_t *fallback = NULL;
+    for (size_t i = 0; i < G.entry_count; i++) {
+        entry_t *e = &G.entries[i];
+        if (e->kind != kind) {
+            continue;
+        }
+        if (key && strcmp(e->key, key) != 0) {
+            continue;
+        }
+        if (!e->consumed) {
+            e->consumed = 1;
+            return e;
+        }
+        fallback = e;
+    }
+    return fallback;
 }
 
 /* Every recorded read of one key, concatenated: replay serves a file as one

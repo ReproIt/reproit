@@ -116,6 +116,19 @@ final class Instrument
         return $session === null ? null : rng_for($session->envelope());
     }
 
+    /**
+     * The capture's wall-clock instant in epoch milliseconds, or null outside
+     * replay mode. PHP cannot pin the process clock without an extension (see
+     * pin_envelope in replay.php for the measured evidence), so an app that
+     * needs an anchored clock in replay reads this and uses it as its time
+     * source instead of calling time() directly.
+     */
+    public static function replayObservedAtMs(): ?int
+    {
+        $session = self::session();
+        return $session === null ? null : observed_at_ms($session->envelope());
+    }
+
     /** @return array<string, int> */
     public static function stats(): array
     {

@@ -22,6 +22,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -267,5 +270,95 @@ class InstrumentTest {
         Files.writeString(file, payload, StandardCharsets.UTF_8);
         file.toFile().deleteOnExit();
         return file;
+    }
+
+    @Test
+    void propagateCarriesTheTraceOntoAPoolThread() throws Exception {
+        HttpServer upstream = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        upstream.createContext("/prices", exchange -> {
+            byte[] reply = "{\"prices\":[1,2]}".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, reply.length);
+            exchange.getResponseBody().write(reply);
+            exchange.close();
+        });
+        upstream.start();
+        String base = "http://127.0.0.1:" + upstream.getAddress().getPort();
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        BackendTrace trace = trace();
+        try {
+            // Wrap at SUBMISSION time, on the request thread, so the pool
+            // thread inherits the ambient trace.
+            Instrument.scopeRun(trace, () -> pool.submit(Instrument.propagate(() ->
+                Instrument.Http.send(
+                    HttpClient.newHttpClient(),
+                    HttpRequest.newBuilder(URI.create(base + "/prices")).GET().build())))
+                .get(30, TimeUnit.SECONDS));
+        } finally {
+            pool.shutdownNow();
+            upstream.stop(0);
+        }
+        Map<String, Object> exchange = exchangeOf(trace);
+        assertNotNull(exchange, "a call on a pool thread must attach to the originating trace");
+        assertEquals(200L, ((Map<?, ?>) exchange.get("response")).get("status"));
+    }
+
+    @Test
+    void aPropagatingExecutorNeedsNoPerCallWrapping() throws Exception {
+        HttpServer upstream = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        upstream.createContext("/ping", exchange -> {
+            exchange.sendResponseHeaders(204, -1);
+            exchange.close();
+        });
+        upstream.start();
+        String base = "http://127.0.0.1:" + upstream.getAddress().getPort();
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        BackendTrace trace = trace();
+        java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        try {
+            Instrument.scopeRun(trace, () -> {
+                Instrument.propagate((java.util.concurrent.Executor) pool).execute(() -> {
+                    try {
+                        Instrument.Http.send(
+                            HttpClient.newHttpClient(),
+                            HttpRequest.newBuilder(URI.create(base + "/ping")).GET().build());
+                    } catch (Exception ignored) {
+                        // The assertion below is what fails the test.
+                    } finally {
+                        done.countDown();
+                    }
+                });
+                assertTrue(done.await(30, TimeUnit.SECONDS));
+            });
+        } finally {
+            pool.shutdownNow();
+            upstream.stop(0);
+        }
+        assertNotNull(exchangeOf(trace), "the propagating executor must carry the trace");
+    }
+
+    @Test
+    void propagateWithoutAnAmbientTraceRecordsNothing() throws Exception {
+        HttpServer upstream = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        upstream.createContext("/ping", exchange -> {
+            exchange.sendResponseHeaders(204, -1);
+            exchange.close();
+        });
+        upstream.start();
+        String base = "http://127.0.0.1:" + upstream.getAddress().getPort();
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        BackendTrace trace = trace();
+        try {
+            // No scope around the submission: propagate is an identity wrapper
+            // and the call stays unrecorded rather than half-recorded.
+            pool.submit(Instrument.propagate(() -> Instrument.Http.send(
+                HttpClient.newHttpClient(),
+                HttpRequest.newBuilder(URI.create(base + "/ping")).GET().build())))
+                .get(30, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+            upstream.stop(0);
+        }
+        assertNull(exchangeOf(trace));
     }
 }

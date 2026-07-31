@@ -126,4 +126,79 @@ OUT="$(cli "$WORK/b" "$FID" 2>&1 || true)"
 grep -qi "fixed\|no longer reproduces\|held" <<< "$OUT" || { echo "v3 replay did not certify the fix: $OUT" >&2; exit 1; }
 echo "PASS v3 artifact certifies the fix from the moved checkout"
 
-echo "artifact-portability-e2e: version 3 is portable, version 2 still replays"
+# The SCHEMA artifact (backend-schema.json) gets the same treatment at
+# version 2: a schema-level violation is recorded with a project-relative
+# path, so it too replays from a moved checkout. A duplicate parameter is a
+# static defect in the schema itself, which is why it needs no live target.
+mkdir -p "$WORK/s"
+cat > "$WORK/s/openapi.yaml" << 'YAML'
+openapi: 3.1.0
+info:
+  title: Reproit schema portability fixture
+  version: 1.0.0
+paths:
+  /items:
+    get:
+      operationId: listItems
+      parameters:
+        - { name: limit, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { type: object }
+YAML
+cat > "$WORK/s/reproit.yaml" << YAML
+backend:
+  enabled: true
+  schemas: [openapi.yaml]
+  target: http://127.0.0.1:$PORT
+YAML
+set +e
+cli "$WORK/s" --json internal scan > "$WORK/schema-scan.json" 2>&1
+set -e
+SCHEMA_ARTIFACT="$(ls "$WORK"/s/.reproit/findings/*/backend-schema.json 2>/dev/null | head -1)"
+if [[ -z "$SCHEMA_ARTIFACT" ]]; then
+  echo "expected a backend-schema.json finding for the duplicate parameter" >&2
+  cat "$WORK/schema-scan.json" >&2
+  exit 1
+fi
+python3 - "$SCHEMA_ARTIFACT" << 'EOF'
+import json, sys
+artifact = json.load(open(sys.argv[1]))
+assert artifact["version"] == 2, artifact["version"]
+assert artifact["schema"] == "openapi.yaml", artifact["schema"]
+assert not artifact.get("schemaOutsideRoot", False), artifact
+print("schema artifact v2 shape holds (project-relative path)")
+EOF
+SFID="$(python3 -c "
+import json,sys
+print(json.load(open('$SCHEMA_ARTIFACT'))['finding']['id'])
+")"
+# Move the whole project; the schema artifact must resolve its schema against
+# the NEW root, which an absolute stored path could never do.
+cp -R "$WORK/s" "$WORK/s-moved"
+OUT="$(cli "$WORK/s-moved" "$SFID" 2>&1 || true)"
+grep -q "reproduced exactly" <<< "$OUT" \
+  || { echo "v2 schema artifact did not replay from the moved checkout: $OUT" >&2; exit 1; }
+echo "PASS v2 schema artifact replays from a moved checkout"
+
+# Legacy: the same artifact hand-lowered to version 1 with the absolute path
+# it used to store still replays, so old findings keep working.
+cp -R "$WORK/s" "$WORK/s-legacy"
+python3 - "$WORK/s-legacy" << 'EOF'
+import glob, json, os, sys
+path = glob.glob(sys.argv[1] + "/.reproit/findings/*/backend-schema.json")[0]
+artifact = json.load(open(path))
+artifact["version"] = 1
+artifact.pop("schemaOutsideRoot", None)
+artifact["schema"] = os.path.join(sys.argv[1], "openapi.yaml")
+json.dump(artifact, open(path, "w"))
+EOF
+OUT="$(cli "$WORK/s-legacy" "$SFID" 2>&1 || true)"
+grep -q "reproduced exactly" <<< "$OUT" \
+  || { echo "v1 schema artifact legacy path failed: $OUT" >&2; exit 1; }
+echo "PASS v1 schema artifact still replays through the legacy absolute path"
+
+echo "artifact-portability-e2e: both artifacts are portable, both legacy versions still replay"

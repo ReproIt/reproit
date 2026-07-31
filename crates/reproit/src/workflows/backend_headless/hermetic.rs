@@ -90,6 +90,17 @@ fn watch_stderr(child: &mut std::process::Child) -> ChildOutput {
     ChildOutput { divergences }
 }
 
+/// Fire the capture's recorded inbound trigger at a booted instance. Shared
+/// with re-recording (`keep --refresh`), so a refresh asks the app exactly
+/// what production asked it, never a reconstruction.
+pub(super) async fn fire_recorded_trigger(
+    client: &reqwest::Client,
+    base: &str,
+    artifact: &super::capture_replay::CaptureArtifact,
+) -> Result<reqwest::Response> {
+    Ok(inbound_request(client, base, artifact)?.send().await?)
+}
+
 /// Build the capture's recorded inbound request against the booted port.
 fn inbound_request(
     client: &reqwest::Client,

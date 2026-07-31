@@ -298,9 +298,24 @@ function try_json(string $text, string $contentType): mixed
 }
 
 /**
- * Pin process determinism from the capture envelope. PHP has no safe
- * process-wide clock override, so the clock is deliberately NOT pinned; the
- * timezone and the seeded stream are.
+ * Pin process determinism from the capture envelope: the timezone and the
+ * seeded stream. The wall CLOCK is deliberately not pinned, and this is a
+ * hard platform limit rather than a deferred task. Two facts, both measured:
+ *
+ *  1. Redeclaring an internal function in the global scope is a fatal error
+ *     ("Cannot redeclare function time()"), so `time()` and `microtime()`
+ *     cannot be replaced process wide.
+ *  2. PHP's namespaced-function fallback shadows only UNQUALIFIED calls made
+ *     from inside the same namespace. A probe defining `Reproit\time()`
+ *     shadowed calls within `Reproit\` and left the application's own
+ *     namespace resolving the REAL `time()`, so the shadow cannot reach the
+ *     code being replayed.
+ *
+ * Intercepting the clock therefore needs an extension (uopz or runkit7),
+ * which are development tools and not an acceptable dependency for an SDK
+ * that loads in production. An application that needs an anchored clock in
+ * replay should read `Instrument::replayObservedAtMs()` and use it as its
+ * own time source, the same shape the .NET SDK uses on Windows.
  */
 function pin_envelope(?array $envelope): void
 {
@@ -311,6 +326,17 @@ function pin_envelope(?array $envelope): void
     if (\is_string($tz) && $tz !== '' && in_array($tz, timezone_identifiers_list(), true)) {
         date_default_timezone_set($tz);
     }
+}
+
+/**
+ * The capture's wall-clock instant in epoch milliseconds, or null when the
+ * envelope carries none. Exposed because the clock cannot be pinned (see
+ * pin_envelope): an app that must anchor time in replay reads this.
+ */
+function observed_at_ms(?array $envelope): ?int
+{
+    $observed = $envelope['observedAtMs'] ?? null;
+    return \is_int($observed) || \is_float($observed) ? (int) $observed : null;
 }
 
 function rng_for(?array $envelope): ?ReplayRng

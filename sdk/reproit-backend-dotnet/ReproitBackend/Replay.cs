@@ -84,8 +84,7 @@ public sealed class Replay
         }
     }
 
-    // Pin process determinism from the capture envelope. .NET has no settable process time
-    // zone, so the pinned zone is exposed for the app to use rather than silently ignored.
+    // The capture's time zone, resolved from the envelope.
     public TimeZoneInfo? PinnedTimeZone()
     {
         if (_envelope.GetValueOrDefault("tz") is not string tz || tz.Length == 0) return null;
@@ -96,6 +95,31 @@ public sealed class Replay
         catch (Exception)
         {
             return null;
+        }
+    }
+
+    // Pin the process time zone to the capture's, so replayed code reading
+    // DateTime.Now or TimeZoneInfo.Local sees what production saw.
+    //
+    // On Unix .NET resolves TimeZoneInfo.Local from the TZ environment
+    // variable, and ClearCachedData drops the cached Local so the next read
+    // re-resolves it. Windows resolves the local zone from the registry and
+    // ignores TZ, so there the zone cannot be pinned and PinnedTimeZone stays
+    // the app-readable fallback. Returns true only when the zone was really
+    // pinned, so no caller can mistake the fallback for a pin.
+    public bool PinTimeZone()
+    {
+        if (_envelope.GetValueOrDefault("tz") is not string tz || tz.Length == 0) return false;
+        if (OperatingSystem.IsWindows()) return false;
+        try
+        {
+            Environment.SetEnvironmentVariable("TZ", tz);
+            TimeZoneInfo.ClearCachedData();
+            return TimeZoneInfo.Local.Id == tz;
+        }
+        catch (Exception)
+        {
+            return false;
         }
     }
 

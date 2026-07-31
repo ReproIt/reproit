@@ -109,6 +109,11 @@ pub(super) struct BackendSchemaFindingArtifact {
     pub(super) version: u32,
     pub(super) schema: String,
     pub(super) schema_sha256: String,
+    /// Version 2: true when `schema` stayed absolute because the file lives
+    /// outside the project root that owns `.reproit/`. Same meaning as the
+    /// finding artifact's field, so both read the same way.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) schema_outside_root: bool,
     pub(super) violation: backend::BackendSchemaViolation,
     pub(super) finding: Value,
 }

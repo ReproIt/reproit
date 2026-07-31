@@ -12,7 +12,7 @@
 # and the call fails with status 599 (HTTP) or a raised error (database),
 # never a fuzzy match.
 #
-# The envelope pins replay determinism: `TZ` comes from the capture and
+# The envelope pins replay determinism: `TZ`, the wall clock, and
 # `replay_rng` yields the seeded stream. Honesty note: the seed makes REPLAY
 # runs deterministic; it does not reproduce the randomness the app drew in
 # production.
@@ -192,14 +192,56 @@ module ReproitBackendRb
       text
     end
 
-    # Pin process determinism from the capture envelope. Ruby has no safe
-    # process-wide clock override (Time.now is not a hookable global the way
-    # Date.now is in Node), so the clock is deliberately NOT pinned; TZ and
-    # the seeded stream are.
+    # Pin process determinism from the capture envelope: the time zone, the
+    # wall clock, and the seeded stream.
+    #
+    # The clock is anchored by prepending a module to Time's singleton class
+    # (the Timecop pattern), which is the one safe process-wide hook Ruby
+    # offers. It runs ONLY under REPROIT_REPLAY. Like the Node reference this
+    # OFFSETS rather than freezes: replayed code sees the capture's instant
+    # and still observes elapsed time within the run, so a timeout loop
+    # terminates instead of hanging.
+    #
+    # Honesty note: this makes replay runs repeatable. It does not reproduce
+    # the exact instants production observed between events.
     def pin_envelope(envelope)
       return unless envelope.is_a?(Hash)
       tz = envelope["tz"]
       ENV["TZ"] = tz if tz.is_a?(String) && !tz.empty?
+      pin_clock(envelope["observedAtMs"])
+    end
+
+    def pin_clock(observed_at_ms)
+      return unless observed_at_ms.is_a?(Numeric)
+      offset = (observed_at_ms / 1000.0) - Time.now.to_f
+      Time.singleton_class.prepend(clock_module(offset))
+      Process.singleton_class.prepend(process_clock_module(offset))
+      true
+    end
+
+    def clock_module(offset)
+      Module.new do
+        define_method(:now) { |*args| super(*args) + offset }
+        define_method(:reproit_clock_offset) { offset }
+      end
+    end
+
+    def process_clock_module(offset)
+      Module.new do
+        define_method(:clock_gettime) do |clock_id, *rest|
+          value = super(clock_id, *rest)
+          # Only the wall clock is anchored; monotonic clocks must keep
+          # advancing from their own epoch or duration math breaks.
+          next value unless clock_id == Process::CLOCK_REALTIME
+          unit = rest.first
+          case unit
+          when :millisecond then value + (offset * 1000).round
+          when :microsecond then value + (offset * 1_000_000).round
+          when :nanosecond then value + (offset * 1_000_000_000).round
+          else value + offset
+          end
+        end
+      end
     end
 
     def rng_for(envelope)

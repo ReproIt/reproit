@@ -156,11 +156,19 @@ pub(super) async fn run(
             if args.record_video {
                 anyhow::bail!("backend captures do not produce screen video evidence");
             }
-            if let Some(exec) = args.exec.as_deref() {
+            // --exec wins; otherwise an initialized project's backend.exec
+            // supplies the boot recipe, so hermetic re-execution is the
+            // default rather than something the user must remember to ask
+            // for. With neither, fall back to offline re-evaluation.
+            let configured = super::backend_target::find(config_path)
+                .ok()
+                .flatten()
+                .and_then(|project| project.config.exec.clone());
+            if let Some(exec) = args.exec.as_deref().map(str::to_string).or(configured) {
                 return backend_headless::check_capture_exec(
                     ctx,
                     Path::new(reference),
-                    exec,
+                    &exec,
                     args.auto,
                 )
                 .await;

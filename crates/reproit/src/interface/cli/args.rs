@@ -404,8 +404,15 @@ pub(crate) enum Cmd {
         /// For a capture file: the boot command for hermetic re-execution
         /// (stored as the guard's hermetic.json exec recipe). The app must
         /// mount the reproit SDK with instrument.install() and honor $PORT.
+        /// Defaults to backend.exec from reproit.yaml when set.
         #[arg(long, value_name = "COMMAND")]
         exec: Option<String>,
+        /// Re-record a DRIFTED hermetic guard against the current code: boots
+        /// the guard's own recipe, fires its recorded trigger, and prints the
+        /// old-versus-new exchange diff. Nothing is rewritten without --yes,
+        /// and the inbound trigger and oracle are always preserved.
+        #[arg(long)]
+        refresh: bool,
     },
     /// Diagnose local setup: config, runner deps, app URL, and cloud
     /// credentials.

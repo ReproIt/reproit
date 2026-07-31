@@ -1,6 +1,17 @@
 package com.reproit.android
 
 /**
+ * A JSON null that carries meaning, as opposed to an absent optional field.
+ *
+ * [Json] omits null map values so optional event fields (`from?`, `labels?`)
+ * stay off the wire, which is right for the event model and matches the other
+ * SDKs. Captured exchange bodies are different: an upstream answering
+ * `{"prices": null}` is data, and frequently the very cause of the failure
+ * being captured, so those nulls are marked with this sentinel and encoded.
+ */
+object JsonNull
+
+/**
  * Minimal JSON encoder for the event payloads. Pure Kotlin (no `org.json`, which is an Android stub
  * on the host JVM and not available to plain `kotlinc`), so the JSON-shape tests run on the host.
  * Only encodes the value types the event model uses: String, Int, Long, Double, Boolean, null,
@@ -17,6 +28,11 @@ object Json {
   private fun write(sb: StringBuilder, value: Any?) {
     when (value) {
       null -> sb.append("null")
+      // A JSON null that is DATA, not an absent optional field. Captured
+      // exchange bodies use this: an API answering {"prices": null} is the
+      // whole cause of some failures, so dropping the key would make the
+      // capsule unfaithful and replay reproduce a different error.
+      is JsonNull -> sb.append("null")
       is String -> writeString(sb, value)
       is Boolean -> sb.append(value.toString())
       is Int,
@@ -31,7 +47,7 @@ object Json {
         sb.append('{')
         var first = true
         for ((k, v) in value) {
-          if (v == null) continue // omit null fields (matches `from?`/`labels?`)
+          if (v == null) continue // omit absent optional fields (`from?`/`labels?`)
           if (!first) sb.append(',')
           first = false
           writeString(sb, k.toString())

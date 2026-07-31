@@ -137,4 +137,25 @@ class ExchangeCaptureTest {
     assertNull("an absent image digest is omitted, never guessed", envelope["imageDigest"])
     assertEquals(16, replaySeedHex { 1L }.length)
   }
+
+  @Test
+  fun `a null in a captured body survives to the wire`() {
+    // Found on a real emulator run: the upstream answered {"prices": null},
+    // the crash was CAUSED by that null, and the encoder dropped the key, so
+    // the capsule described a response the upstream never sent. A capture that
+    // loses a null reproduces a different error than the one that happened.
+    val body = """{"prices":null,"symbol":"ACME"}""".toByteArray()
+    val bounded = boundedBody(body, "application/json")
+    val encoded = Json.encode(bounded["body"])
+    assertTrue("the null key must survive: $encoded", encoded.contains("\"prices\":null"))
+    assertTrue("sibling values are unaffected: $encoded", encoded.contains("\"symbol\":\"ACME\""))
+  }
+
+  @Test
+  fun `an absent optional event field is still omitted`() {
+    // The sentinel must NOT change the event model's wire: optional fields
+    // stay off it, matching the other SDKs and the golden byte pins.
+    val encoded = Json.encode(linkedMapOf("from" to null, "to" to "abc"))
+    assertEquals("""{"to":"abc"}""", encoded)
+  }
 }

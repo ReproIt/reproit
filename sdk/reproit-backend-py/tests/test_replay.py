@@ -205,3 +205,62 @@ def test_an_unsupported_capture_version_is_refused():
     completed = _run_child(capture)
     assert completed.returncode != 0
     assert "unsupported capture version" in completed.stderr
+
+
+# httpx never touches http.client, so replay must serve it at the transport
+# boundary too. This child proves the same capsule answers an httpx client
+# with no network present, and that an unmatched httpx call fails closed.
+HTTPX_CHILD = r"""
+import json, sys
+from reproit_backend_py import install, replaying
+
+install()
+import httpx
+
+result = {"replaying": replaying()}
+response = httpx.get("http://pricing.internal/prices?tier=gold")
+result["status"] = response.status_code
+result["body"] = response.json()
+result["diverged"] = httpx.get("http://pricing.internal/unknown").status_code
+print(json.dumps(result))
+"""
+
+
+def _run_httpx_child(capture):
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, "capture.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(capture, handle)
+        return subprocess.run(
+            [sys.executable, "-c", HTTPX_CHILD],
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            capture_output=True,
+            text=True,
+            env=dict(os.environ, REPROIT_REPLAY=path),
+            timeout=60,
+        )
+
+
+def test_httpx_is_served_from_the_capsule_with_no_network():
+    capture = json.loads(json.dumps(CAPTURE))
+    # Drop the database exchange so the httpx call is the next unconsumed
+    # entry; this child makes no database call.
+    capture["events"] = [
+        event
+        for event in capture["events"]
+        if (event.get("exchange") or {}).get("protocol") != "db"
+    ]
+    completed = _run_httpx_child(capture)
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert result["replaying"] is True
+    # pricing.internal does not resolve: this answer can only come from the
+    # capsule.
+    assert result["status"] == 200
+    assert result["body"] == {"prices": None}
+    # An unmatched httpx call fails closed exactly like the stdlib path.
+    assert result["diverged"] == 599
+    marker = next(
+        line for line in completed.stderr.splitlines() if line.startswith("REPROIT:DIVERGENCE ")
+    )
+    assert json.loads(marker[len("REPROIT:DIVERGENCE ") :])["protocol"] == "http"
