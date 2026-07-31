@@ -618,12 +618,8 @@ pub(super) async fn check_repro(
         .is_some_and(Vec::is_empty);
 
     // The fuzz config the explorer reads on each replay.
-    let cfg_path = layout::fuzz_config_path(&loaded.root);
-    std::fs::create_dir_all(cfg_path.parent().unwrap())?;
-    let mut defines = vec![(
-        "REPROIT_FUZZ_CONFIG".to_string(),
-        cfg_path.to_string_lossy().into_owned(),
-    )];
+    let (cfg_path, fuzz_define) = layout::fuzz_config_define(&loaded.root)?;
+    let mut defines = vec![fuzz_define];
     // LOCALE contract: the locale travels to the runner as REPROIT_LOCALE (a
     // dart-define for Flutter, an env var for the rest, both via the
     // orchestrator's define list), so a repro can be replayed under each locale.

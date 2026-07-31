@@ -261,30 +261,11 @@ async fn run_execution_plan(
         anyhow::bail!("plan execution is bounded to 100 runs");
     }
 
-    let mut results = Vec::with_capacity(runs as usize);
-    for run_index in 0..runs {
-        ctx.say(format!(
-            "check {} plan run {}/{}",
-            super::repro::check_label(meta),
-            run_index + 1,
-            runs
-        ));
-        let result = execution::execute(root, package).await?;
-        retain_plan_run(root, meta, run_index, &result)?;
-        results.push(result);
-    }
+    let label = super::repro::check_label(meta);
+    let results = run_plan_runs(ctx, root, meta, package, runs, &label).await?;
     let outcome = aggregate_plan_runs(&results);
     let verification = plan_verification_summary(&results);
-    let promoted = outcome == repro::Outcome::Pass && meta.status == repro::Status::Quarantined;
-    {
-        let mut updated = meta.clone();
-        updated.last_checked = Some(chrono::Local::now().to_rfc3339());
-        updated.last_result = Some(outcome.as_str().to_string());
-        if promoted {
-            updated.status = repro::Status::Required;
-        }
-        repro::save_meta(root, &updated)?;
-    }
+    let (_, promoted) = mark_checked(root, meta, outcome)?;
     ctx.emit(&serde_json::json!({
         "command": "check",
         "id": repro::display_repro_id(&meta.id),
@@ -299,7 +280,7 @@ async fn run_execution_plan(
     ctx.say(format!(
         "  {} {} ({} run(s)){}",
         outcome.as_str().to_uppercase(),
-        super::repro::check_label(meta),
+        label,
         runs,
         if promoted {
             "  promoted -> required"
@@ -308,6 +289,67 @@ async fn run_execution_plan(
         }
     ));
     Ok(exit_with(Exit::from(outcome)))
+}
+
+/// Execute a compiled plan `times` over, retaining each run's evidence.
+///
+/// Shared by the two plan entry points (`check <id>` on a plan-backed repro and
+/// the plan branch of the guard suite), which previously carried a copy each.
+async fn run_plan_runs(
+    ctx: &Ctx,
+    root: &Path,
+    meta: &repro::Meta,
+    package: &reproit_protocol::ReproductionPackage,
+    times: u32,
+    label: &str,
+) -> Result<Vec<execution::PlanRun>> {
+    let mut runs = Vec::with_capacity(times as usize);
+    for run_index in 0..times {
+        ctx.say(format!(
+            "check {label} plan run {}/{}",
+            run_index + 1,
+            times
+        ));
+        let run = execution::execute(root, package).await?;
+        retain_plan_run(root, meta, run_index, &run)?;
+        runs.push(run);
+    }
+    Ok(runs)
+}
+
+/// The same green-over-total view of a plan execution that a UI repro already
+/// reports, so both paths render `rate`, `green` and `total` from one type
+/// instead of one of them hand-rolling the string.
+fn plan_check_result(runs: &[execution::PlanRun]) -> repro::CheckResult {
+    repro::CheckResult {
+        outcome: aggregate_plan_runs(runs),
+        green: runs
+            .iter()
+            .filter(|run| run.verdict == ExecutionVerdict::NotReproduced)
+            .count(),
+        total: runs.len(),
+    }
+}
+
+/// Stamp a checked repro and promote it out of quarantine on a clean run.
+///
+/// One function so the three check paths cannot disagree about what promotion
+/// means or how the timestamp is spelled; they previously differed on the
+/// latter (two `Local::now`, one `Utc::now`).
+fn mark_checked(
+    root: &Path,
+    meta: &repro::Meta,
+    outcome: repro::Outcome,
+) -> Result<(repro::Meta, bool)> {
+    let promoted = outcome == repro::Outcome::Pass && meta.status == repro::Status::Quarantined;
+    let mut updated = meta.clone();
+    updated.last_checked = Some(chrono::Local::now().to_rfc3339());
+    updated.last_result = Some(outcome.as_str().to_string());
+    if promoted {
+        updated.status = repro::Status::Required;
+    }
+    repro::save_meta(root, &updated)?;
+    Ok((updated, promoted))
 }
 
 pub(crate) fn aggregate_plan_runs(runs: &[execution::PlanRun]) -> repro::Outcome {
@@ -601,14 +643,7 @@ async fn execute_case(
     } else {
         repro::Outcome::Pass
     };
-    let mut updated = meta.clone();
-    let promoted = outcome == repro::Outcome::Pass && meta.status == repro::Status::Quarantined;
-    updated.last_checked = Some(chrono::Local::now().to_rfc3339());
-    updated.last_result = Some(outcome.as_str().to_string());
-    if promoted {
-        updated.status = repro::Status::Required;
-    }
-    repro::save_meta(&loaded.root, &updated)?;
+    let (updated, promoted) = mark_checked(&loaded.root, meta, outcome)?;
     ctx.say(format!(
         "  {} {} ({}){}",
         outcome.as_str().to_uppercase(),
@@ -679,37 +714,17 @@ async fn execute_plan_guard(
         )
     })?;
     let label = super::repro::check_label(meta);
-    let mut runs = Vec::with_capacity(times as usize);
-    for run_index in 0..times {
-        ctx.say(format!(
-            "check {label} plan run {}/{}",
-            run_index + 1,
-            times
-        ));
-        let run = execution::execute(root, &package).await?;
-        retain_plan_run(root, meta, run_index, &run)?;
-        runs.push(run);
-    }
-    let outcome = aggregate_plan_runs(&runs);
-    let green = runs
-        .iter()
-        .filter(|run| run.verdict == ExecutionVerdict::NotReproduced)
-        .count();
-    let rate = format!("{green}/{}", runs.len());
+    let runs = run_plan_runs(ctx, root, meta, &package, times, &label).await?;
+    let result = plan_check_result(&runs);
+    let outcome = result.outcome;
+    let rate = result.rate();
     let blocks = args.strict || args.repro.is_some() || meta.status != repro::Status::Quarantined;
     let effective = if blocks {
         outcome
     } else {
         repro::Outcome::Pass
     };
-    let promoted = outcome == repro::Outcome::Pass && meta.status == repro::Status::Quarantined;
-    let mut updated = meta.clone();
-    updated.last_checked = Some(chrono::Utc::now().to_rfc3339());
-    updated.last_result = Some(outcome.as_str().to_string());
-    if promoted {
-        updated.status = repro::Status::Required;
-    }
-    repro::save_meta(root, &updated)?;
+    let (updated, promoted) = mark_checked(root, meta, outcome)?;
     let evidence = repro::repro_dir(root, &meta.id).join("plan-runs");
     let case = junit::Case {
         name: format!("check {label}"),
@@ -727,8 +742,8 @@ async fn execute_plan_guard(
         "alias": meta.alias,
         "outcome": outcome.as_str(),
         "rate": rate,
-        "green": green,
-        "total": runs.len(),
+        "green": result.green,
+        "total": result.total,
         "status": updated.status.as_str(),
         "promoted": promoted,
         "exit": outcome.exit_code(),

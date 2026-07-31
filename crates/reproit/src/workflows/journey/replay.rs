@@ -27,13 +27,10 @@ pub(super) async fn run_replay_cfg(
     warm: bool,
     sim: bool,
 ) -> Result<(String, bool)> {
-    let cfg_path = crate::runtime::project_layout::fuzz_config_path(&loaded.root);
-    std::fs::create_dir_all(cfg_path.parent().unwrap())?;
-    std::fs::write(&cfg_path, cfg.to_string())?;
-    let defines = vec![(
-        "REPROIT_FUZZ_CONFIG".to_string(),
-        cfg_path.to_string_lossy().into_owned(),
-    )];
+    let defines = vec![crate::runtime::project_layout::write_fuzz_config(
+        &loaded.root,
+        &cfg,
+    )?];
     let outcome = orchestrator::run_journey_tier(
         &loaded.config,
         &loaded.root,

@@ -121,6 +121,33 @@ pub(crate) fn fuzz_config_path(root: &Path) -> PathBuf {
     tmp_dir(root).join("fuzz_config.json")
 }
 
+/// Make the fuzz config path writable and name it for the runner.
+///
+/// The explorer reads its config from a file whose path travels as the
+/// `REPROIT_FUZZ_CONFIG` define. Five callers built that pair by hand; the
+/// define's name is the contract with the runner, so it belongs in one place.
+pub(crate) fn fuzz_config_define(root: &Path) -> std::io::Result<(PathBuf, (String, String))> {
+    let path = fuzz_config_path(root);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let define = (
+        "REPROIT_FUZZ_CONFIG".to_string(),
+        path.to_string_lossy().into_owned(),
+    );
+    Ok((path, define))
+}
+
+/// The same, having written `cfg` for the runner to read.
+pub(crate) fn write_fuzz_config(
+    root: &Path,
+    cfg: &serde_json::Value,
+) -> std::io::Result<(String, String)> {
+    let (path, define) = fuzz_config_define(root)?;
+    std::fs::write(&path, cfg.to_string())?;
+    Ok(define)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

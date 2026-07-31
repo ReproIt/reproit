@@ -149,19 +149,10 @@ async fn acquire_map_run(
 
     let mut extra_defines = Vec::new();
     if let Some(budget) = budget {
-        let config_path = layout::fuzz_config_path(&loaded.root);
-        let parent = config_path
-            .parent()
-            .context("fuzz configuration path has no parent")?;
-        std::fs::create_dir_all(parent)?;
-        std::fs::write(
-            &config_path,
-            serde_json::json!({ "seed": 0, "budget": budget }).to_string(),
-        )?;
-        extra_defines.push((
-            "REPROIT_FUZZ_CONFIG".to_string(),
-            config_path.to_string_lossy().into_owned(),
-        ));
+        extra_defines.push(layout::write_fuzz_config(
+            &loaded.root,
+            &serde_json::json!({ "seed": 0, "budget": budget }),
+        )?);
     }
 
     let outcome = orchestrator::run_journey(

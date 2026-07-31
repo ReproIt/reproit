@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "check-plan-path-convergence",
+  "changeType": "refactor",
+  "detail": "The two compiled-plan check paths carried a copy each of the run-retain loop and the promote-and-stamp block, and disagreed on the timestamp (two Local::now, one Utc::now), so two guards checked at the same instant recorded different-looking last_checked strings. They now share run_plan_runs, plan_check_result and mark_checked. The REPROIT_FUZZ_CONFIG define is written once instead of at five call sites. No behavior change beyond the timestamp converging on Local::now, which two of the three paths already used; verified by 992 lib tests, every integration test, and hermetic-e2e 4/4, gate-quarantine-e2e 4/4, refresh-e2e 5/5 with unchanged case counts.",
+  "evidence": [
+    {
+      "path": "crates/reproit/src/workflows/check.rs",
+      "sha256": "sha256:cb7fc98e51829d64ff2b231d80ee36c683081edba31b4d05421d1f37fa024950"
+    }
+  ]
+}

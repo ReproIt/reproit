@@ -112,13 +112,10 @@ pub async fn soak(cfg: &Config, root: &Path, args: &SoakArgs) -> Result<bool> {
         .flat_map(|_| actions.iter().cloned())
         .collect();
 
-    let cfg_path = crate::runtime::project_layout::fuzz_config_path(root);
-    std::fs::create_dir_all(cfg_path.parent().unwrap())?;
-    std::fs::write(&cfg_path, json!({ "replay": replay }).to_string())?;
-    let defines = vec![(
-        "REPROIT_FUZZ_CONFIG".to_string(),
-        cfg_path.to_string_lossy().into_owned(),
-    )];
+    let defines = vec![crate::runtime::project_layout::write_fuzz_config(
+        root,
+        &json!({ "replay": replay }),
+    )?];
 
     println!(
         "soak: {} x [{}] ({} actions)",
@@ -138,7 +135,8 @@ pub async fn soak(cfg: &Config, root: &Path, args: &SoakArgs) -> Result<bool> {
         },
     )
     .await?;
-    let _ = std::fs::write(&cfg_path, "{}"); // neutralize for later --warm runs
+    // neutralize for later --warm runs
+    let _ = std::fs::write(crate::runtime::project_layout::fuzz_config_path(root), "{}");
 
     // Heap series from the sampler. Two sources, tried in order:
     //   1. memory-a.jsonl: the Dart VM-service sampler (Flutter sim/VM tier).
