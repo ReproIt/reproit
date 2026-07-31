@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "workflows-lifecycle-refutation",
+  "changeType": "maintenance",
+  "detail": "plan-simplification.md step 4 proposed splitting crates/reproit/src/workflows/ by lifecycle (discover, reproduce, retain, report). Measurement contradicted the premise, so no code was moved and this records why. Across 55,618 lines, 131 files and 50 top-level modules: only 9.0 percent of lines sit in exactly one phase, 51.6 percent straddle two or more, and 39.3 percent belong to no phase at all. Reading the 14,748-line backend_learn generously as discover rather than as project onboarding raises the single-phase share only to 35.6 percent. The three largest modules straddle all four phases: backend_headless 8,286, fuzz 5,704, journey 2,773. The decisive detail is that fuzz/'s files are already named campaign, confirmation, findings and reporting, which IS discover/reproduce/retain/report, so the lifecycle is a within-module axis that the code already expresses and splitting by it would cut through the largest modules instead of grouping them. What the dependency graph actually clusters by is target class, which the module names already state: backend 42.0 percent, UI-driving 27.1 percent, process capsule 5.1 percent, with zero edges between the backend and UI clusters, which meet only at backend_target and internal_dispatch. That is the same boundary the verdict-lattice work found on boot, a process-global restartable server against a per-run device. The move would also not have been mechanical, since 51 files open with a top-level use super::* and 22 under backend_headless/ alone share its types, schema, ValueBank and Coverage, so splitting them across four directories would mean hoisting the shared types into a fifth directory larger than any phase, which is exactly what the new_modules_do_not_glob_import_their_parent ratchet exists to prevent. No product code changes here: this commit adds a section to docs/architecture.md and a pointer comment in workflows/mod.rs. One real finding was surfaced rather than silently fixed: five files are within 40 lines of the hard 1000-line ratchet, led by workflows/command_capture.rs at 997, so the next edit to any of them fails CI for a reason unrelated to that edit.",
+  "evidence": [
+    {
+      "path": "docs/architecture.md",
+      "sha256": "sha256:46f6316abc46cc0023a055a066155adfab33c9534a9934ef7c3a24073c376402"
+    }
+  ]
+}

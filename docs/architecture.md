@@ -30,6 +30,34 @@ the interface or workflows, and the interface cannot import workflows. Workflows
 layers after parsing. A few domain persistence modules use configuration and project-layout types,
 but deterministic evaluators do not acquire external evidence themselves.
 
+## Why `workflows/` groups by target class, not by lifecycle
+
+`workflows/` is about half the crate, so it periodically attracts a proposal to regroup it by
+bug lifecycle: discover, reproduce, retain, report. That split was measured against the tree on
+2026-07-31 and rejected. The lifecycle is the axis each module is already organized by INTERNALLY,
+so grouping by it would cut through the largest modules instead of grouping them.
+
+- Only 15 of 50 top-level modules straddle two or more lifecycle phases, but those 15 are 51.6% of
+  the lines. The three largest straddle all four: `backend_headless`, `fuzz`, `journey`. The files
+  under `fuzz/` are already named `campaign`, `confirmation`, `findings`, and `reporting`, which is
+  discover, reproduce, retain, and report.
+- A further 39.3% of the lines sit in no phase at all: `backend_learn` is project onboarding, and
+  auth, cloud, doctor, reset, device, init, dispatch, and `backend_target` are plumbing.
+- What the reference graph does cluster by is target class, and the module names already say it.
+  Intra-`workflows` references are 66 edges in a near-tree, and there is not one edge between the
+  backend modules (`backend_learn`, `backend_headless`, `backend_target`, 42.0% of the lines) and
+  the UI-driving modules (fuzz, journey, barrier, device, and their neighbors, 27.1%). They meet
+  only at `backend_target` and at `internal_dispatch`. That boundary is real: the backend boots a
+  process-global restartable server, the UI boots a per-run device torn down each time.
+
+The move would also not be mechanical. 51 files here open with a top-level `use super::*`, 22 of
+them under `backend_headless/` sharing that module's types, so splitting it across phase
+directories means rewriting every one of those imports and hoisting the shared types into a fifth
+directory larger than any phase. That is the "sharding satisfies the ratchet without decoupling
+anything" failure that `new_modules_do_not_glob_import_their_parent` exists to catch.
+
+Regroup this directory when a real dependency forces it, not to satisfy a vocabulary.
+
 ## Correctness rules
 
 The project follows these correctness rules:
