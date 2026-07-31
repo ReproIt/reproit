@@ -90,3 +90,27 @@ exactly 2 cases ran, and prints NOT EVALUATED for anchoring, restore and the
 three refusals. It is registered as a SEPARATE gate id, process-capsule-longrun,
 so a green subset can never be read as a green process-checkpoint. The full
 gate stays 7/7 and is marked manual, to be run where criu can dump.
+
+CORRECTION, same day. Marking the full gate 'manual' with prose in its
+automation.job field broke a registry test:
+
+  process-checkpoint workflow does not define job run by hand where criu
+  can dump; see MEASUREMENT.md
+  crates/reproit/src/adapters/platform.rs:504
+
+every_registered_platform_has_a_runtime_evidence_gate resolves the named job
+against the named workflow, so the job field is not a free-text slot. The
+registry already had the right shape: mode 'manual-required' plus a non-empty
+'blocker' string, which that same test asserts is present, precisely so a gate
+cannot be parked without stating what stops it.
+
+After the correction: 993 lib tests pass, and the specific test is confirmed
+to have RUN rather than been filtered out:
+
+  test adapters::platform::tests::every_registered_platform_has_a_runtime_evidence_gate ... ok
+  test result: ok. 993 passed; 0 failed; 1 ignored; 0 filtered out
+
+Worth recording that the first check of this fix ran ZERO tests ("0 passed;
+0 failed; 1 filtered out") because the filter matched nothing in the binary
+under test, and an empty run reports ok. That is the same shape as every
+other defect this file exists for, met while fixing one of them.

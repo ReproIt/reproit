@@ -514,9 +514,8 @@
         "the anchor skips the head, the tail resumes, and every outcome it cannot observe fails closed"
       ],
       "automation": {
-        "mode": "manual",
-        "workflow": ".github/workflows/native-gates.yml",
-        "job": "run by hand where criu can dump; see MEASUREMENT.md"
+        "mode": "manual-required",
+        "blocker": "criu cannot resolve the mounts of a container nested inside a GitHub hosted runner, so `criu dump` fails at case 3 even though criu 3.17.1 installs and the capsule captures and replays. Run this gate on a host where criu can dump; CI runs the process-capsule-longrun subset, which proves capture and replay only and says so."
       }
     },
     "process-capsule-longrun": {
