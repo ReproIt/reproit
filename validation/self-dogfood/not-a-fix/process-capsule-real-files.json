@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "process-capsule-real-files",
+  "changeType": "feature",
+  "detail": "The process capsule now serves recorded file content as real files rather than memfd copies, which is what lets interpreted runtimes replay: glibc validates a locale object structurally and the loader maps shared objects executable and relocates them, and a memfd copy satisfies neither. This extends unreleased phase 1 work rather than correcting shipped behavior. The re-measured table and the two remaining caveats are retained in MEASUREMENT.md.",
+  "evidence": [
+    { "path": "validation/process/MEASUREMENT.md", "sha256": "sha256:e1e584bee7f77529ce5106cace5c8561756aef01317e6ea84f0adb65fcd866ed" },
+    { "path": "validation/process/run.sh", "sha256": "sha256:3d41f9aa5f3b4a6e628acdcfa60ab51daeeebb0d2f34263805717e4ec9a24cde" }
+  ]
+}

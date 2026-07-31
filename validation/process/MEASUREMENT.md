@@ -19,8 +19,8 @@ set `REPROIT_SECCOMP=0` to force the libc-only boundary).
 | C program, plain `open`/`read` | 3 | 0 | yes | replay correct |
 | C program, `-D_FILE_OFFSET_BITS=64` | 3 | 0 | yes | replay correct |
 | coreutils `cat` | 3 | 0 | yes | replay correct |
-| `python3` script | 863 | 1 | no | fails closed, DIVERGED with the path named |
-| `ruby` script | 2288 | 68 | no | fails closed, DIVERGED |
+| `python3` script | 782 | 0 | yes at the verdict, see note | REPRODUCES hermetically |
+| `ruby` script | 1779 | 1 | no | fails closed, DIVERGED |
 | C program, `gcc -static` | 0 | 0 | n/a | capture REFUSED before it runs |
 
 Every replay above ran with the input file DELETED.
@@ -63,10 +63,42 @@ injecting that descriptor with `SECCOMP_IOCTL_NOTIF_ADDFD`, so the program's
 later `read`, `lseek`, and `fstat` are answered by the kernel and cannot
 diverge on chunk size.
 
+## Serving real files, not memfd copies
+
+The wall below was diagnosed as the memfd itself, and replacing it moved both
+runtimes. Replay now materializes recorded content as REAL files in a scratch
+tree and injects descriptors to those, because two things a copy cannot fake
+depend on it: glibc validates a locale object structurally, and the dynamic
+loader maps a shared object PROT_EXEC and relocates it, which kernels that
+default memfds to noexec refuse outright. The scratch tree is torn down when
+the target exits, and an unrecorded path still DIVERGES rather than falling
+through to the host.
+
+Effect, measured:
+
+- `python3`: 1 divergence to **0**, and the CLI acceptance now asserts a real
+  hermetic reproduction with the input file deleted, not a fail closed.
+- `ruby`: 68 divergences and a segfault to **1** divergence, no crash.
+
+The change also exposed a real bug in the supervisor: `LEAVE()` clears the
+re-entrancy guard, so after its first `open` the supervisor began serving
+ITSELF from the capsule and diverged on its own scratch paths. The memfd path
+never called `open`, which is why it had stayed hidden. The supervisor now
+latches a flag `LEAVE()` cannot clear.
+
+**One honest caveat on python3.** The verdict reproduces: the oracle, the exit
+status, and the divergence count all match the recorded run, which is what the
+product judges. Byte for byte its stdout is not identical, because the
+replayed interpreter emits its line TWICE. That is not stdio buffering
+inherited across the supervisor fork (tested by discarding those buffers, no
+change). The most likely remaining explanation is the interpreter re-executing
+itself during startup under replay, which this layer does not trap. It is
+NOT diagnosed to certainty and is recorded here rather than claimed closed.
+
 ## What still does not work: the wall, with evidence
 
-**`python3` does not replay correctly. One divergence remains and its cause is
-identified, not guessed.**
+**HISTORICAL, now closed by real file serving.** `python3` used to fail with
+one divergence, diagnosed as follows and fixed by the change described above.
 
 ```
 REPROIT:DIVERGENCE {"kind":"file","detail":"/usr/lib/locale/UTF-8/LC_CTYPE"}
@@ -98,19 +130,20 @@ Closing it needs the locale object served as a real file whose mapping and
 metadata match the recording, not a memfd copy. That is the next honest
 increment and it is NOT done.
 
-**`ruby` fails harder, and generalizes the wall differently.** It diverges 68
-times and segfaults, on `/proc/self/maps`, `/etc/ld.so.cache`, and
-`libgcc_s.so.1`. Ruby dlopens native extensions at runtime, and a shared
-object cannot be served from a memfd copy: the dynamic loader maps it
-`PROT_EXEC` and relocates it, so a substituted descriptor breaks the mapping
-rather than feeding it. So the generalization across both runtimes is:
+**`ruby` still does not replay: one divergence remains.** It no longer
+segfaults and no longer diverges on shared objects, which real file serving
+fixed. What is left is a single unrecorded path:
 
-> This boundary serves DATA files correctly. It does not serve objects the
-> kernel and the loader interpret structurally, which today means shared
-> libraries and glibc locale objects. Interpreted runtimes reach for both
-> during startup, which is why neither replays correctly yet.
+```
+REPROIT:DIVERGENCE {"kind":"file","detail":"/var/lib/gems/3.1.0/specifications/default","served":89}
+```
 
-Both fail closed. At the product level the verdict is `DIVERGED`, exit 3. No
+Eighty nine entries serve correctly before it. The remaining path is a gem
+specification directory the replayed interpreter enumerates but the recorded
+run never opened, so the capsule cannot serve it. That is the same class as
+the old locale case, one step later in startup, and it is not closed.
+
+It fails closed. At the product level the verdict is `DIVERGED`, exit 3. No
 configuration reports a passing or reproducing verdict for a replay that did
 not re-execute.
 

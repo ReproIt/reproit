@@ -84,6 +84,13 @@ typedef struct {
     long last_nsec;
     uint64_t rng_state;
 
+    /* Set in the seccomp SUPERVISOR only. The supervisor does its own file
+     * work (materializing recorded content, rebuilding directories) and must
+     * never be captured or served by the boundary it implements. in_shim
+     * cannot express that, because LEAVE() clears it on the way out of the
+     * first interposed call. */
+    int is_supervisor;
+
     /* Set when the replay runner restored the capsule's whole environment
      * block at exec, which makes the live environ authoritative and lets the
      * program's own setenv writes be seen. */
@@ -128,7 +135,7 @@ static inline int reproit_seccomp_start(void) { return 0; }
 
 #define ENTER()                                                                                    \
     shim_init();                                                                                   \
-    if (G.mode == 0 || G.in_shim) {                                                                \
+    if (G.mode == 0 || G.in_shim || G.is_supervisor) {                                             \
         return_real = 1;                                                                           \
     } else {                                                                                       \
         G.in_shim = 1;                                                                             \

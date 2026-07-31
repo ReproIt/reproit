@@ -28,11 +28,12 @@
  *           call itself, writes what it saw into the capsule, and answers
  *           CONTINUE so the kernel runs the real syscall.
  *   replay: the supervisor answers from the capsule alone. A file is served
- *           by writing its recorded bytes into a memfd and injecting that
- *           descriptor with SECCOMP_IOCTL_NOTIF_ADDFD, so the target's later
- *           read, lseek, and fstat are served by the kernel and cannot
- *           diverge on chunk size. A path the capsule never recorded is a
- *           DIVERGENCE and an error return, never a fall through.
+ *           by materializing its recorded bytes as a REAL file in a scratch
+ *           tree and injecting a descriptor to it with
+ *           SECCOMP_IOCTL_NOTIF_ADDFD, so the target's later read, lseek,
+ *           fstat, and mmap are served by the kernel and cannot diverge on
+ *           chunk size. A path the capsule never recorded is a DIVERGENCE and
+ *           an error return, never a fall through.
  *
  * A supervisor that cannot install stays out of the way: the shim keeps
  * working exactly as it did before, and the capsule records that the layer
@@ -49,6 +50,7 @@
 #include <linux/seccomp.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdio_ext.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -302,8 +304,96 @@ static void record_stat_like(kind_t kind, const char *absolute, const void *blob
 
 /* ---- replay ----------------------------------------------------------- */
 
-static int memfd_of(const unsigned char *content, size_t len) {
-    int fd = (int)syscall(SYS_memfd_create, "reproit-replay", 0);
+/* The scratch tree replay materializes recorded content into. One per
+ * supervisor, torn down when the target exits. */
+static char scratch_root[64];
+
+static const char *scratch(void) {
+    if (!scratch_root[0]) {
+        snprintf(scratch_root, sizeof(scratch_root), "/tmp/reproit-replay-XXXXXX");
+        if (!mkdtemp(scratch_root)) {
+            scratch_root[0] = 0;
+            return NULL;
+        }
+    }
+    return scratch_root;
+}
+
+static void scratch_teardown(void) {
+    if (!scratch_root[0]) {
+        return;
+    }
+    /* Bounded and non recursive by construction: the tree is exactly one
+     * level of materialized files plus the rebuilt directories, which are
+     * themselves one level deep. */
+    DIR *root = opendir(scratch_root);
+    if (root) {
+        struct dirent *entry;
+        while ((entry = readdir(root)) != NULL) {
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+                continue;
+            }
+            char path[MAX_PATH_LEN];
+            snprintf(path, sizeof(path), "%s/%s", scratch_root, entry->d_name);
+            if (entry->d_type == DT_DIR) {
+                DIR *nested = opendir(path);
+                if (nested) {
+                    struct dirent *inner;
+                    while ((inner = readdir(nested)) != NULL) {
+                        if (strcmp(inner->d_name, ".") == 0 || strcmp(inner->d_name, "..") == 0) {
+                            continue;
+                        }
+                        char nested_path[MAX_PATH_LEN];
+                        snprintf(nested_path, sizeof(nested_path), "%s/%s", path, inner->d_name);
+                        remove(nested_path);
+                    }
+                    closedir(nested);
+                }
+                rmdir(path);
+            } else {
+                unlink(path);
+            }
+        }
+        closedir(root);
+    }
+    rmdir(scratch_root);
+    scratch_root[0] = 0;
+}
+
+/* A stable scratch name for one recorded path, so a file opened repeatedly is
+ * materialized once. */
+static void scratch_name(const char *absolute, char *out, size_t cap) {
+    unsigned long hash = 1469598103934665603UL;
+    for (const char *p = absolute; *p; p++) {
+        hash ^= (unsigned char)*p;
+        hash *= 1099511628211UL;
+    }
+    const char *base = strrchr(absolute, '/');
+    base = base ? base + 1 : absolute;
+    snprintf(out, cap, "%s/%016lx-%.64s", scratch_root, hash, base);
+}
+
+/* Materialize recorded content as a REAL file and hand back a descriptor to
+ * it.
+ *
+ * This used to be a memfd, which was measured to break two things a copy
+ * cannot fake. glibc validates a locale object structurally, and the dynamic
+ * loader maps a shared object PROT_EXEC and relocates it, which a memfd is
+ * refused for on kernels that default memfds to noexec. A real file on disk
+ * satisfies both, and the program still never touches the host's copy: the
+ * bytes come from the capsule and nothing else. */
+static int materialize(const char *absolute, const unsigned char *content, size_t len) {
+    if (!scratch()) {
+        return -1;
+    }
+    char path[MAX_PATH_LEN];
+    scratch_name(absolute, path, sizeof(path));
+    struct stat existing;
+    if (stat(path, &existing) == 0 && (size_t)existing.st_size == len) {
+        return open(path, O_RDONLY | O_CLOEXEC);
+    }
+    /* 0755 so an executable mapping of a served shared object is permitted. */
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0755);
     if (fd < 0) {
         return -1;
     }
@@ -315,8 +405,8 @@ static int memfd_of(const unsigned char *content, size_t len) {
         }
         off += (size_t)wrote;
     }
-    lseek(fd, 0, SEEK_SET);
-    return fd;
+    close(fd);
+    return open(path, O_RDONLY | O_CLOEXEC);
 }
 
 /* Rebuild a recorded directory as a real one in a scratch tree, so the
@@ -324,8 +414,12 @@ static int memfd_of(const unsigned char *content, size_t len) {
  * carries. Writing dirent structs by hand would duplicate the kernel's
  * layout rules for no gain; materializing the names cannot get it wrong. */
 static int serve_dir(const char *absolute) {
-    char template[] = "/tmp/reproit-replay-dir-XXXXXX";
-    if (!mkdtemp(template)) {
+    if (!scratch()) {
+        return -1;
+    }
+    char template[MAX_PATH_LEN];
+    scratch_name(absolute, template, sizeof(template));
+    if (mkdir(template, 0755) != 0 && errno != EEXIST) {
         return -1;
     }
     for (size_t i = 0; i < G.entry_count; i++) {
@@ -387,7 +481,7 @@ static void serve_open(__u64 id, const char *absolute) {
         respond_error(id, EIO);
         return;
     }
-    int fd = memfd_of(content, len);
+    int fd = materialize(absolute, content, len);
     free(content);
     if (fd < 0) {
         respond_error(id, EIO);
@@ -673,6 +767,7 @@ static void supervisor_loop(void) {
         }
         dispatch(req);
     }
+    scratch_teardown();
     reproit_report();
     _exit(0);
 }
@@ -774,9 +869,17 @@ int reproit_seccomp_start(void) {
     if (child == 0) {
         close(sv[0]);
         sup_target = target;
-        /* The supervisor must never capture its own work, and must never run
-         * the program's main. */
+        /* The supervisor must never capture or serve its own work, and must
+         * never run the program's main. A latching flag, not in_shim, which
+         * LEAVE() clears on the way out of the first interposed call. */
+        G.is_supervisor = 1;
         G.in_shim = 1;
+        /* The fork copies whatever the target had buffered in stdio but not
+         * yet flushed. The supervisor must never re-emit the program's own
+         * output, so those buffers are discarded here rather than inherited:
+         * measured, a python3 replay printed its line twice without it. */
+        __fpurge(stdout);
+        __fpurge(stderr);
         sup_notify = recv_fd(sv[1]);
         close(sv[1]);
         if (sup_notify < 0) {
