@@ -51,6 +51,18 @@ BINARY="${REPROIT_BINARY:?set REPROIT_BINARY to a Linux reproit}"
 cp "$BINARY" "$WORK/reproit"
 BINARY="$WORK/reproit"
 
+# Preflight: the binary must actually LOAD here. A reproit built against a
+# newer glibc than this image, or missing a shared library it links, dies at
+# exec with the loader's message. Downstream that surfaced as "capture did not
+# produce a capsule", which reads like a product defect and is not one, so the
+# loader's own words are surfaced here instead. Both were hit for real: a
+# trixie-built binary needing GLIBC_2.39 on bookworm, and a missing
+# libatspi.so.0.
+if ! LOADER_ERR=$("$BINARY" --version 2>&1); then
+  echo "$LOADER_ERR" >&2
+  fail "ENVIRONMENT: the reproit binary cannot execute in this container (see the loader error above). Build it against this image, or install the library it names. This is not a product failure"
+fi
+
 ITERATIONS="${ITERATIONS:-400}"
 ANCHOR_AT="${ANCHOR_AT:-350}"
 echo "anchored-config-value" > "$CONFIG"
@@ -114,7 +126,25 @@ REST_START=$(date +%s%N)
 "$BINARY" --json internal process-restore --capsule capsule.json > restore.json 2> restore.err
 REST_STATUS=$?
 REST_MS=$(( ($(date +%s%N) - REST_START) / 1000000 ))
+# The restored task is DETACHED: process-restore returns once criu has handed
+# the tail back to the kernel, which is before the tail's first write. Reading
+# the log here raced that write and reported a settled-looking "did not
+# advance" whose line count varied run to run. Poll instead, bounded twice: a
+# hard deadline, and a stall window after which the tail is declared finished.
+WAIT_DEADLINE=$(( SECONDS + 60 ))
 LINES_AFTER=$(wc -l < "$STDOUT_LOG")
+STALL=0
+while [ "$LINES_AFTER" -lt "$ITERATIONS" ] && [ "$SECONDS" -lt "$WAIT_DEADLINE" ]; do
+  sleep 0.2
+  NOW_LINES=$(wc -l < "$STDOUT_LOG")
+  if [ "$NOW_LINES" -eq "$LINES_AFTER" ]; then
+    STALL=$(( STALL + 1 ))
+    [ "$STALL" -ge 25 ] && break
+  else
+    STALL=0
+  fi
+  LINES_AFTER=$NOW_LINES
+done
 REST_VERDICT=$(python3 -c "
 import json
 try:
@@ -123,8 +153,30 @@ except Exception:
     print('unparseable')")
 echo "  restore: verdict=$REST_VERDICT exit=$REST_STATUS"
 echo "  tail resumed from $LINES_AT_ANCHOR to $LINES_AFTER lines of the subject's own output"
-[ "$LINES_AFTER" -gt "$LINES_AT_ANCHOR" ] \
-  || fail "the restored tail did not advance (was $LINES_AT_ANCHOR, now $LINES_AFTER)"
+if [ "$LINES_AFTER" -le "$LINES_AT_ANCHOR" ]; then
+  # Distinguish "criu could not restore here" from "the product regressed".
+  # MEASURED 2026-07-31 on aarch64 Docker Desktop, with a plain looping C
+  # program and no reproit in the picture at all: criu 3.17.1 (bookworm)
+  # restores and the tail advances (87 -> 216); criu 4.1.1 (trixie) hangs in
+  # `criu restore` until killed and the tail never advances, with AND without
+  # --restore-detached. The product handles that correctly, bounding the wait
+  # and refusing with a named reason, so reporting it as a stalled tail here
+  # would blame the product for its environment.
+  REST_REASON=$(python3 -c "
+import json
+try:
+    print(json.load(open('restore.json')).get('reason',''))
+except Exception:
+    print('')" 2>/dev/null)
+  case "$REST_REASON" in
+    *"did not return"*)
+      echo "  criu version here: $(criu --version 2>&1 | head -1)" >&2
+      echo "  product refusal reason: $REST_REASON" >&2
+      fail "ENVIRONMENT: criu could not restore in this container, so the anchor resume case cannot run. criu 3.17.1 restores on this host and criu 4.1.1 hangs; run this in a bookworm based image. The product refused correctly rather than guessing, so this is NOT a product regression"
+      ;;
+  esac
+  fail "the restored tail did not advance (was $LINES_AT_ANCHOR, now $LINES_AFTER)"
+fi
 [ "$LINES_AFTER" -eq "$ITERATIONS" ] \
   || fail "the restored tail did not run to completion ($LINES_AFTER of $ITERATIONS)"
 pass "restoring the anchor resumes the tail and runs it to completion"

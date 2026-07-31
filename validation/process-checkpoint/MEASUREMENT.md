@@ -4,6 +4,26 @@ Platform for every number: Linux aarch64 in Docker (Docker Desktop VM, kernel
 6.12), `criu` 3.17.1 from Debian bookworm, `--privileged`. Reproduce with
 `validation/process-checkpoint/run.sh` inside such a container.
 
+**The bookworm part is load bearing, not incidental.** Measured 2026-07-31:
+`criu` 4.1.1, the version Debian trixie ships, HANGS in `criu restore` on this
+host until it is killed, so the restored tail never resumes. criu 3.17.1
+restores the same image fine. This was measured with a plain looping C program
+and no reproit in the picture at all, with and without `--restore-detached`:
+
+| criu | `--restore-detached` | plain `restore` |
+| --- | --- | --- |
+| 3.17.1 (bookworm) | exit 0, tail 87 -> 216 | tail 88 -> 1371 |
+| 4.1.1 (trixie) | hangs, tail 88 -> 88 | hangs, tail 87 -> 87 |
+
+The product behaves correctly under the hang: it bounds the wait and refuses
+with `criu restore did not return within 120s`, verdict inconclusive, exit 3.
+`run.sh` now recognizes that reason and fails naming criu and the environment,
+because the earlier message ("the restored tail did not advance") read like a
+product regression and was not one. Note also that the reproit binary must be
+built against the SAME image it runs in: a trixie built binary needs GLIBC_2.39
+and dies at exec on bookworm, which `run.sh` now reports as a loader error
+rather than as a failed capture.
+
 The question this work exists to answer: can a capsule skip the head of a long
 run, so a failure at minute 340 of a six hour run is reachable without
 replaying the first 339?

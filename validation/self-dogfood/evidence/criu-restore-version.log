@@ -1,0 +1,56 @@
+criu restore capability, measured 2026-07-31
+aarch64, Docker Desktop VM kernel 6.12, --privileged.
+
+Product-free probe: a plain C program printing a line every 20ms, dumped with
+`criu dump -t <pid> --shell-job`, then restored. No reproit in the picture.
+Run with `--restore-detached` (A) and without it (B). "lines" is the subject's
+own output before the restore and 3s after it.
+
+== debian:trixie, criu 4.1.1 ==
+Version: 4.1.1
+== A: with --restore-detached ==
+  dump: OK
+  restore [A --restore-detached]: exit=137 elapsed=30s
+  lines: 88 -> 88
+== B: without --restore-detached ==
+  dump: OK
+  restore [B ]: exit=137 elapsed=30s
+  lines: 87 -> 87
+
+== debian:bookworm, criu 3.17.1 ==
+Version: 3.17.1
+== A: with --restore-detached ==
+  dump: OK
+  restore [A --restore-detached]: exit=0 elapsed=0s
+  lines: 87 -> 216
+== B: without --restore-detached ==
+  dump: OK
+  restore [B ]: exit=137 elapsed=30s
+  lines: 88 -> 1371
+
+exit=137 is SIGKILL from a 30s `timeout -s KILL`: criu 4.1.1 does not return,
+and SIGTERM alone did not end it. In B on 3.17.1 criu stays in the foreground
+holding the restored tree, which is why it is also killed at 30s, but its tail
+advanced 88 -> 1371, so the restore itself worked. The dump succeeds on both
+versions; only restore differs.
+
+CONCLUSION: criu 4.1.1 cannot restore on this host and criu 3.17.1 can. The
+checkpoint acceptance therefore requires a bookworm based image. The reproit
+binary must be built against that same image: a trixie built binary needs
+GLIBC_2.39 and dies at exec on bookworm.
+
+Product behavior under the hang, which is correct and unchanged: it bounds the
+wait and refuses rather than guessing.
+  {"verdict": "inconclusive", "exit": 3, "outcome": "stale",
+   "reason": "criu restore did not return within 120s"}
+
+Green run of validation/process-checkpoint/run.sh on bookworm with criu
+3.17.1, using a bookworm built binary:
+  captured 802 boundary entries over 400 iterations
+  replay from zero: 2878 ms, verdict=reproduced, exit=1
+  anchored after 350 lines of the subject's own output
+  restore: verdict=inconclusive exit=3
+  tail resumed from 356 to 400 lines of the subject's own output
+  MEASURED: full replay 2878 ms for 400 iterations;
+            the anchor skipped the first 356 of them
+  7 of 7 cases, script exit=0

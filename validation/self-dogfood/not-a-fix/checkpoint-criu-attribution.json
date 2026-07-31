@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "checkpoint-criu-attribution",
+  "changeType": "tooling",
+  "detail": "The checkpoint acceptance failed with 'the restored tail did not advance', which reads like a product regression and is not one. Measured with a plain looping C program and no reproit involved: criu 4.1.1 (Debian trixie) hangs in `criu restore` until killed, with and without --restore-detached, so the tail never resumes; criu 3.17.1 (bookworm) restores the same image and the tail advances. The product already handled the hang correctly, bounding the wait and refusing with the named reason 'criu restore did not return within 120s' at verdict inconclusive, exit 3. No product code changes here. run.sh now attributes that refusal to criu and the environment, preflights that the reproit binary can execute at all (a trixie built binary needs GLIBC_2.39 and died at exec on bookworm, which previously surfaced as 'capture did not produce a capsule'), and polls the post-restore line count under a bounded deadline instead of racing the detached task's first write. Both new failure paths were proven by negative control, and the harness is green at 7 of 7 cases on bookworm with criu 3.17.1.",
+  "evidence": [
+    {
+      "path": "validation/self-dogfood/evidence/criu-restore-version.log",
+      "sha256": "sha256:85f5fcac4535840bfac0273bc35913a03ef1bead6b810711ab32caaa56b9669d"
+    },
+    {
+      "path": "validation/process-checkpoint/run.sh",
+      "sha256": "sha256:2bc9f1f8c09bded1ae2eff2ff9f65fbf2434acc92d028edb274740bb7af5f651"
+    }
+  ]
+}
