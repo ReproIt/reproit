@@ -8,7 +8,17 @@ Platforms:
 - Race measurements: Linux aarch64 in Docker (`gcc:13`, glibc 2.36), on an
   Apple M1 Ultra host.
 - Accelerator measurements: macOS host, Metal via PyTorch MPS, torch 2.7.1.
-- **No NVIDIA GPU is available on this machine**, so nothing about CUDA, cuDNN
+- CUDA measurements: NVIDIA GB10 (Grace Blackwell, compute capability 12.1,
+  driver 580.142, aarch64) at `zgx-5a09`, torch 2.11.0+cu128. This machine is
+  reachable over ssh and is listed in the operator's own validation inventory.
+  An earlier revision of this file said no NVIDIA GPU was available and treated
+  CUDA as unmeasurable. That was WRONG: it read "no NVIDIA GPU in this Mac" as
+  "no NVIDIA GPU reachable" and turned a local limit into a false global claim.
+  Section 3 now carries real CUDA numbers, and they overturn the conclusion the
+  gap had left standing.
+- Still genuinely unmeasured: NCCL collectives and multi-device training, because
+  zgx-5a09 has exactly ONE GPU. That is a hardware limit, not an assumption.
+- Superseded text, kept so the correction is legible: nothing about CUDA, cuDNN
   autotuning, NCCL collectives, or multi-device training was measured here.
 
 Reproduce with `./sweep-race.sh` (Docker) and `uv run --with torch python
@@ -126,7 +136,59 @@ Seeded generation, matmul, and even a four million element reduction were stable
 across processes, so the instability is specific to order-dependent scatter and
 atomics, not to the backend generally.
 
-## 3. The envelope a training-shaped capsule needs
+## 3. Accelerator determinism on CUDA, and why it changes the design
+
+`cuda_determinism.py`, NVIDIA GB10, torch 2.11.0+cu128, eight fresh processes.
+Deliberately the same probes in the same order as section 2 so the backends can
+be compared line for line.
+
+| measurement | distinct values across 8 processes | stable |
+| --- | ---: | --- |
+| seeded `randn` | 1 | YES |
+| `matmul` | 1 | YES |
+| large `sum` reduction | 1 | YES |
+| same reduction repeated in-process | 1 | YES |
+| `scatter_add_` | **8** | **NO** |
+| `scatter_add_` with deterministic mode ON | **1** | **YES** |
+
+Within a single process, same seed, six consecutive calls:
+
+```
+deterministic mode OFF: 6 distinct results out of 6
+deterministic mode ON : 1 distinct result  out of 6
+torch.are_deterministic_algorithms_enabled() -> True
+```
+
+### The finding, and it is the strongest one in this document
+
+The SAME api, on the SAME major torch version, gives OPPOSITE answers on the two
+backends:
+
+| | Metal (MPS) | CUDA (GB10) |
+| --- | --- | --- |
+| `use_deterministic_algorithms(True)` | accepted | accepted |
+| `are_deterministic_algorithms_enabled()` | `True` | `True` |
+| `scatter_add_` across 8 processes, flag ON | **8 distinct** | **1 distinct** |
+| flag is load bearing | **NO** | **YES** |
+
+On CUDA the flag does exactly what it says. On Metal it is accepted, reports
+itself enabled, and changes nothing. Nothing observable at the API level
+distinguishes the two: both accept the call and both answer `True` when asked.
+
+This is decisive for capsule design, and it upgrades the earlier conclusion from
+a Metal quirk to a general rule. A capsule cannot record determinism by
+recording the REQUEST, because the request is identical in the working case and
+the broken one. It must record the request AND a measured probe, and it must
+carry the backend identity, because the same flag means different things on
+different hardware. Recording "deterministic mode: on" alone would be a false
+assurance on Metal and a true one on CUDA, and the capsule has no way to tell
+those apart without measuring.
+
+Note also `CUBLAS_WORKSPACE_CONFIG` was unset in every run above. It changes
+cuBLAS reduction behaviour, so it is recorded by the probe: a replay under a
+different value is a replay under a different contract.
+
+## 4. The envelope a training-shaped capsule needs
 
 | field | recordable today | notes |
 | --- | --- | --- |
@@ -134,16 +196,22 @@ atomics, not to the backend generally.
 | accelerator device and driver version | new capture | not currently collected |
 | full environment block | **yes** | the process capsule already records and restores env |
 | determinism flags requested | small extension | must be paired with the probe below |
-| **measured determinism probe** | **new, and required** | a canary op run twice at capture; without it the flags are a false assurance, per section 2 |
+| **measured determinism probe** | **new, and required** | a canary op run twice at capture; without it the flags are a false assurance on Metal and a true one on CUDA, and sections 2 and 3 show nothing at the API level tells those apart |
+| **backend identity** | **new, and required** | promoted to required by section 3: the same flag is load bearing on CUDA and cosmetic on MPS, so the probe result cannot be interpreted without knowing the backend |
 | per-device RNG streams | new capture | `torch.get_rng_state` and the MPS equivalent, captured at the anchor |
 | data loader order | new capture | either record the sampler seed, or record the emitted index sequence |
-| checkpoint anchor reference | Class C, in flight | a sibling agent is building anchoring |
+| backend-specific determinism env | new capture | `CUBLAS_WORKSPACE_CONFIG` changes cuBLAS reduction behaviour, so a replay under a different value is a replay under a different contract |
+| checkpoint anchor reference | **shipped** | Class C anchoring landed: `process-checkpoint` is a registered gate, 7 of 7 cases |
 
-The two genuinely new pieces are the **measured determinism probe** and the
-**data loader order**. Everything else is an extension of fields the envelope
-already has.
+The genuinely new pieces are the **measured determinism probe**, the **backend
+identity** it must be read against, and the **data loader order**. Everything
+else is an extension of fields the envelope already has.
 
-## 4. Kernel and privileged software: the honest verdict
+Section 3 is why the probe is not optional. A capsule that recorded only the
+requested flag would be correct on CUDA and lying on Metal, while the two are
+indistinguishable through the API: both accept the call, both report `True`.
+
+## 5. Kernel and privileged software: the honest verdict
 
 **No, this architecture cannot reproduce a Linux kernel bug, and no amount of
 extending it will change that.**

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "cuda-determinism-measured",
+  "changeType": "maintenance",
+  "detail": "validation/process-parallel/MEASUREMENT.md stated that no NVIDIA GPU was available and treated CUDA, cuDNN autotuning, NCCL and multi-device training as unmeasurable. That turned a local limit into a false global claim: the Apple host has no NVIDIA GPU, but zgx-5a09 is in the operator's own validation inventory and carries an NVIDIA GB10 (Grace Blackwell, compute capability 12.1, driver 580.142, aarch64). CUDA has now been measured with torch 2.11.0+cu128 using cuda_determinism.py, deliberately the same probes in the same order as the existing Metal probe so the backends compare line for line. The result overturns the conclusion the gap had left standing and strengthens the invariant rather than weakening it. On both backends use_deterministic_algorithms(True) is accepted and are_deterministic_algorithms_enabled() reports True, so nothing at the API level distinguishes them. But scatter_add_ across eight fresh processes gives eight distinct results on MPS with the flag on, and exactly one on CUDA. Within a single process the same split holds: six distinct of six on MPS, one distinct of six on CUDA. So the same flag is load bearing on one backend and cosmetic on the other, which means a capsule cannot record determinism by recording the request, and must record a measured probe together with the backend identity to interpret it. The envelope table is updated to promote backend identity to required and to add CUBLAS_WORKSPACE_CONFIG, which changes cuBLAS reduction behaviour and is recorded by the probe. Still genuinely unmeasured, and stated as such rather than assumed: NCCL collectives and multi-device training, because zgx-5a09 has exactly one GPU. No product code changes here.",
+  "evidence": [
+    {
+      "path": "validation/self-dogfood/evidence/cuda-determinism.log",
+      "sha256": "sha256:273ef803d86011fcf36084c5e792e26602a9532fd76905696aebd70d773fa6e3"
+    },
+    {
+      "path": "validation/process-parallel/MEASUREMENT.md",
+      "sha256": "sha256:1f3569589783e91c7f6e6f19db0af8bf771d79f861c3fead58795d875818c8df"
+    }
+  ]
+}

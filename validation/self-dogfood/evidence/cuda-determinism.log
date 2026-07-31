@@ -1,0 +1,24 @@
+Class D on real NVIDIA hardware, measured 2026-07-31 on zgx-5a09.
+
+An earlier revision of MEASUREMENT.md said no NVIDIA GPU was available and
+treated CUDA as unmeasurable. That read a local limit (no NVIDIA in the Mac)
+as a global one (no NVIDIA reachable). zgx-5a09 is in the operator's own
+validation inventory and carries an NVIDIA GB10.
+
+Raw output, eight fresh processes then a within-process run:
+
+  {"available": true, "torch": "2.11.0+cu128", "device": "NVIDIA GB10", "capability": "12.1", "cublas_workspace_config": "<unset>", "seeded_randn": "34219eeb6a1e10c9", "matmul": "7ac89641d2211408", "reduction_sum": "57779b41a8f81156", "reduction_sum_repeat": "57779b41a8f81156", "scatter_add": "94a9c03c281c2bd7", "deterministic_mode": "accepted", "deterministic_reported": true, "scatter_add_deterministic": "4b515dcbc8b321af"}
+  {"available": true, "torch": "2.11.0+cu128", "device": "NVIDIA GB10", "capability": "12.1", "cublas_workspace_config": "<unset>", "seeded_randn": "34219eeb6a1e10c9", "matmul": "7ac89641d2211408", "reduction_sum": "57779b41a8f81156", "reduction_sum_repeat": "57779b41a8f81156", "scatter_add": "64f89ad38c3a9f91", "deterministic_mode": "accepted", "deterministic_reported": true, "scatter_add_deterministic": "4b515dcbc8b321af"}
+  {"available": true, "torch": "2.11.0+cu128", "device": "NVIDIA GB10", "capability": "12.1", "cublas_workspace_config": "<unset>", "seeded_randn": "34219eeb6a1e10c9", "matmul": "7ac89641d2211408", "reduction_sum": "57779b41a8f81156", "reduction_sum_repeat": "57779b41a8f81156", "scatter_add": "254960bc3e9b012f", "deterministic_mode": "accepted", "deterministic_reported": true, "scatter_add_deterministic": "4b515dcbc8b321af"}
+  {"available": true, "torch": "2.11.0+cu128", "device": "NVIDIA GB10", "capability": "12.1", "cublas_workspace_config": "<unset>", "seeded_randn": "34219eeb6a1e10c9", "matmul": "7ac89641d2211408", "reduction_sum": "57779b41a8f81156", "reduction_sum_repeat": "57779b41a8f81156", "scatter_add": "0988f90b4df86bd4", "deterministic_mode": "accepted", "deterministic_reported": true, "scatter_add_deterministic": "4b515dcbc8b321af"}
+  {"available": true, "torch": "2.11.0+cu128", "device": "NVIDIA GB10", "capability": "12.1", "cublas_workspace_config": "<unset>", "seeded_randn": "34219eeb6a1e10c9", "matmul": "7ac89641d2211408", "reduction_sum": "57779b41a8f81156", "reduction_sum_repeat": "57779b41a8f81156", "scatter_add": "e82866f3fcb40008", "deterministic_mode": "accepted", "deterministic_reported": true, "scatter_add_deterministic": "4b515dcbc8b321af"}
+  {"available": true, "torch": "2.11.0+cu128", "device": "NVIDIA GB10", "capability": "12.1", "cublas_workspace_config": "<unset>", "seeded_randn": "34219eeb6a1e10c9", "matmul": "7ac89641d2211408", "reduction_sum": "57779b41a8f81156", "reduction_sum_repeat": "57779b41a8f81156", "scatter_add": "89de95e35c09abfe", "deterministic_mode": "accepted", "deterministic_reported": true, "scatter_add_deterministic": "4b515dcbc8b321af"}
+  {"available": true, "torch": "2.11.0+cu128", "device": "NVIDIA GB10", "capability": "12.1", "cublas_workspace_config": "<unset>", "seeded_randn": "34219eeb6a1e10c9", "matmul": "7ac89641d2211408", "reduction_sum": "57779b41a8f81156", "reduction_sum_repeat": "57779b41a8f81156", "scatter_add": "d9c8f5b4285b524f", "deterministic_mode": "accepted", "deterministic_reported": true, "scatter_add_deterministic": "4b515dcbc8b321af"}
+  {"available": true, "torch": "2.11.0+cu128", "device": "NVIDIA GB10", "capability": "12.1", "cublas_workspace_config": "<unset>", "seeded_randn": "34219eeb6a1e10c9", "matmul": "7ac89641d2211408", "reduction_sum": "57779b41a8f81156", "reduction_sum_repeat": "57779b41a8f81156", "scatter_add": "c40f6783acbb2b95", "deterministic_mode": "accepted", "deterministic_reported": true, "scatter_add_deterministic": "4b515dcbc8b321af"}
+  --- within process ---
+  deterministic OFF: 6 distinct of 6
+  deterministic ON : 1 distinct of 6
+  reported enabled : True
+  --- host ---
+  NVIDIA GB10, 12.1, 580.142
+  aarch64
