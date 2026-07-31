@@ -4,6 +4,30 @@
 // defect otherwise has to be found eleven times. Every group here was written
 // against a real defect that shipped. Node is the reference implementation, so
 // if these fail the vectors are wrong, not the SDK.
+//
+// The groups are harvested, not invented. Each names the defect it pins:
+//
+//   bounds            a body budget measured in string length rather than
+//                     encoded bytes recorded 4096 characters of "€" inline,
+//                     12288 bytes, past a budget the replayer trusts.
+//   headers           the 32 header cap applied in map or insertion order
+//                     recorded a different subset each run (Go's defect,
+//                     repeated verbatim by Android and by Node here). The cap
+//                     is defined over NAME SORTED order, so the generated case
+//                     is fed in scrambled order on purpose.
+//   redaction.type    the $reproit stub must report the ORIGINAL type and
+//                     length; a stub that says "string" for everything makes
+//                     the recorded shape unreplayable.
+//   redaction.folding secret detection folds case and separators and matches
+//                     on substrings, so `X-Authorization` and `tokenizer` are
+//                     both secret and `username` is not.
+//   redaction.nesting redaction recurses through objects AND arrays; a
+//                     top-level-only scrub shipped keys in plaintext.
+//   redaction.structure  redaction preserves shape: no key dropped, no array
+//                     shortened, an explicit null stays a null VALUE. An
+//                     Android encoder dropping null map values made the
+//                     capsule say {"symbol":"ACME"} where production sent
+//                     {"prices":null}, and replay reproduced a DIFFERENT bug.
 'use strict';
 
 const assert = require('node:assert');
@@ -24,6 +48,20 @@ function bodyOf(spec) {
   return spec.body;
 }
 
+// Build the generated header table in an order that is neither ascending nor
+// descending: 17 is coprime with 40, so `index * 17 % count` is a permutation.
+// A cap applied before sorting therefore keeps a visibly wrong subset instead
+// of accidentally passing on an already-sorted input.
+function scrambledHeaders(spec) {
+  const headers = {};
+  for (let step = 0; step < spec.headerCount; step += 1) {
+    const index = (step * 17) % spec.headerCount;
+    const name = spec.namePattern.replace('%02d', String(index).padStart(2, '0'));
+    headers[name] = spec.value;
+  }
+  return headers;
+}
+
 test('constants match the shared vectors', () => {
   assert.strictEqual(
     instrument.MAX_EXCHANGE_BODY_BYTES,
@@ -42,6 +80,25 @@ test('bounds vectors', () => {
       expected.body = expected.body.repeat[0].repeat(expected.body.repeat[1]);
     }
     assert.deepStrictEqual(actual, expected, `bounds case ${kase.name}`);
+  }
+});
+
+test('header vectors', () => {
+  for (const kase of VECTORS.headers.cases) {
+    if (kase.input) {
+      const actual = instrument.boundedHeaders(kase.input.headers);
+      assert.deepStrictEqual(actual, kase.expect, `headers case ${kase.name}`);
+      continue;
+    }
+    const actual = instrument.boundedHeaders(scrambledHeaders(kase.inputGenerated));
+    const names = Object.keys(actual.headers).sort();
+    assert.strictEqual(names.length, kase.expect.headerCount, `headers case ${kase.name}`);
+    assert.strictEqual(names[0], kase.expect.firstName, 'the cap must be over sorted names');
+    assert.strictEqual(
+      names[names.length - 1],
+      kase.expect.lastName,
+      'the cap must be over sorted names, not the order the headers arrived in',
+    );
   }
 });
 
@@ -66,6 +123,12 @@ test('redaction key folding vectors', () => {
 test('redaction nesting vectors', () => {
   for (const kase of VECTORS.redaction.nestingCases) {
     assert.deepStrictEqual(redact(kase.input), kase.expect, JSON.stringify(kase.input));
+  }
+});
+
+test('redaction structure vectors', () => {
+  for (const kase of VECTORS.redaction.structureCases) {
+    assert.deepStrictEqual(redact(kase.input), kase.expect, `structure case ${kase.name}`);
   }
 });
 

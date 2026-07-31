@@ -29,7 +29,7 @@ use std::sync::{Mutex, OnceLock};
 /// only provable identity (byte count + sha256) remains.
 pub const MAX_EXCHANGE_BODY_BYTES: usize = 8 * 1024;
 /// Recorded response headers are capped to keep events bounded.
-const MAX_EXCHANGE_HEADERS: usize = 32;
+pub const MAX_EXCHANGE_HEADERS: usize = 32;
 /// Rows recorded per db result; beyond it the result is marked truncated.
 const MAX_DB_ROWS: usize = 64;
 /// The structured divergence marker, byte-identical to the Node SDK's.
@@ -296,7 +296,7 @@ fn db_request_matches(recorded: &Value, probe: &Value) -> bool {
 
 /// Bound one exchange body: within budget it is recorded verbatim (JSON
 /// parsed when declared), beyond it only byte count + sha256 + truncated.
-fn bounded_body(body: &[u8], content_type: &str) -> Map<String, Value> {
+pub fn bounded_body(body: &[u8], content_type: &str) -> Map<String, Value> {
     let mut fields = Map::new();
     if body.is_empty() {
         return fields;
@@ -325,11 +325,19 @@ fn bounded_body(body: &[u8], content_type: &str) -> Map<String, Value> {
     fields
 }
 
-fn bounded_headers(headers: impl Iterator<Item = (String, String)>) -> Map<String, Value> {
+/// The cap is defined over NAME SORTED order, never the order the headers
+/// arrived in: Go capped a randomized map first and recorded a different
+/// subset each run, so the same request produced two capsules that disagreed.
+pub fn bounded_headers(headers: impl Iterator<Item = (String, String)>) -> Map<String, Value> {
     let mut fields = Map::new();
-    let map: Map<String, Value> = headers
+    let mut lowered: Vec<(String, String)> = headers
+        .map(|(name, value)| (name.to_ascii_lowercase(), value))
+        .collect();
+    lowered.sort_by(|left, right| left.0.cmp(&right.0));
+    let map: Map<String, Value> = lowered
+        .into_iter()
         .take(MAX_EXCHANGE_HEADERS)
-        .map(|(name, value)| (name.to_ascii_lowercase(), json!(value)))
+        .map(|(name, value)| (name, json!(value)))
         .collect();
     if !map.is_empty() {
         fields.insert("headers".into(), Value::Object(map));

@@ -67,13 +67,26 @@ RP: result=NETWORK-FAILED
 
 ## Marker contract, stated precisely
 
-Mobile replay uses the frozen runner contract, `CAPSULE:HIT` and
-`CAPSULE:MISS`. It does NOT emit the backend SDKs' `REPROIT:DIVERGENCE`
-marker; `grep -rn DIVERGENCE Sources/` returns nothing. These are two
-different contracts: the runner markers predate production capture and the
-fuzz harness consumes them byte-for-byte. Any tooling that expects
-`REPROIT:DIVERGENCE` from a mobile replay is expecting a contract that does
-not exist here.
+Mobile replay emits BOTH markers on an unmatched call, never one instead of
+the other.
+
+`CAPSULE:HIT` and `CAPSULE:MISS` are the frozen runner contract: they predate
+production capture and the fuzz harness consumes them byte-for-byte, so
+nothing about them may move. `REPROIT:DIVERGENCE ` is the structured marker
+the CLI's verdict path parses, written to stderr at the start of its own line
+with a JSON report.
+
+This paragraph previously said the opposite, that `REPROIT:DIVERGENCE` did
+not exist here and tooling expecting it was expecting a contract that did not
+exist. That was true when it was written and became false when the structured
+marker was added additively to all three mobile SDKs. It is corrected rather
+than deleted because the reason for the change is the point: without the
+structured marker a mobile capsule replayed through `reproit check` could
+never report `Diverged` at all.
+
+Agreement across Android, iOS and React Native is measured on real hardware by
+`validation/mobile/divergence-parity/run.sh`; see that directory's
+`MEASUREMENT.md`.
 
 ## What is still not exercised
 

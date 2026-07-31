@@ -20,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
 
 public final class Exchange {
     /** Inline body budget per exchange side; beyond it only provable identity remains. */
@@ -58,15 +59,24 @@ public final class Exchange {
         return fields;
     }
 
-    /** Lowercased header names, capped; absent when empty. */
+    /**
+     * Lowercased header names, capped over NAME SORTED order; absent when
+     * empty. Sorting before the cap is the contract: a map iterated in
+     * arrival order records a different subset per run, so two runs of one
+     * request disagree and the capsule stops matching.
+     */
     static Map<String, Object> boundedHeaders(Map<String, String> headers) {
         Map<String, Object> fields = new LinkedHashMap<>();
         if (headers == null || headers.isEmpty()) return fields;
-        Map<String, Object> capped = new LinkedHashMap<>();
+        Map<String, String> sorted = new TreeMap<>();
         for (Map.Entry<String, String> entry : headers.entrySet()) {
-            if (capped.size() >= MAX_EXCHANGE_HEADERS) break;
             if (entry.getKey() == null || entry.getValue() == null) continue;
-            capped.put(entry.getKey().toLowerCase(Locale.ROOT), entry.getValue());
+            sorted.put(entry.getKey().toLowerCase(Locale.ROOT), entry.getValue());
+        }
+        Map<String, Object> capped = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : sorted.entrySet()) {
+            if (capped.size() >= MAX_EXCHANGE_HEADERS) break;
+            capped.put(entry.getKey(), entry.getValue());
         }
         if (!capped.isEmpty()) fields.put("headers", capped);
         return fields;

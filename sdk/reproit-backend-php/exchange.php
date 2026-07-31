@@ -50,15 +50,17 @@ function bounded_body(?string $body, string $contentType): array
 /** @param array<string, mixed> $headers */
 function bounded_headers(array $headers): array
 {
-    $bounded = [];
+    $lowered = [];
     foreach ($headers as $name => $value) {
-        if (\count($bounded) >= MAX_EXCHANGE_HEADERS) {
-            break;
-        }
-        $bounded[strtolower((string) $name)] = \is_array($value)
+        $lowered[strtolower((string) $name)] = \is_array($value)
             ? implode(', ', array_map('strval', $value))
             : (string) $value;
     }
+    // Sort BEFORE the cap. Capping arrival order records a different subset
+    // whenever the caller's header order shifts, so two runs of one request
+    // disagree and the capsule stops matching.
+    ksort($lowered, SORT_STRING);
+    $bounded = \array_slice($lowered, 0, MAX_EXCHANGE_HEADERS, true);
     return $bounded === [] ? [] : ['headers' => $bounded];
 }
 

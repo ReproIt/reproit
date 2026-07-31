@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "header-cap-sorted-order",
+  "detail": "Nine SDKs took the 32-header exchange cap in arrival order instead of over name-sorted order, so the recorded header subset for one request could differ between two clients, or between two runs, and a capsule then failed to match the live call it was recorded from. This is the Go defect from the original vector, shipped nine more times: node, python, rust, java, dotnet, ruby, php, react native and android all capped before sorting, and go sorted the wire spelling rather than the recorded lowercase name. The cause is not that the rule was unknown. sdk/capture-behavior-v1.json already stated it, in a group named headers, and exactly one SDK of ten executed that group. The fix sorts by the lowercased recorded name before capping in every SDK, wires all nineteen SDKs to the shared vectors, and adds sdk/check-behavior-coverage.py so an SDK cannot be added or left unwired again. No runtime guard can hold this: the defect only shows as a wrong subset in a capsule that is never replayed against the client that recorded it, which is why it survived so long, so the bounded regression is the shared vector itself run against each language. The scoped command below isolates the header group so the affected state fails on the cap ordering alone and not on any other change in this commit.",
+  "test": "sdk/reproit-backend-node/test/behavior-vectors.test.js",
+  "command": [
+    "node",
+    "--test",
+    "--test-name-pattern",
+    "header vectors",
+    "sdk/reproit-backend-node/test/behavior-vectors.test.js"
+  ],
+  "timeoutSeconds": 60,
+  "affectedExitCode": 1,
+  "affectedEvidence": [
+    {
+      "path": "validation/self-dogfood/evidence/header-cap-sorted-order.log",
+      "sha256": "sha256:5171dcd6bfc2d2235f7dd95daf314a89392d76c427c38052a0c059f108959d0c"
+    }
+  ]
+}

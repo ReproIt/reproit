@@ -102,10 +102,16 @@ def _bounded_body(body, content_type):
 
 
 def _bounded_headers(headers):
-    items = list(headers.items() if hasattr(headers, "items") else headers)[
-        :MAX_EXCHANGE_HEADERS
-    ]
-    bounded = {str(name).lower(): str(value) for name, value in items}
+    # The cap is defined over NAME SORTED order, never arrival order: Go capped
+    # a randomized map first and recorded a different subset each run. A dict
+    # here has a stable order per run, but it is the client's arbitrary order,
+    # so two callers sending the same request recorded two different subsets.
+    items = headers.items() if hasattr(headers, "items") else headers
+    lowered = sorted(
+        ((str(name).lower(), str(value)) for name, value in items),
+        key=lambda pair: pair[0],
+    )
+    bounded = dict(lowered[:MAX_EXCHANGE_HEADERS])
     return {"headers": bounded} if bounded else {}
 
 

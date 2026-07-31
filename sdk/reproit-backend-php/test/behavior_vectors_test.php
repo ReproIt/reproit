@@ -8,6 +8,25 @@ declare(strict_types=1);
  * Eleven SDKs hand implement one contract, so a defect otherwise has to be
  * found eleven times. Four instances of one class landed in a single day, and
  * every group here was written against one of them.
+ *
+ * What each group pins, and the real defect behind it:
+ *
+ *   bounds.cases             the inline body budget is BYTES, not characters.
+ *                            4096 euro signs are 12288 bytes; a runtime
+ *                            measuring string length records that inline and
+ *                            the capsule blows a budget replay trusts.
+ *   headers.cases            names lowercase, and the 32 header cap is taken
+ *                            over NAME SORTED order. Go capped a randomized
+ *                            map in arrival order and recorded a different
+ *                            subset every run, so replay was unrepeatable.
+ *   redaction.typeCases      the placeholder carries type and length.
+ *   redaction.foldingCases   which field names fold to secret.
+ *   redaction.nestingCases   redaction reaches nested objects and arrays.
+ *   redaction.structureCases redaction is structure preserving: no key
+ *                            dropped, no array shortened, an explicit null
+ *                            still a null value. An encoder that dropped null
+ *                            map values changed the shape the replay matcher
+ *                            walks, and replay reproduced a DIFFERENT error.
  */
 
 require_once __DIR__ . '/../reproit.php';
@@ -43,6 +62,79 @@ check(
     \ReproitBackend\DIVERGENCE_MARKER === $vectors['constants']['divergenceMarker']
 );
 
+/** Key order is not part of the contract, so compare canonically. */
+function sorted_keys(mixed $value): mixed
+{
+    if (!\is_array($value)) {
+        return $value;
+    }
+    $value = array_map('sorted_keys', $value);
+    if (!array_is_list($value)) {
+        ksort($value);
+    }
+    return $value;
+}
+
+function same(mixed $actual, mixed $expect): bool
+{
+    return json_encode(sorted_keys($actual)) === json_encode(sorted_keys($expect));
+}
+
+// Bounds: `bodyRepeat` keeps the vectors small on disk.
+foreach ($vectors['bounds']['cases'] as $case) {
+    $body = isset($case['input']['bodyRepeat'])
+        ? str_repeat($case['input']['bodyRepeat'][0], $case['input']['bodyRepeat'][1])
+        : $case['input']['body'];
+    $expect = $case['expect'];
+    if (isset($expect['body']['repeat'])) {
+        $expect['body'] = str_repeat($expect['body']['repeat'][0], $expect['body']['repeat'][1]);
+    }
+    $actual = \ReproitBackend\bounded_body($body, $case['input']['contentType']);
+    check(
+        'bounds ' . $case['name'],
+        same($actual, $expect),
+        'got ' . json_encode($actual)
+    );
+}
+
+// Headers: literal cases, then the generated cap case fed in a deterministic
+// NON-sorted order so a cap taken over arrival order keeps the wrong subset.
+foreach ($vectors['headers']['cases'] as $case) {
+    if (isset($case['input'])) {
+        $actual = \ReproitBackend\bounded_headers($case['input']['headers']);
+        check(
+            'headers ' . $case['name'],
+            same($actual, $case['expect']),
+            'got ' . json_encode($actual)
+        );
+        continue;
+    }
+    $spec = $case['inputGenerated'];
+    $count = $spec['headerCount'];
+    $shuffled = [];
+    for ($index = 0; $index < $count; $index++) {
+        // 17 is coprime with 40, so this walks every name exactly once.
+        $shuffled[sprintf($spec['namePattern'], ($index * 17) % $count)] = $spec['value'];
+    }
+    $kept = \ReproitBackend\bounded_headers($shuffled)['headers'] ?? [];
+    $names = array_keys($kept);
+    check(
+        'headers ' . $case['name'] . ' count',
+        \count($names) === $case['expect']['headerCount'],
+        'kept ' . \count($names) . ' headers'
+    );
+    check(
+        'headers ' . $case['name'] . ' first',
+        ($names[0] ?? null) === $case['expect']['firstName'],
+        'the cap must be taken over sorted names; first kept is ' . ($names[0] ?? 'none')
+    );
+    check(
+        'headers ' . $case['name'] . ' last',
+        (end($names) ?: null) === $case['expect']['lastName'],
+        'the cap must be taken over sorted names; last kept is ' . (end($names) ?: 'none')
+    );
+}
+
 // Redaction, type cases
 foreach ($vectors['redaction']['typeCases'] as $case) {
     $actual = \ReproitBackend\redact($case['input']);
@@ -72,6 +164,16 @@ foreach ($vectors['redaction']['nestingCases'] as $case) {
         'nesting ' . json_encode($case['input']),
         json_encode($actual) === json_encode($case['expect']),
         'got ' . json_encode($actual)
+    );
+}
+
+// Redaction, structure preservation
+foreach ($vectors['redaction']['structureCases'] as $case) {
+    $actual = \ReproitBackend\redact($case['input']);
+    check(
+        'structure ' . $case['name'],
+        same($actual, $case['expect']),
+        'got ' . json_encode($actual) . ' want ' . json_encode($case['expect'])
     );
 }
 

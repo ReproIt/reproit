@@ -67,12 +67,17 @@ function boundedBody(body, contentType) {
 }
 
 function boundedHeaders(headers) {
+  // The cap is defined over NAME SORTED order, never insertion order: Go
+  // capped a randomized map first and recorded a different subset each run.
+  // Node's insertion order is stable per run but still arbitrary across
+  // clients, so the same request through two agents recorded two subsets.
   const entries = Object.entries(headers ?? {})
-    .slice(0, MAX_EXCHANGE_HEADERS)
     .map(([name, value]) => [
       String(name).toLowerCase(),
       Array.isArray(value) ? value.join(', ') : String(value),
-    ]);
+    ])
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .slice(0, MAX_EXCHANGE_HEADERS);
   return entries.length === 0 ? {} : { headers: Object.fromEntries(entries) };
 }
 

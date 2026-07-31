@@ -39,6 +39,7 @@ TST="$HERE/src/test/kotlin/com/reproit/android"
   "$TST/IndicatorRelationTest.kt" "$TST/StructuralContractsTest.kt" \
   "$TST/CausalRedactionTest.kt" "$TST/ExchangeCaptureTest.kt" \
   "$TST/CaptureBatchTest.kt" "$TST/EmitCaptureBatch.kt" \
+  "$TST/BehaviorVectorsTest.kt" \
   -d "$OUT/classes.jar"
 
 # Locate kotlin-stdlib next to the compiler. Resolve symlinks (Homebrew points
@@ -75,7 +76,8 @@ java -cp "$OUT/classes.jar:$JUNIT_JAR:$HAMCREST_JAR:$STDLIB" \
   com.reproit.android.StructuralContractsTest \
   com.reproit.android.CausalRedactionTest \
   com.reproit.android.ExchangeCaptureTest \
-  com.reproit.android.CaptureBatchTest
+  com.reproit.android.CaptureBatchTest \
+  com.reproit.android.BehaviorVectorsTest
 
 # Wire proof: the batch the SDK actually builds must satisfy the protocol
 # validator, not just our own assertions about its shape. Skipped with a loud

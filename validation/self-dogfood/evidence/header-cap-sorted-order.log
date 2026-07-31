@@ -1,0 +1,46 @@
+The 32-header cap taken in arrival order rather than over name-sorted order,
+observed in nine SDKs. Captured by reverting only the Node fix in
+sdk/reproit-backend-node/instrument.js (boundedHeaders) and running the scoped
+regression command against the landed vector test.
+
+$ node --test --test-name-pattern "header vectors" \
+    sdk/reproit-backend-node/test/behavior-vectors.test.js
+
+✖ header vectors (1.545875ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+
+✖ failing tests:
+
+test at sdk/reproit-backend-node/test/behavior-vectors.test.js:86:1
+✖ header vectors
+  AssertionError [ERR_ASSERTION]: the cap must be over sorted names, not the
+  order the headers arrived in
+
+  'x-h39' !== 'x-h31'
+
+exit status 1
+
+The same defect, in the same words, in the other eight:
+
+  reproit-backend-py       _bounded_headers  list(items)[:32] before sorted()
+  reproit-backend-rs       bounded_headers   .take(32) on the raw iterator
+  reproit-backend-java     boundedHeaders    LinkedHashMap, arrival order
+  reproit-backend-dotnet   BoundedHeaders    List<KeyValuePair>, arrival order
+  reproit-backend-rb       bounded_headers   .first(32) on the raw hash
+  reproit-backend-php      bounded_headers   array_slice before ksort
+  reproit-react-native     boundedHeaders    Object.entries(...).slice(0, 32)
+  reproit-android          boundedHeaders    entries.take(32), no sort
+  reproit-backend-go       boundedHeaders    sorted the wire spelling, not the
+                                             recorded lowercase name
+
+Go was the SDK the vector was originally written against, in 2026, after its
+randomized map iteration recorded a different header subset on every run. The
+vector describing sorted order then sat in sdk/capture-behavior-v1.json while
+nine more SDKs shipped the same defect, because only one SDK executed the
+headers group.
