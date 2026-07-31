@@ -91,3 +91,30 @@ policy gate evaluates it:
   check-harness-integrity.py exists for: a gate that cannot report is
   indistinguishable from one that is merely slow, so it reads as fine.
   Fixed by matching macos-ax, which was already correctly opt-in.
+
+4. Job "signature-parity", step "Linux native SDK parity": ModuleNotFoundError.
+
+  ModuleNotFoundError: No module named 'reproit_linux'
+
+  sdk/reproit-linux/tests/test_behavior_vectors.py imported its own
+  package by name. CI runs it as a bare path from the repository root:
+    283:          python3 sdk/reproit-linux/tests/test_parity.py
+    284:          python3 sdk/reproit-linux/tests/test_capture.py
+    285:          python3 sdk/reproit-linux/tests/test_context.py
+    286:          python3 sdk/reproit-linux/tests/test_behavior_vectors.py
+
+  Three sibling suites were fine for three different reasons, so there was
+  no single house style to copy:
+    sdk/reproit-backend-py   working-directory: sdk/reproit-backend-py
+    sdk/reproit-tui-py       PYTHONPATH=sdk/reproit-tui-py
+    sdk/reproit-linux/...    in-file sys.path.insert (test_capture.py)
+  and test_parity.py needs none of them because it loads modules by
+  explicit file path through importlib.
+
+  The fifth structural case pins the rule. Its FIRST version was vacuous:
+  it searched for the bare string "sys.path", which also appears in the
+  comment explaining the insert, so it passed with the defect put back.
+  The negative control caught that. It now matches the statement:
+
+    negative control, sys.path.insert removed -> FAILED (failures=1)
+    restored                                  -> OK (5 cases)

@@ -17,9 +17,17 @@ changing it would change bytes the fuzz harness compares.
 """
 
 import json
+import os
+import sys
 from pathlib import Path
 
-from reproit_linux.causal import _SECRET, _redact
+# Same as the sibling suites: CI runs these by path from the repository root,
+# so the SDK root is not on sys.path and a bare import finds nothing.
+HERE = os.path.dirname(os.path.abspath(__file__))
+SDK_ROOT = os.path.dirname(HERE)
+sys.path.insert(0, SDK_ROOT)
+
+from reproit_linux.causal import _SECRET, _redact  # noqa: E402
 
 # ../capture-behavior-v1.json relative to the SDK root, which is one level up
 # from tests/.

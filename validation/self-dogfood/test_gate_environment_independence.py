@@ -36,11 +36,19 @@ ROOT = Path(__file__).resolve().parents[2]
 RN_BUNDLE = ROOT / "runners/rn/runner.mjs"
 PY_CONFTEST = ROOT / "sdk/reproit-backend-py/tests/conftest.py"
 WORKFLOW = ROOT / ".github/workflows/native-gates.yml"
+CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
 AMBIENT_CODE_IDENTITY = ("REPROIT_COMMIT", "GITHUB_SHA")
 
 # A static ESM import of webdriverio, e.g. `import{remote as Yt}from"webdriverio"`.
 STATIC_WEBDRIVERIO = re.compile(r"(?<!await )\bimport\s*\{[^}]*\}\s*from\s*[\"']webdriverio[\"']")
 DYNAMIC_WEBDRIVERIO = re.compile(r"import\s*\(\s*[\"']webdriverio[\"']\s*\)")
+# A bare package import, e.g. `from reproit_linux.causal import x`. This is the
+# only form that depends on where the interpreter was started.
+BARE_SDK_IMPORT = re.compile(r"^\s*(from|import)\s+reproit[_\w]*", re.MULTILINE)
+# The STATEMENT, not the token. Checking for the bare string "sys.path" matched
+# the comment explaining why the insert was needed, so the first version of
+# this case passed with the defect reintroduced. Caught by its own control.
+SYS_PATH_SETUP = re.compile(r"sys\.path\.(insert|append)\s*\(")
 
 
 class GateEnvironmentIndependenceTests(unittest.TestCase):
@@ -114,6 +122,48 @@ class GateEnvironmentIndependenceTests(unittest.TestCase):
             )
 
 
+    def test_python_sdk_suites_run_by_path_can_find_their_own_module(self) -> None:
+        # The fourth instance. A new suite imported `reproit_linux` with no
+        # sys.path setup and CI runs it by path from the repository root, so the
+        # SDK root was not importable and the job died on ModuleNotFoundError.
+        # It passed locally only because it was run from inside its own package.
+        # Three sibling suites were fine for three DIFFERENT reasons (a
+        # working-directory, an explicit PYTHONPATH, an in-file sys.path
+        # insert), which is why reading one of them as the house style is not
+        # enough: the rule is that each invocation must supply the path by one
+        # of those means, not that they all look alike.
+        workflow = CI_WORKFLOW.read_text(encoding="utf-8", errors="replace")
+        for step, command in _python_sdk_invocations(workflow):
+            if "PYTHONPATH=" in command or "working-directory" in step:
+                continue
+            path = ROOT / re.search(r"(sdk/[\w./-]+\.py)", command).group(1)
+            source = path.read_text(encoding="utf-8", errors="replace")
+            if not BARE_SDK_IMPORT.search(source):
+                # Loading modules by explicit file path (importlib) is the third
+                # legitimate way and needs no sys.path. Only a bare package
+                # import depends on where the interpreter was started.
+                continue
+            self.assertIsNotNone(
+                SYS_PATH_SETUP.search(source),
+                f"{path.relative_to(ROOT)} imports its own package by name and "
+                "is run by path from the repository root with no PYTHONPATH and "
+                "no working-directory, so the import fails in CI while passing "
+                "when the suite is run from inside the package",
+            )
+
+
+def _python_sdk_invocations(workflow: str) -> list[tuple[str, str]]:
+    """Yield (enclosing step text, command) for `python3 sdk/.../*.py` lines."""
+    found = []
+    steps = re.split(r"\n(?=      - )", workflow)
+    for step in steps:
+        for line in step.splitlines():
+            command = line.strip()
+            if re.match(r"^(\S+=\S+\s+)*python3?\s+sdk/[\w./-]+\.py", command):
+                found.append((step, command))
+    return found
+
+
 def _jobs(text: str) -> list[tuple[str, str]]:
     """Split the `jobs:` mapping into (name, body) at two-space indentation."""
     jobs, name, lines = [], None, []
@@ -139,8 +189,8 @@ def main() -> int:
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(GateEnvironmentIndependenceTests)
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     # Case accounting: an empty or short run is the failure this file exists for.
-    if result.testsRun != 4:
-        print(f"expected 4 cases, ran {result.testsRun}", file=sys.stderr)
+    if result.testsRun != 5:
+        print(f"expected 5 cases, ran {result.testsRun}", file=sys.stderr)
         return 1
     return 0 if result.wasSuccessful() else 1
 
