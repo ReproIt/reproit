@@ -43,6 +43,15 @@ import {
   loadValueNodes,
 } from './shared/signature.mjs';
 import { loadFuzz, rng, INJECTED_VALUES, expandEnv } from './shared/fuzz.mjs';
+// The in-page DOM predicates, the selector resolver and the content-bug oracle,
+// SHARED with the web and Tauri runners. This runner used to carry its own
+// copies, and they disagreed with each other: snapshot() indexed one tappable
+// set while gtCollect() indexed a wider one, so the same `role:textfield#N`
+// named two different elements in one run. See shared/dom-walk.mjs.
+import {
+  detectContentBugs,
+  resolveStructuralTarget,
+} from './shared/dom-walk.mjs';
 // CHOICE-ANOMALY oracle, shared with the web runner. choiceAnomalyInPage is the
 // self-contained in-page pass (it works over page.evaluate here because the
 // Electron renderer is Chromium, exactly like the web runner's CDP path); the

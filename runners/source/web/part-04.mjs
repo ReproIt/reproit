@@ -886,3 +886,12 @@ async function emitGroundtruth(page, cdp, sig) {
 //   key:name:<v>   -> [name="v"]
 //   role:<role>#<idx> -> the idx-th visible tappable of that role, document order
 async function tap(page, sel, opts) {
+  // Identity first, through the SHARED resolver: whatever the snapshot indexed,
+  // this finds. The element crosses back as a handle so the activation pass
+  // below never re-derives it (a second walk is a second chance to disagree).
+  const handle = await page.evaluateHandle(resolveStructuralTarget, sel).catch(() => null);
+  const target = handle ? handle.asElement() : null;
+  if (!target) {
+    if (handle) await handle.dispose().catch(() => {});
+    return false;
+  }

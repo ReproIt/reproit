@@ -30,6 +30,14 @@ import {
   loadValueNodes,
 } from './shared/signature.mjs';
 import { loadFuzz, rng, INJECTED_VALUES, expandEnv } from './shared/fuzz.mjs';
+// The in-page DOM predicates, the selector resolver and the content-bug oracle,
+// SHARED with the web and Electron runners. WebDriver takes a body STRING, so
+// this runner interpolates the shared source rather than passing the function;
+// it is the same authored code either way. See shared/dom-walk.mjs.
+import {
+  RESOLVE_STRUCTURAL_TARGET_SRC,
+  DETECT_CONTENT_BUGS_SRC,
+} from './shared/dom-walk.mjs';
 import { execFileSync, spawn } from 'node:child_process';
 import { platform as osPlatform } from 'node:os';
 // CHOICE-ANOMALY oracle, shared with the web + electron runners. We inject the

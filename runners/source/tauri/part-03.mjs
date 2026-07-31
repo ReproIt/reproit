@@ -367,129 +367,39 @@ async function drainErrors(browser) {
 //   key:id:<v>     -> #<v>
 //   key:name:<v>   -> [name="v"]
 //   role:<role>#<idx> -> the idx-th visible tappable of that role, document order
+//
+// IDENTITY is the shared resolver, byte-identical to the web and Electron
+// runners. ACTIVATION is still el.click() here, and that is a STATED GAP, not a
+// parity claim: el.click() dispatches an untrusted event straight at the node,
+// so it cannot be intercepted by an overlay the way the web runner's real
+// pointer click can. WebDriver does expose a real pointer (the W3C Actions
+// API), so this is unimplemented rather than unavailable; it is left alone here
+// because changing it cannot be proven without tauri-driver and the platform
+// webdriver, which this change had no way to drive.
 const TAP_JS = `
-  const s = arguments[0];
-  const visible = (el) => {
-    const r = el.getBoundingClientRect();
-    if (r.width === 0 || r.height === 0) return false;
-    const st = getComputedStyle(el);
-    return st.visibility !== 'hidden' && st.display !== 'none';
-  };
-  const cssEscape = (v) => (
-    window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\\\]/g, '\\\\$&')
-  );
-
-  const doClick = (el) => {
-    // Stash the clicked element for the post-tap oracle probes (the focus-loss
-    // guards read it in-page). A window ref only, never a DOM mutation, so the
-    // signature/content/mutation oracles are untouched.
-    try {
-      window.__reproitLastTap = el;
-      // FOCUS-LOSS probe: a real user click gives the control keyboard focus
-      // before activating it; el.click() alone does not. When the walk armed
-      // the probe pre-tap (focusLossArm), focus first (no scroll, so the
-      // viewport-dependent snapshot is untouched) so the oracle can observe
-      // whether the app's re-render then drops focus back to <body>.
-      if (window.__reproitFocusProbe) {
-        try { el.focus({ preventScroll: true }); } catch (_) {}
-        window.__reproitTapFocused = document.activeElement === el;
-      }
-    } catch (_) {}
-    el.click();
-    return true;
-  };
-
-  if (s.startsWith('key:')) {
-    const body = s.slice(4);
-    const ci = body.indexOf(':');
-    if (ci < 0) return false;
-    const kind = body.slice(0, ci);
-    const val = body.slice(ci + 1);
-    let el = null;
-    if (kind === 'testid') {
-      el = document.querySelector('[data-testid="' + cssEscape(val) + '"]')
-        || document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
-    } else if (kind === 'id') {
-      el = document.getElementById(val);
-    } else if (kind === 'name') {
-      el = document.querySelector('[name="' + cssEscape(val) + '"]');
+  const resolveStructuralTarget = ${RESOLVE_STRUCTURAL_TARGET_SRC};
+  const el = resolveStructuralTarget(arguments[0]);
+  if (!el) return false;
+  // Stash the clicked element for the post-tap oracle probes (the focus-loss
+  // guards read it in-page). A window ref only, never a DOM mutation, so the
+  // signature/content/mutation oracles are untouched.
+  try {
+    window.__reproitLastTap = el;
+    // UNCHANGED, deliberately. The web and Electron runners now OBSERVE focus on
+    // the real click instead of calling el.focus() first (the synthetic focus is
+    // ignored by focusLossCheck, so it bought nothing, while it parked focus on
+    // the control and manufactured the \`pre === tapped\` precondition for the
+    // NEXT action). The same correction belongs here, but it changes what this
+    // runner reports and can only be proven against tauri-driver plus the
+    // platform webdriver, which this change had no way to drive. Left alone and
+    // stated rather than changed on reasoning alone.
+    if (window.__reproitFocusProbe) {
+      try { el.focus({ preventScroll: true }); } catch (_) {}
+      window.__reproitTapFocused = document.activeElement === el;
     }
-    if (!el) return false;
-    return doClick(el);
-  }
-
-  if (s.startsWith('role:')) {
-    const hash = s.indexOf('#');
-    if (hash < 0) return false;
-    const role = s.slice('role:'.length, hash);
-    const idx = parseInt(s.slice(hash + 1), 10);
-    if (!(idx >= 0)) return false;
-    const ROLES = {
-      screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
-      icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
-      slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
-    };
-    const roleOf = (el) => {
-      const tag = el.tagName.toLowerCase();
-      const ariaRole = (el.getAttribute('role') || '').toLowerCase();
-      if (ariaRole) {
-        if (
-          ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox'
-        ) return 'textfield';
-        if (ariaRole === 'heading') return 'header';
-        if (ariaRole === 'img') return 'image';
-        if (ariaRole === 'switch') return 'switch';
-        if (ariaRole === 'link') return 'link';
-        if (ariaRole === 'button') return 'button';
-        if (ROLES[ariaRole]) return ariaRole;
-      }
-      if (tag === 'input') {
-        const t = (el.getAttribute('type') || 'text').toLowerCase();
-        if (t === 'checkbox') return 'checkbox';
-        if (t === 'radio') return 'radio';
-        if (t === 'range') return 'slider';
-        if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
-        return 'textfield';
-      }
-      if (tag === 'textarea' || tag === 'select') return 'textfield';
-      if (tag === 'a') return 'link';
-      if (tag === 'button') return 'button';
-      if (tag === 'img' || tag === 'svg') return 'image';
-      if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
-      if (tag === 'ul' || tag === 'ol') return 'list';
-      if (tag === 'li') return 'listitem';
-      if (tag === 'dialog') return 'dialog';
-      if (tag === 'nav' || tag === 'menu') return 'menu';
-      return 'node';
-    };
-    const interactive = (el, r) => {
-      const tag = el.tagName.toLowerCase();
-      if (['a', 'button', 'select'].includes(tag)) return true;
-      if (tag === 'input') {
-        const t = (el.getAttribute('type') || 'text').toLowerCase();
-        return !['text', 'password', 'email', 'number', 'search'].includes(t);
-      }
-      if (
-        ['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(r)
-      ) return true;
-      if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
-      return false;
-    };
-    let seen = -1, target = null;
-    const walk = (el) => {
-      if (target) return;
-      if (!visible(el)) { for (const c of el.children) walk(c); return; }
-      const r = roleOf(el);
-      if (interactive(el, r) && r === role) { seen++; if (seen === idx) { target = el; return; } }
-      for (const c of el.children) walk(c);
-    };
-    const root = document.body || document.documentElement;
-    if (root) walk(root);
-    if (!target) return false;
-    return doClick(target);
-  }
-
-  return false;
+  } catch (_) {}
+  el.click();
+  return true;
 `;
 
 async function tap(browser, sel) {
@@ -526,100 +436,9 @@ async function tap(browser, sel) {
 // Runs via executeAsync (it awaits the scroll settle). Returns
 // { x, y, w, h, videoW, videoH } or null.
 const RESOLVE_CLIP_BOX_JS = `
-  const s = arguments[0];
   const done = arguments[arguments.length - 1];
-  const visible = (el) => {
-    const r = el.getBoundingClientRect();
-    if (r.width === 0 || r.height === 0) return false;
-    const st = getComputedStyle(el);
-    return st.visibility !== 'hidden' && st.display !== 'none';
-  };
-  const cssEscape = (v) => (
-    window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\\\]/g, '\\\\$&')
-  );
-  let el = null;
-  if (s.startsWith('key:')) {
-    const body = s.slice(4);
-    const ci = body.indexOf(':');
-    const kind = ci >= 0 ? body.slice(0, ci) : '';
-    const val = ci >= 0 ? body.slice(ci + 1) : body;
-    if (kind === 'testid') {
-      el = document.querySelector('[data-testid="' + cssEscape(val) + '"]')
-        || document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
-    } else if (kind === 'id') {
-      el = document.getElementById(val);
-    } else if (kind === 'name') {
-      el = document.querySelector('[name="' + cssEscape(val) + '"]');
-    }
-  } else if (s.startsWith('role:')) {
-    const hash = s.indexOf('#');
-    if (hash >= 0) {
-      const role = s.slice('role:'.length, hash);
-      const idx = parseInt(s.slice(hash + 1), 10);
-      const ROLES = {
-        screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
-        icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
-        slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
-      };
-      const roleOf = (n) => {
-        const tag = n.tagName.toLowerCase();
-        const ariaRole = (n.getAttribute('role') || '').toLowerCase();
-        if (ariaRole) {
-          if (
-            ariaRole === 'textbox' || ariaRole === 'searchbox' ||
-            ariaRole === 'combobox'
-          ) return 'textfield';
-          if (ariaRole === 'heading') return 'header';
-          if (ariaRole === 'img') return 'image';
-          if (ariaRole === 'switch') return 'switch';
-          if (ariaRole === 'link') return 'link';
-          if (ariaRole === 'button') return 'button';
-          if (ROLES[ariaRole]) return ariaRole;
-        }
-        if (tag === 'input') {
-          const t = (n.getAttribute('type') || 'text').toLowerCase();
-          if (t === 'checkbox') return 'checkbox';
-          if (t === 'radio') return 'radio';
-          if (t === 'range') return 'slider';
-          if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
-          return 'textfield';
-        }
-        if (tag === 'textarea' || tag === 'select') return 'textfield';
-        if (tag === 'a') return 'link';
-        if (tag === 'button') return 'button';
-        if (tag === 'img' || tag === 'svg') return 'image';
-        if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
-        if (tag === 'ul' || tag === 'ol') return 'list';
-        if (tag === 'li') return 'listitem';
-        if (tag === 'dialog') return 'dialog';
-        if (tag === 'nav' || tag === 'menu') return 'menu';
-        return 'node';
-      };
-      const interactive = (n, r) => {
-        const tag = n.tagName.toLowerCase();
-        if (['a', 'button', 'select'].includes(tag)) return true;
-        if (tag === 'input') {
-          const t = (n.getAttribute('type') || 'text').toLowerCase();
-          return !['text', 'password', 'email', 'number', 'search'].includes(t);
-        }
-        if (
-          ['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(r)
-        ) return true;
-        if (n.hasAttribute('onclick') || n.tabIndex >= 0) return true;
-        return false;
-      };
-      let seen = -1;
-      const walk = (n) => {
-        if (el) return;
-        if (!visible(n)) { for (const c of n.children) walk(c); return; }
-        const r = roleOf(n);
-        if (interactive(n, r) && r === role) { seen++; if (seen === idx) { el = n; return; } }
-        for (const c of n.children) walk(c);
-      };
-      const root = document.body || document.documentElement;
-      if (root && idx >= 0) walk(root);
-    }
-  }
+  const resolveStructuralTarget = ${RESOLVE_STRUCTURAL_TARGET_SRC};
+  const el = resolveStructuralTarget(arguments[0]);
   if (!el) { done(null); return; }
   // Scroll INSTANTLY (not smooth): a smooth animation is still moving when we
   // measure, so the rect would diverge from the settled frame the video holds.
