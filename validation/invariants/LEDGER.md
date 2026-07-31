@@ -112,23 +112,22 @@ The honest gap list. Each of these is defended in production code, and nothing
 names it. They are ranked, most dangerous first, by what a silent regression
 would cost.
 
-1. **The `Diverged` verdict has no test anywhere in the crate.** `Diverged` appears
-   in three production files and zero Rust test files. Its only executable
-   proof is at the script level (`validation/process/run.sh` and seven SDK
-   hermetic scripts assert exit 3), which means the verdict's *internal*
-   semantics, that a divergence is neither reproduced nor fixed and can never
-   certify a fix, rest entirely on end-to-end shell assertions. A refactor that
-   collapsed `Diverged` into `Inconclusive` would keep every script green while
-   destroying the distinction. This is the single most dangerous gap, because
-   `Diverged` is the newest verdict and the one the drift-quarantine behavior
-   depends on.
+1. CLOSED 2026-07-31 by `crates/reproit/src/workflows/verdict_lattice.rs` and
+   `hermetic.rs::diverged_is_its_own_verdict_and_never_certifies`. `Diverged`
+   had zero Rust tests and rested entirely on shell assertions of exit 3, so a
+   refactor collapsing it into `Inconclusive` would have kept every script
+   green while destroying the distinction. It now has unit proof that a
+   divergence is neither reproduced nor fixed and can never certify, and the
+   lattice's mappings are exhaustive `match`es, so that collapse no longer
+   compiles.
 
-2. **`Inconclusive` is named in seven production files and no unit test.** The
-   architecture ratchet `absence_never_merges_with_a_negative_result` checks
-   that the *token* appears in four named files, which is a spelling check, not
-   a behavioral one. `backend_verify.rs` exercises the fix and retraction paths
-   but never asserts that an inconclusive run fails closed. The rule this
-   project paid the most for is therefore enforced by a grep.
+2. CLOSED 2026-07-31 by `verdict_lattice.rs`, principally
+   `nothing_unevaluable_or_drifted_ever_exits_zero` and
+   `the_exit_code_contract_matches_the_axis_in_both_vocabularies`. The rule
+   this project paid the most for was previously enforced by a grep: the
+   ratchet `absence_never_merges_with_a_negative_result` checked only that the
+   TOKEN appeared in four named files. `Inconclusive` now has behavioral proof
+   that it fails closed and never exits zero, across the process hop.
 
 3. CLOSED 2026-07-31 by `validation/mobile/divergence-parity/run.sh`
    (`mobile-divergence-parity` above). One capsule and one unmatched call, taken
@@ -189,8 +188,15 @@ would cost.
    provider fold, `Diverged` exiting zero, and `check`'s exit-code 3 read as
    clean across the process hop.
 
-Closing gaps 1 and 2 is cheap and should happen before any refactor that touches
-verdict handling; the lattice already defends both structurally (a `Diverged`
-collapsed into `Inconclusive` no longer compiles, and every "could not evaluate"
-state is asserted to fail closed in all eight vocabularies), leaving their
-per-path behavioral proof as the remaining work.
+All six gaps this list has ever named are now closed. That is a statement about
+this list, not about the system: a closed list means every gap someone WROTE
+DOWN has a proof, and the next real gap is by definition one nobody has thought
+to name yet. The list earns its keep only if it keeps growing, so a sweep that
+adds no new entry should be read as a sweep that did not look hard enough
+rather than as a clean bill of health.
+
+One rule for maintaining it, learned by this list going stale: gaps 1 and 2 sat
+here described as open for some time after `verdict_lattice.rs` had actually
+closed them, because the prose and the invariant table are maintained
+separately. Understating coverage is the safe direction to drift, but it is
+still drift. Mark a gap CLOSED in the same change that closes it.

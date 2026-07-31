@@ -99,7 +99,10 @@ fn bounds_vectors() {
         ));
         let mut expect = case["expect"].clone();
         if let Some(repeat) = expect.get("body").and_then(|body| body.get("repeat")) {
-            let text = repeat[0].as_str().unwrap().repeat(repeat[1].as_u64().unwrap() as usize);
+            let text = repeat[0]
+                .as_str()
+                .unwrap()
+                .repeat(repeat[1].as_u64().unwrap() as usize);
             expect["body"] = Value::String(text);
         }
         assert_eq!(actual, expect, "bounds case {}", case["name"]);
@@ -119,8 +122,9 @@ fn header_vectors() {
                 .iter()
                 .map(|(key, value)| (key.clone(), value.as_str().unwrap().to_string()))
                 .collect();
-            let actual =
-                Value::Object(reproit_backend::instrument::bounded_headers(pairs.into_iter()));
+            let actual = Value::Object(reproit_backend::instrument::bounded_headers(
+                pairs.into_iter(),
+            ));
             assert_eq!(actual, case["expect"], "headers case {name}");
             continue;
         }

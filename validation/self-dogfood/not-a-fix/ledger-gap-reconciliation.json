@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "ledger-gap-reconciliation",
+  "changeType": "maintenance",
+  "detail": "validation/invariants/LEDGER.md keeps two things that are maintained separately: a table of invariants with their proofs, and a prose list of known gaps. They drifted. Gaps 1 (the Diverged verdict had no Rust test) and 2 (Inconclusive was enforced by a grep rather than by behavior) were both closed in substance by crates/reproit/src/workflows/verdict_lattice.rs, together with hermetic.rs::diverged_is_its_own_verdict_and_never_certifies, nothing_unevaluable_or_drifted_ever_exits_zero, and the_exit_code_contract_matches_the_axis_in_both_vocabularies, while the prose still described them as open. Understating coverage is the safe direction for a ledger to drift, since it overstates risk rather than hiding it, but it is still drift, and a ledger nobody trusts to be current stops being read. This change marks both closed with the tests that close them, and rewrites the closing paragraph to state what a fully closed list does and does not mean: every gap someone wrote down has a proof, and the next real gap is by definition one nobody has thought to name yet, so a sweep that adds no new entry should be read as a sweep that did not look hard enough rather than as a clean bill of health. It also records the maintenance rule the drift taught: mark a gap CLOSED in the same change that closes it. No product code changes here. The only non-documentation edit is rustfmt on sdk/reproit-backend-rs/tests/behavior_vectors.rs, which arrived unformatted from the SDK vector work.",
+  "evidence": [
+    {
+      "path": "validation/invariants/LEDGER.md",
+      "sha256": "sha256:c9a961b99fd2451f407b40ea93fd703ae2fd865beb97cc8287df1c0741acfcaf"
+    }
+  ]
+}
