@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "oracle-coverage-declared",
+  "detail": "A runner that never emits an oracle's marker reports no finding for that oracle, and a report with no finding reads exactly like a checked, clean result. This is the product's core failure class wearing a different costume: absence of an observed failure presented as evidence of no failure. Nothing stated which of the 28 oracle markers each of the 9 runners actually evaluates. The only record was prose in docs/oracles.md, and it was wrong in both directions: it claimed jank on the Flutter explorer, which emits no jank marker anywhere; it claimed occlusion for geometry-capable UI runners when only web, Electron and Tauri emit it; it claimed flicker for runners with a DOM presentation stream when Tauri, which has one, emitted nothing; and it understated broken-asset, blank-screen, security, zoom-reflow and duplicate-submit. The concrete defect: the Tauri runner carried the flicker oracle's two execute() source strings, complete and never called, so a Tauri report showed no flicker finding for the same reason a genuinely clean app does. The dead probe is removed and the gap is now declared rather than implied. validation/oracles/coverage.json states all 252 (marker, runner) pairs: 106 evaluated with the emitting source as evidence, 83 unavailable with the reason the platform cannot express them, and 63 unimplemented. check.py proves every claim against the runner sources rather than trusting the ledger, and fails closed on a parsed marker with no row, a row no parser reads, a runner stated twice or not at all, an unavailable claim with no reason, and a registered platform no runner covers. It also generates the docs table so the prose cannot drift again. Seven negative controls, one per refusal, all passing.",
+  "test": "validation/oracles/test_check.py",
+  "command": [
+    "python3",
+    "validation/oracles/test_check.py"
+  ],
+  "timeoutSeconds": 120,
+  "affectedExitCode": 1,
+  "affectedEvidence": [
+    {
+      "path": "validation/oracles/coverage.json",
+      "sha256": "sha256:03d2dda517dbb8413c6f2b85b1c8b9d4da8b302530f6a28d3d25d251c47b5cb5"
+    }
+  ]
+}

@@ -72,14 +72,14 @@ not how interesting it looks.
 | `contract`           | declared proof        | A failed structural or temporal contract                                               | every instrumented SDK                                                        |
 | `invariant`          | declared proof        | An application predicate returned false or threw                                       | every SDK with a state hook                                                   |
 | `visual`             | baseline proof        | Pixels differ from an approved, pinned baseline beyond its tolerance                   | screenshot-capable runners                                                    |
-| `jank`               | environment-dependent | Dropped or excessively late frames                                                     | browser, Electron, Tauri, Android, Flutter simulator                           |
+| `jank`               | environment-dependent | Dropped or excessively late frames                                                     | browser, Electron, Tauri, Android                                             |
 | `leak`               | environment-dependent | Retained memory grows across a repeated workload                                       | precise heap or attributable process sampling                                 |
-| `flicker`            | environment-dependent | A presented frame diverges and then resolves                                           | runners with a frame or DOM presentation stream                               |
+| `flicker`            | environment-dependent | A presented frame diverges and then resolves                                           | web and Electron (settled frame), web and TUI (re-render churn)               |
 | `divergence`         | specialist            | The same flow differs across targets or engines                                        | multi-target runs                                                             |
 | `content-bug`        | heuristic             | Visible stringify or template artifacts such as `[object Object]`                      | DOM, accessibility labels, TUI grid, instrumented labels                      |
 | `overflow`           | declared proof        | Text outside an explicitly bounded app-owned container                                 | web, Electron, Tauri, and all DOM frameworks                                  |
 | `hang`               | environment-dependent | An action makes no progress beyond a high threshold                                    | runners with an attributable progress signal                                  |
-| `occlusion`          | heuristic             | A visible control's hit target is covered by a foreign element                         | geometry-capable UI runners                                                   |
+| `occlusion`          | heuristic             | A visible control's hit target is covered by a foreign element                         | web, Electron, Tauri                                                          |
 | `choice-anomaly`     | heuristic             | One sibling choice changes global layout unlike the others                             | browser, Electron, Tauri                                                      |
 | `broken-route`       | policy-dependent      | A real document navigation returns HTTP 404 or 410                                     | web and HTTP-backed Electron                                                  |
 | `security`           | specialist            | Deterministic client markup hazards such as reverse tabnabbing or mixed content        | web                                                                           |
@@ -95,6 +95,9 @@ not how interesting it looks.
 | `wakelock`           | environment-dependent | An Android wakelock remains held after leaving its owning screen                       | Android                                                                       |
 | `safe-area`          | environment-dependent | An interactive control intersects an authoritative device inset                        | native mobile                                                                 |
 | `permission-walk`    | environment-dependent | A controlled permission denial leaves no working forward exit                          | native mobile                                                                 |
+
+The support column is a summary. The enforced per-runner truth, including every gap and the reason
+for it, is the generated table in [Platform limitations](#per-runner-coverage) below.
 
 Heuristic and environment-dependent categories are not promoted into confirmed bugs merely because
 they repeat. Repetition proves repeatability, not product intent. `scan` still reports every enabled
@@ -339,6 +342,52 @@ ReproIt never fabricates a signal a platform does not expose. Important limits i
   out-of-process driver.
 - Out-of-process Windows UI Automation cannot attribute compositor frame statistics to one window.
 - Backend eventual consistency remains `ABSTAIN` without an authored observation boundary.
+
+### Per-runner coverage
+
+A runner that never emits an oracle's marker reports no finding for it, and a report with no
+finding reads exactly like a clean result. Every pair below is therefore stated, and
+[`validation/oracles/coverage.json`](../validation/oracles/coverage.json) carries the reason for
+each `no`.
+
+<!-- generated:oracle-coverage -->
+
+Coverage is enforced by `validation/oracles/check.py` against `validation/oracles/coverage.json`; this table is generated from it. `yes` means that runner emits the marker, `no` means the platform cannot express the oracle (the ledger carries the reason), and `todo` means it could be written and has not been.
+
+| Oracle | Marker | web | electron | tauri | appium | flutter | macos-ax | uia | atspi | tui |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `accessibility-state` | `EXPLORE:A11YSTATESTATUS` | yes | todo | todo | no | todo | no | no | no | no |
+| `background-restore` | `EXPLORE:BGRESTORE` | yes | yes | yes | yes | yes | no | no | no | no |
+| `blank-screen` | `EXPLORE:BLANKSCREEN` | yes | yes | yes | yes | yes | todo | todo | todo | yes |
+| `broken-asset` | `EXPLORE:BROKENASSET` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
+| `broken-route` | `EXPLORE:BROKENROUTE` | yes | yes | no | no | no | no | no | no | no |
+| `choice-anomaly` | `EXPLORE:CHOICEBUG` | yes | yes | yes | todo | todo | todo | todo | todo | todo |
+| `content-bug` | `EXPLORE:CONTENTBUG` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
+| `dead-input` | `EXPLORE:DEADINPUT` | yes | yes | todo | todo | todo | todo | todo | todo | yes |
+| `duplicate-submit` | `EXPLORE:DUPSUBMIT` | yes | yes | no | no | no | no | no | no | no |
+| `flicker` | `EXPLORE:FLICKER` | yes | yes | todo | todo | todo | todo | todo | todo | todo |
+| `focus-loss` | `EXPLORE:FOCUSLOSS` | yes | yes | yes | todo | todo | todo | todo | todo | todo |
+| `hang` | `EXPLORE:HANG` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
+| `invariant` | `EXPLORE:INVARIANT` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
+| `jank` | `EXPLORE:JANK` | yes | yes | yes | yes | todo | no | no | no | no |
+| `leak` | `EXPLORE:LISTENERLEAK` | yes | yes | no | todo | todo | no | no | no | no |
+| `occlusion` | `EXPLORE:OCCLUSION` | yes | yes | yes | todo | todo | todo | todo | todo | no |
+| `overflow` | `EXPLORE:OVERFLOW` | yes | yes | yes | todo | todo | todo | todo | todo | todo |
+| `permission-walk` | `EXPLORE:PERMISSIONWALK` | no | no | no | yes | yes | no | no | no | no |
+| `detached-indicator` | `EXPLORE:RELATION` | yes | todo | todo | yes | yes | todo | todo | todo | todo |
+| `flicker` | `EXPLORE:RERENDER` | yes | todo | todo | todo | todo | todo | todo | todo | yes |
+| `rotation` | `EXPLORE:ROTATION` | yes | yes | yes | yes | yes | no | no | no | no |
+| `safe-area` | `EXPLORE:SAFEAREA` | no | no | no | yes | yes | no | no | no | no |
+| `scroll-round-trip` | `EXPLORE:SCROLLROUNDTRIP` | yes | yes | yes | todo | yes | todo | todo | todo | todo |
+| `security` | `EXPLORE:SECURITY` | yes | yes | yes | no | no | no | no | no | no |
+| `stuck-keyboard` | `EXPLORE:STUCKKEYBOARD` | no | no | no | yes | yes | no | no | no | no |
+| `wakelock` | `EXPLORE:WAKELOCK` | no | no | no | yes | no | no | no | no | no |
+| `zero-contrast` | `EXPLORE:ZEROCONTRAST` | yes | yes | yes | no | no | no | no | no | yes |
+| `zoom-reflow` | `EXPLORE:ZOOMREFLOW` | yes | yes | yes | no | no | no | no | no | no |
+
+106 of 252 pairs are evaluated, 83 cannot be expressed by the platform, and 63 are unwritten.
+
+<!-- /generated:oracle-coverage -->
 
 ## Source of truth
 

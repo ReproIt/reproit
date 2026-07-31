@@ -76,6 +76,9 @@ jobs:
           python3 validation/capabilities/check.py
           python3 -m unittest discover \
             -s validation/capabilities -p 'test_*.py'
+          python3 validation/oracles/check.py --check-generated
+          python3 -m unittest discover \
+            -s validation/oracles -p 'test_*.py'
       - name: Test production-to-local chain retention and redaction
         run: node --test validation/cloud/retain-production-chain.test.mjs
       - name: Test native release evidence validation

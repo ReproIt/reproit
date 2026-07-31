@@ -1,0 +1,615 @@
+{
+  "schemaVersion": 1,
+  "note": "Fail-closed ledger of which runner evaluates which UI oracle. A runner that emits no marker for an oracle produces no finding for it, which is indistinguishable from a clean result, so every runner must state each oracle as evaluated, unavailable (with a reason the platform cannot express it), or unimplemented (nobody has written it yet). validation/oracles/check.py verifies every claim against the runner sources and rejects any marker the Rust parser consumes that no row covers.",
+  "runners": {
+    "web": {
+      "source": "runners/source/web",
+      "hostOs": null,
+      "platforms": [
+        "web"
+      ]
+    },
+    "electron": {
+      "source": "runners/source/electron",
+      "hostOs": null,
+      "platforms": [
+        "electron"
+      ]
+    },
+    "tauri": {
+      "source": "runners/source/tauri",
+      "hostOs": null,
+      "platforms": [
+        "tauri"
+      ]
+    },
+    "appium": {
+      "source": "runners/source/react-native",
+      "hostOs": null,
+      "platforms": [
+        "react-native",
+        "swift-ios",
+        "android"
+      ]
+    },
+    "flutter": {
+      "source": "crates/reproit/assets/scaffolds/flutter/integration_test/reproit_explorer",
+      "hostOs": "macos",
+      "platforms": [
+        "flutter"
+      ]
+    },
+    "macos-ax": {
+      "source": "runners/macos-ax",
+      "hostOs": "macos",
+      "platforms": [
+        "swift-macos",
+        "qt",
+        "gtk",
+        "avalonia",
+        "wxwidgets"
+      ]
+    },
+    "uia": {
+      "source": "crates/reproit/src/adapters/uia",
+      "hostOs": "windows",
+      "platforms": [
+        "winui",
+        "qt",
+        "gtk",
+        "avalonia",
+        "wxwidgets"
+      ]
+    },
+    "atspi": {
+      "source": "crates/reproit/src/adapters/atspi",
+      "hostOs": "linux",
+      "platforms": [
+        "qt",
+        "gtk",
+        "avalonia",
+        "wxwidgets"
+      ]
+    },
+    "tui": {
+      "source": "crates/reproit/src/adapters/tui",
+      "hostOs": null,
+      "platforms": [
+        "tui"
+      ]
+    }
+  },
+  "reasons": {
+    "no_http_document": "no document navigation carries an HTTP status on this tier, so a dead route cannot be observed",
+    "tauri_no_status": "tauri-driver cannot report the document's HTTP status, so a dead route cannot be proven",
+    "tauri_no_request_stream": "WebDriver exposes no request stream and in-page wrappers cannot see a plain form POST, so a doubled mutation cannot be attributed to one activation",
+    "no_request_stream": "the runner observes no first-party request stream on this tier, so a doubled mutation cannot be attributed to one activation",
+    "tauri_no_init_script": "the WebDriver bridge has no pre-load init-script injection, so the addEventListener tally this oracle counts cannot be installed",
+    "no_listener_tally": "there is no instrumentable listener or node registry on this tier, so the monotonic growth signal does not exist",
+    "no_frame_timeline": "accessibility trees and terminal grids expose no frame timeline, so a stall cannot be attributed to dropped frames",
+    "no_lifecycle": "a desktop window has no paused-to-resumed app lifecycle to drive, and a hidden app's accessibility tree is unreliable",
+    "no_orientation": "a desktop window has no device orientation to rotate",
+    "no_pty_lifecycle": "a PTY session has no device orientation and no background-to-foreground app lifecycle",
+    "no_markup": "there is no client markup on this tier, so the deterministic markup hazards this oracle reads do not exist",
+    "no_insets": "there are no authoritative device safe-area insets here (desktop has no insets, headless web reports every inset as 0)",
+    "no_soft_keyboard": "there is no soft keyboard whose visibility the runner can read",
+    "no_permission_denial": "this tier cannot deny a runtime permission, so the denial sweep that feeds this oracle never runs",
+    "no_wakelock": "there is no wakelock to read (iOS exposes no public introspection; web, desktop and TUI have no wakelock concept)",
+    "no_second_authority": "the accessibility tree is the only state authority on this tier, so there is no independent rendered state for it to contradict",
+    "no_zoom": "there is no page zoom or resizable viewport the runner can halve, so the reflow contract has nothing to measure",
+    "no_computed_color": "this tier exposes no per-element resolved foreground and background color, so an equal-color glyph run cannot be detected",
+    "flat_grid": "the terminal grid is flat: an overdrawn cell is simply not rendered, so no control can be covered by a foreign element"
+  },
+  "oracles": [
+    {
+      "marker": "EXPLORE:A11YSTATESTATUS",
+      "oracle": "accessibility-state",
+      "evaluated": {
+        "web": "runners/source/web/part-08.mjs"
+      },
+      "unavailable": {
+        "appium": "no_second_authority",
+        "macos-ax": "no_second_authority",
+        "uia": "no_second_authority",
+        "atspi": "no_second_authority",
+        "tui": "no_second_authority"
+      },
+      "unimplemented": [
+        "electron",
+        "tauri",
+        "flutter"
+      ]
+    },
+    {
+      "marker": "EXPLORE:BGRESTORE",
+      "oracle": "background-restore",
+      "evaluated": {
+        "web": "runners/source/web/part-08.mjs",
+        "electron": "runners/source/electron/part-06.mjs",
+        "tauri": "runners/source/tauri/part-05.mjs",
+        "appium": "runners/source/react-native/part-06.mjs",
+        "flutter": "crates/reproit/assets/scaffolds/flutter/integration_test/reproit_explorer/runner.dart"
+      },
+      "unavailable": {
+        "macos-ax": "no_lifecycle",
+        "uia": "no_lifecycle",
+        "atspi": "no_lifecycle",
+        "tui": "no_pty_lifecycle"
+      },
+      "unimplemented": []
+    },
+    {
+      "marker": "EXPLORE:BLANKSCREEN",
+      "oracle": "blank-screen",
+      "evaluated": {
+        "web": "runners/source/web/part-08.mjs",
+        "electron": "runners/source/electron/part-05.mjs",
+        "tauri": "runners/source/tauri/part-05.mjs",
+        "appium": "runners/source/react-native/part-01.mjs",
+        "flutter": "crates/reproit/assets/scaffolds/flutter/integration_test/reproit_explorer/hygiene_oracles.dart",
+        "tui": "crates/reproit/src/adapters/tui/mod.rs"
+      },
+      "unavailable": {},
+      "unimplemented": [
+        "macos-ax",
+        "uia",
+        "atspi"
+      ]
+    },
+    {
+      "marker": "EXPLORE:BROKENASSET",
+      "oracle": "broken-asset",
+      "evaluated": {
+        "web": "runners/source/web/part-08.mjs",
+        "electron": "runners/source/electron/part-05.mjs",
+        "tauri": "runners/source/tauri/part-05.mjs",
+        "appium": "runners/source/react-native/part-01.mjs",
+        "flutter": "crates/reproit/assets/scaffolds/flutter/integration_test/reproit_explorer/hygiene_oracles.dart",
+        "macos-ax": "runners/macos-ax/main.swift",
+        "uia": "crates/reproit/src/adapters/uia/mod.rs",
+        "atspi": "crates/reproit/src/adapters/atspi/session.rs",
+        "tui": "crates/reproit/src/adapters/tui/mod.rs"
+      },
+      "unavailable": {},
+      "unimplemented": []
+    },
+    {
+      "marker": "EXPLORE:BROKENROUTE",
+      "oracle": "broken-route",
+      "evaluated": {
+        "web": "runners/source/web/part-08.mjs",
+        "electron": "runners/source/electron/part-05.mjs"
+      },
+      "unavailable": {
+        "tauri": "tauri_no_status",
+        "appium": "no_http_document",
+        "flutter": "no_http_document",
+        "macos-ax": "no_http_document",
+        "uia": "no_http_document",
+        "atspi": "no_http_document",
+        "tui": "no_http_document"
+      },
+      "unimplemented": []
+    },
+    {
+      "marker": "EXPLORE:CHOICEBUG",
+      "oracle": "choice-anomaly",
+      "evaluated": {
+        "web": "runners/source/web/part-06.mjs",
+        "electron": "runners/source/electron/part-06.mjs",
+        "tauri": "runners/source/tauri/part-05.mjs"
+      },
+      "unavailable": {},
+      "unimplemented": [
+        "appium",
+        "flutter",
+        "macos-ax",
+        "uia",
+        "atspi",
+        "tui"
+      ]
+    },
+    {
+      "marker": "EXPLORE:CONTENTBUG",
+      "oracle": "content-bug",
+      "evaluated": {
+        "web": "runners/source/web/part-07.mjs",
+        "electron": "runners/source/electron/part-05.mjs",
+        "tauri": "runners/source/tauri/part-05.mjs",
+        "appium": "runners/source/react-native/part-01.mjs",
+        "flutter": "crates/reproit/assets/scaffolds/flutter/integration_test/reproit_explorer/hygiene_oracles.dart",
+        "macos-ax": "runners/macos-ax/main.swift",
+        "uia": "crates/reproit/src/adapters/uia/mod.rs",
+        "atspi": "crates/reproit/src/adapters/atspi/session.rs",
+        "tui": "crates/reproit/src/adapters/tui/mod.rs"
+      },
+      "unavailable": {},
+      "unimplemented": []
+    },
+    {
+      "marker": "EXPLORE:DEADINPUT",
+      "oracle": "dead-input",
+      "evaluated": {
+        "web": "runners/source/web/part-08.mjs",
+        "electron": "runners/source/electron/part-05.mjs",
+        "tui": "crates/reproit/src/adapters/tui/dead_input.rs"
+      },
+      "unavailable": {},
+      "unimplemented": [
+        "tauri",
+        "appium",
+        "flutter",
+        "macos-ax",
+        "uia",
+        "atspi"
+      ]
+    },
+    {
+      "marker": "EXPLORE:DUPSUBMIT",
+      "oracle": "duplicate-submit",
+      "evaluated": {
+        "web": "runners/source/web/part-09.mjs",
+        "electron": "runners/source/electron/part-06.mjs"
+      },
+      "unavailable": {
+        "tauri": "tauri_no_request_stream",
+        "appium": "no_request_stream",
+        "flutter": "no_request_stream",
+        "macos-ax": "no_request_stream",
+        "uia": "no_request_stream",
+        "atspi": "no_request_stream",
+        "tui": "no_request_stream"
+      },
+      "unimplemented": []
+    },
+    {
+      "marker": "EXPLORE:FLICKER",
+      "oracle": "flicker",
+      "evaluated": {
+        "web": "runners/source/web/part-04.mjs",
+        "electron": "runners/source/electron/part-03.mjs"
+      },
+      "unavailable": {},
+      "unimplemented": [
+        "tauri",
+        "appium",
+        "flutter",
+        "macos-ax",
+        "uia",
+        "atspi",
+        "tui"
+      ],
+      "notes": {
+        "tauri": "the anchor-churn probe was written and never called; the dead constants were removed on 2026-07-31 and wiring it needs a Tauri host to prove"
+      }
+    },
+    {
+      "marker": "EXPLORE:FOCUSLOSS",
+      "oracle": "focus-loss",
+      "evaluated": {
+        "web": "runners/source/web/part-09.mjs",
+        "electron": "runners/source/electron/part-06.mjs",
+        "tauri": "runners/source/tauri/part-05.mjs"
+      },
+      "unavailable": {},
+      "unimplemented": [
+        "appium",
+        "flutter",
+        "macos-ax",
+        "uia",
+        "atspi",
+        "tui"
+      ]
+    },
+    {
+      "marker": "EXPLORE:HANG",
+      "oracle": "hang",
+      "evaluated": {
+        "web": "runners/source/web/part-09.mjs",
+        "electron": "runners/source/electron/part-06.mjs",
+        "tauri": "runners/source/tauri/part-02.mjs",
+        "appium": "runners/source/react-native/part-01.mjs",
+        "flutter": "crates/reproit/assets/scaffolds/flutter/integration_test/reproit_explorer/runner.dart",
+        "macos-ax": "runners/macos-ax/accessibility.swift",
+        "uia": "crates/reproit/src/adapters/uia/action.rs",
+        "atspi": "crates/reproit/src/adapters/atspi/capture.rs",
+        "tui": "crates/reproit/src/adapters/tui/mod.rs"
+      },
+      "unavailable": {},
+      "unimplemented": []
+    },
+    {
+      "marker": "EXPLORE:INVARIANT",
+      "oracle": "invariant",
+      "evaluated": {
+        "web": "runners/source/web/part-08.mjs",
+        "electron": "runners/source/electron/part-05.mjs",
+        "tauri": "runners/source/tauri/part-05.mjs",
+        "appium": "runners/source/react-native/part-03.mjs",
+        "flutter": "crates/reproit/assets/scaffolds/flutter/integration_test/reproit_explorer/invariants.dart",
+        "macos-ax": "runners/macos-ax/accessibility.swift",
+        "uia": "crates/reproit/src/adapters/uia/oracle.rs",
+        "atspi": "crates/reproit/src/adapters/atspi/capture.rs",
+        "tui": "crates/reproit/src/adapters/tui/invariants.rs"
+      },
+      "unavailable": {},
+      "unimplemented": []
+    },
+    {
+      "marker": "EXPLORE:JANK",
+      "oracle": "jank",
+      "evaluated": {
+        "web": "runners/source/web/part-09.mjs",
+        "electron": "runners/source/electron/part-06.mjs",
+        "tauri": "runners/source/tauri/part-02.mjs",
+        "appium": "runners/source/react-native/part-01.mjs"
+      },
+      "unavailable": {
+        "macos-ax": "no_frame_timeline",
+        "uia": "no_frame_timeline",
+        "atspi": "no_frame_timeline",
+        "tui": "no_frame_timeline"
+      },
+      "unimplemented": [
+        "flutter"
+      ]
+    },
+    {
+      "marker": "EXPLORE:LISTENERLEAK",
+      "oracle": "leak",
+      "evaluated": {
+        "web": "runners/source/web/part-08.mjs",
+        "electron": "runners/source/electron/part-06.mjs"
+      },
+      "unavailable": {
+        "tauri": "tauri_no_init_script",
+        "macos-ax": "no_listener_tally",
+        "uia": "no_listener_tally",
+        "atspi": "no_listener_tally",
+        "tui": "no_listener_tally"
+      },
+      "unimplemented": [
+        "appium",
+        "flutter"
+      ]
+    },
+    {
+      "marker": "EXPLORE:OCCLUSION",
+      "oracle": "occlusion",
+      "evaluated": {
+        "web": "runners/source/web/part-07.mjs",
+        "electron": "runners/source/electron/part-05.mjs",
+        "tauri": "runners/source/tauri/part-05.mjs"
+      },
+      "unavailable": {
+        "tui": "flat_grid"
+      },
+      "unimplemented": [
+        "appium",
+        "flutter",
+        "macos-ax",
+        "uia",
+        "atspi"
+      ]
+    },
+    {
+      "marker": "EXPLORE:OVERFLOW",
+      "oracle": "overflow",
+      "evaluated": {
+        "web": "runners/source/web/part-07.mjs",
+        "electron": "runners/source/electron/part-05.mjs",
+        "tauri": "runners/source/tauri/part-05.mjs"
+      },
+      "unavailable": {},
+      "unimplemented": [
+        "appium",
+        "flutter",
+        "macos-ax",
+        "uia",
+        "atspi",
+        "tui"
+      ]
+    },
+    {
+      "marker": "EXPLORE:PERMISSIONWALK",
+      "oracle": "permission-walk",
+      "evaluated": {
+        "appium": "runners/source/react-native/part-01.mjs",
+        "flutter": "crates/reproit/assets/scaffolds/flutter/integration_test/reproit_explorer/config.dart"
+      },
+      "unavailable": {
+        "web": "no_permission_denial",
+        "electron": "no_permission_denial",
+        "tauri": "no_permission_denial",
+        "macos-ax": "no_permission_denial",
+        "uia": "no_permission_denial",
+        "atspi": "no_permission_denial",
+        "tui": "no_permission_denial"
+      },
+      "unimplemented": []
+    },
+    {
+      "marker": "EXPLORE:RELATION",
+      "oracle": "detached-indicator",
+      "evaluated": {
+        "web": "runners/source/web/part-07.mjs",
+        "appium": "runners/source/react-native/part-04.mjs",
+        "flutter": "crates/reproit/assets/scaffolds/flutter/integration_test/reproit_explorer/invariants.dart"
+      },
+      "unavailable": {},
+      "unimplemented": [
+        "electron",
+        "tauri",
+        "macos-ax",
+        "uia",
+        "atspi",
+        "tui"
+      ]
+    },
+    {
+      "marker": "EXPLORE:RERENDER",
+      "oracle": "flicker",
+      "evaluated": {
+        "web": "runners/source/web/part-09.mjs",
+        "tui": "crates/reproit/src/adapters/tui/mod.rs"
+      },
+      "unavailable": {},
+      "unimplemented": [
+        "electron",
+        "tauri",
+        "appium",
+        "flutter",
+        "macos-ax",
+        "uia",
+        "atspi"
+      ],
+      "notes": {
+        "electron": "electron ships the settled-frame FLICKER variant of the same oracle"
+      }
+    },
+    {
+      "marker": "EXPLORE:ROTATION",
+      "oracle": "rotation",
+      "evaluated": {
+        "web": "runners/source/web/part-08.mjs",
+        "electron": "runners/source/electron/part-06.mjs",
+        "tauri": "runners/source/tauri/part-05.mjs",
+        "appium": "runners/source/react-native/part-06.mjs",
+        "flutter": "crates/reproit/assets/scaffolds/flutter/integration_test/reproit_explorer/runner.dart"
+      },
+      "unavailable": {
+        "macos-ax": "no_orientation",
+        "uia": "no_orientation",
+        "atspi": "no_orientation",
+        "tui": "no_pty_lifecycle"
+      },
+      "unimplemented": []
+    },
+    {
+      "marker": "EXPLORE:SAFEAREA",
+      "oracle": "safe-area",
+      "evaluated": {
+        "appium": "runners/source/react-native/part-01.mjs",
+        "flutter": "crates/reproit/assets/scaffolds/flutter/integration_test/reproit_explorer/hygiene_oracles.dart"
+      },
+      "unavailable": {
+        "web": "no_insets",
+        "electron": "no_insets",
+        "tauri": "no_insets",
+        "macos-ax": "no_insets",
+        "uia": "no_insets",
+        "atspi": "no_insets",
+        "tui": "no_insets"
+      },
+      "unimplemented": []
+    },
+    {
+      "marker": "EXPLORE:SCROLLROUNDTRIP",
+      "oracle": "scroll-round-trip",
+      "evaluated": {
+        "web": "runners/source/web/part-08.mjs",
+        "electron": "runners/source/electron/part-05.mjs",
+        "tauri": "runners/source/tauri/part-05.mjs",
+        "flutter": "crates/reproit/assets/scaffolds/flutter/integration_test/reproit_explorer/environment_oracles.dart"
+      },
+      "unavailable": {},
+      "unimplemented": [
+        "appium",
+        "macos-ax",
+        "uia",
+        "atspi",
+        "tui"
+      ]
+    },
+    {
+      "marker": "EXPLORE:SECURITY",
+      "oracle": "security",
+      "evaluated": {
+        "web": "runners/source/web/part-08.mjs",
+        "electron": "runners/source/electron/part-05.mjs",
+        "tauri": "runners/source/tauri/part-05.mjs"
+      },
+      "unavailable": {
+        "appium": "no_markup",
+        "flutter": "no_markup",
+        "macos-ax": "no_markup",
+        "uia": "no_markup",
+        "atspi": "no_markup",
+        "tui": "no_markup"
+      },
+      "unimplemented": []
+    },
+    {
+      "marker": "EXPLORE:STUCKKEYBOARD",
+      "oracle": "stuck-keyboard",
+      "evaluated": {
+        "appium": "runners/source/react-native/part-06.mjs",
+        "flutter": "crates/reproit/assets/scaffolds/flutter/integration_test/reproit_explorer/runner.dart"
+      },
+      "unavailable": {
+        "web": "no_soft_keyboard",
+        "electron": "no_soft_keyboard",
+        "tauri": "no_soft_keyboard",
+        "macos-ax": "no_soft_keyboard",
+        "uia": "no_soft_keyboard",
+        "atspi": "no_soft_keyboard",
+        "tui": "no_soft_keyboard"
+      },
+      "unimplemented": []
+    },
+    {
+      "marker": "EXPLORE:WAKELOCK",
+      "oracle": "wakelock",
+      "evaluated": {
+        "appium": "runners/source/react-native/part-01.mjs"
+      },
+      "unavailable": {
+        "web": "no_wakelock",
+        "electron": "no_wakelock",
+        "tauri": "no_wakelock",
+        "flutter": "no_wakelock",
+        "macos-ax": "no_wakelock",
+        "uia": "no_wakelock",
+        "atspi": "no_wakelock",
+        "tui": "no_wakelock"
+      },
+      "unimplemented": []
+    },
+    {
+      "marker": "EXPLORE:ZEROCONTRAST",
+      "oracle": "zero-contrast",
+      "evaluated": {
+        "web": "runners/source/web/part-07.mjs",
+        "electron": "runners/source/electron/part-05.mjs",
+        "tauri": "runners/source/tauri/part-05.mjs",
+        "tui": "crates/reproit/src/adapters/tui/mod.rs"
+      },
+      "unavailable": {
+        "appium": "no_computed_color",
+        "flutter": "no_computed_color",
+        "macos-ax": "no_computed_color",
+        "uia": "no_computed_color",
+        "atspi": "no_computed_color"
+      },
+      "unimplemented": []
+    },
+    {
+      "marker": "EXPLORE:ZOOMREFLOW",
+      "oracle": "zoom-reflow",
+      "evaluated": {
+        "web": "runners/source/web/part-08.mjs",
+        "electron": "runners/source/electron/part-06.mjs",
+        "tauri": "runners/source/tauri/part-05.mjs"
+      },
+      "unavailable": {
+        "appium": "no_zoom",
+        "flutter": "no_zoom",
+        "macos-ax": "no_zoom",
+        "uia": "no_zoom",
+        "atspi": "no_zoom",
+        "tui": "no_zoom"
+      },
+      "unimplemented": []
+    }
+  ]
+}

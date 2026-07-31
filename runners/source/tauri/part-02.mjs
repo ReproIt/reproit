@@ -382,94 +382,13 @@ async function emitGroundtruth(browser, sig) {
   );
 }
 
-// Tier-1 flicker oracle (persistent-anchor churn), mirroring runners/web. Tag the
-// persistent chrome before a transition; after it settles, flag any anchor that
-// is VISUALLY UNCHANGED (same key, text, box) yet was REPLACED (DOM node identity
-// changed) -> an innerHTML-wipe-and-rebuild that flickers, which the settled-frame
-// oracle cannot see. Run as execute() source strings (the webview has no CDP);
-// window persists between execute() calls in the same document, so the marks
-// survive from before-action to after-settle. Pure DOM, no frame timing.
-const ANCHOR_SEL_JS = JSON.stringify(
-  'header,nav,main,footer,aside,' +
-    '[role=banner],[role=navigation],[role=main],[role=contentinfo],' +
-    '[role=complementary],[role=region],[role=search],[role=listbox],' +
-    '[role=list],[role=tablist],[role=toolbar],[role=dialog],[id]',
-);
-const MARK_ANCHORS_JS = `
-  const sel = ${ANCHOR_SEL_JS};
-  const visible = (el) => {
-    const r = el.getBoundingClientRect();
-    if (r.width === 0 || r.height === 0) return false;
-    const st = getComputedStyle(el);
-    return st.visibility !== 'hidden' && st.display !== 'none';
-  };
-  const keyOf = (el) => {
-    const id = (el.getAttribute('id') || '').trim();
-    if (id) return 'id:' + id;
-    const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
-    if (tid) return 'testid:' + tid;
-    const role = (el.getAttribute('role') || '').trim();
-    return 'tag:' + el.tagName.toLowerCase() + (role ? '[' + role + ']' : '');
-  };
-  const anchors = [];
-  for (const el of document.querySelectorAll(sel)) {
-    if (!visible(el)) continue;
-    const r = el.getBoundingClientRect();
-    anchors.push({
-      key: keyOf(el), node: el,
-      text: (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 256),
-      x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
-    });
-  }
-  window.__reproitAnchors = anchors;
-  window.__reproitAnchorDoc = document;
-  return anchors.length;
-`;
-const CHURNED_ANCHORS_JS = `
-  const sel = ${ANCHOR_SEL_JS};
-  const old = window.__reproitAnchors;
-  if (!old || window.__reproitAnchorDoc !== document) {
-    window.__reproitAnchors = null;
-    return null;
-  }
-  const visible = (el) => {
-    const r = el.getBoundingClientRect();
-    if (r.width === 0 || r.height === 0) return false;
-    const st = getComputedStyle(el);
-    return st.visibility !== 'hidden' && st.display !== 'none';
-  };
-  const keyOf = (el) => {
-    const id = (el.getAttribute('id') || '').trim();
-    if (id) return 'id:' + id;
-    const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
-    if (tid) return 'testid:' + tid;
-    const role = (el.getAttribute('role') || '').trim();
-    return 'tag:' + el.tagName.toLowerCase() + (role ? '[' + role + ']' : '');
-  };
-  const cur = new Map();
-  const dup = new Set();
-  for (const el of document.querySelectorAll(sel)) {
-    if (!visible(el)) continue;
-    const k = keyOf(el);
-    if (cur.has(k)) { dup.add(k); continue; }
-    cur.set(k, el);
-  }
-  const churned = [];
-  for (const a of old) {
-    if (dup.has(a.key)) continue;
-    const now = cur.get(a.key);
-    if (!now) continue;
-    if (now === a.node) continue;
-    const r = now.getBoundingClientRect();
-    const sameBox =
-      Math.round(r.x) === a.x && Math.round(r.y) === a.y &&
-      Math.round(r.width) === a.w && Math.round(r.height) === a.h;
-    const sameText = (now.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 256) === a.text;
-    if (sameBox && sameText) churned.push(a.key);
-  }
-  window.__reproitAnchors = null;
-  return churned;
-`;
+// The Tier-1 flicker oracle (persistent-anchor churn) is NOT evaluated on this
+// tier. Its two execute() source strings lived here, complete and never called,
+// so a reader saw an oracle the runner never ran and a Tauri report showed no
+// flicker finding for the same reason a clean app does. They were removed on
+// 2026-07-31; the gap is declared in validation/oracles/coverage.json, and
+// wiring it needs a before-action/after-settle mark pair on the WebDriver path
+// plus a Tauri host to prove it fires.
 
 // PARITY: keep in sync with runners/web/runner.mjs (overflow oracle).
 //
