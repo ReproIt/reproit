@@ -1,0 +1,34 @@
+{
+  "commit": "414c1a14c7d60e1127a7738834e995020366fed0",
+  "gates": [
+    {
+      "architectures": [
+        "x86_64"
+      ],
+      "commit": "414c1a14c7d60e1127a7738834e995020366fed0",
+      "executor": {
+        "architecture": "x86_64",
+        "os": "linux"
+      },
+      "finishedAt": "2026-07-31T22:28:57.839152Z",
+      "gateId": "flutter-android",
+      "logSha256": "e993b1bc79b2e4583023a29fdd063492335146debecbea04ad14d931e9a71dad",
+      "startedAt": "2026-07-31T22:28:04.717640Z"
+    },
+    {
+      "architectures": [
+        "x86_64"
+      ],
+      "commit": "414c1a14c7d60e1127a7738834e995020366fed0",
+      "executor": {
+        "architecture": "x86_64",
+        "os": "linux"
+      },
+      "finishedAt": "2026-07-31T22:29:49.990883Z",
+      "gateId": "react-native-android",
+      "logSha256": "a5c71ea88b56c93a4ab293973e7d69633a81e579dd7c6515c088f77ad6918d03",
+      "startedAt": "2026-07-31T22:28:57.878068Z"
+    }
+  ],
+  "schema": 2
+}

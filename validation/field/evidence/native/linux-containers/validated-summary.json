@@ -1,0 +1,48 @@
+{
+  "commit": "414c1a14c7d60e1127a7738834e995020366fed0",
+  "gates": [
+    {
+      "architectures": [
+        "x86_64"
+      ],
+      "commit": "414c1a14c7d60e1127a7738834e995020366fed0",
+      "executor": {
+        "architecture": "x86_64",
+        "os": "linux"
+      },
+      "finishedAt": "2026-07-31T22:18:51.819786Z",
+      "gateId": "linux-atspi-gtk",
+      "logSha256": "79a02c0821fd6ebfd5b6e888773d8d9c7571457cce9c7dedc31602390f7c4460",
+      "startedAt": "2026-07-31T22:17:49.797107Z"
+    },
+    {
+      "architectures": [
+        "x86_64"
+      ],
+      "commit": "414c1a14c7d60e1127a7738834e995020366fed0",
+      "executor": {
+        "architecture": "x86_64",
+        "os": "linux"
+      },
+      "finishedAt": "2026-07-31T22:20:20.657569Z",
+      "gateId": "linux-atspi-toolkits",
+      "logSha256": "2869c89d7f4495846fb964d9b88f272d4acad0e6698722762d878c5818cef58d",
+      "startedAt": "2026-07-31T22:18:51.868926Z"
+    },
+    {
+      "architectures": [
+        "x86_64"
+      ],
+      "commit": "414c1a14c7d60e1127a7738834e995020366fed0",
+      "executor": {
+        "architecture": "x86_64",
+        "os": "linux"
+      },
+      "finishedAt": "2026-07-31T22:24:17.241277Z",
+      "gateId": "tauri",
+      "logSha256": "758539e91be026283fe8a464e00b98ceea84580297e6080dfbe1bd15e967a832",
+      "startedAt": "2026-07-31T22:20:20.702540Z"
+    }
+  ],
+  "schema": 2
+}

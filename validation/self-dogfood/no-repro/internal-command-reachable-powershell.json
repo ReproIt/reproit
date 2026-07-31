@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "internal-command-reachable-powershell",
+  "detail": "The fix for `internal-command-reachable` scanned shell and Python harnesses for the dead top-level spelling, but its globs never matched a `.ps1` file and its regex only recognised a command sitting next to the word `reproit`. The Windows harness spells it neither way: the binary is a variable and the command is a standalone argument string, `$start.Arguments = \"__uia\"`. So `windows-uia`, the release gate all three Windows targets own, exited 2 before the runner started and has been red since d957df5, which is why the retained Windows evidence names an older commit. Running the gate on the native x86_64 Windows guest at 414c1a14 is what surfaced it. The defect lives in CI harness wiring, so no runtime guard can hold it; the bounded regression test now also scans PowerShell harnesses and rejects a whole quoted argument that is exactly one internal command, failing on the parent (it cites the Windows harness line) and passing on the fix.",
+  "test": "validation/self-dogfood/test_check_internal_invocations.py",
+  "command": [
+    "python3",
+    "validation/self-dogfood/test_check_internal_invocations.py"
+  ],
+  "timeoutSeconds": 60,
+  "affectedExitCode": 1,
+  "affectedEvidence": [
+    {
+      "path": "validation/self-dogfood/evidence/internal-command-reachable-powershell.log",
+      "sha256": "sha256:d761ec120aa011c41ff738859a53fd3db3980abcc78494782448489d0a72c985"
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+internal invocations: harnesses naming an unreachable command
+  validation/backends/run-windows-desktop.ps1:76: invokes `reproit __uia`, reachable only as `reproit internal __uia`; the dead spelling exits 2 before the runner starts

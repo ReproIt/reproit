@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "gateId": "react-native-ios",
+  "commit": "414c1a14c7d60e1127a7738834e995020366fed0",
+  "startedAt": "2026-07-31T22:22:19.912482Z",
+  "finishedAt": "2026-07-31T22:25:40.064714Z",
+  "executor": {
+    "os": "darwin",
+    "architecture": "arm64"
+  },
+  "targetOs": "ios-simulator",
+  "architectures": [
+    "arm64"
+  ],
+  "fixture": "examples/react-native-fixture",
+  "command": [
+    "bash",
+    "validation/backends/with-appium.sh",
+    "bash",
+    "validation/backends/with-ios-simulator.sh",
+    "bash",
+    "validation/backends/run-react-native-ios.sh"
+  ],
+  "status": "passed",
+  "exitCode": 0,
+  "checks": {
+    "iOS simulator reset: created ": true,
+    "EXPLORE:STATE ": true,
+    "EXPLORE:EDGE ": true,
+    "JOURNEY DONE": true,
+    "All tests passed": true,
+    "iOS simulator cleanup: deleted ": true
+  },
+  "resetStrategy": "fresh pinned release application on a disposable iPhone simulator",
+  "cleanupStrategy": "delete the simulator and remove generated application state",
+  "logSha256": "4d6768f92fa2c1131b7325ce78f75048db662aa166915d0fb4dcf9715a217f95",
+  "logPath": "/private/tmp/claude-501/-Users-obsidian-code-idea-reproit/03224fa5-b324-4d08-bc28-152c873a704b/scratchpad/apple-evidence/react-native-ios.log"
+}

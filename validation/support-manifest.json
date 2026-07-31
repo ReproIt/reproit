@@ -680,10 +680,11 @@
         "blockers": [
           {
             "code": "incomplete-evidence",
-            "detail": "no exact-commit evidence is recorded for the windows-uia native gate. The execution infrastructure is proven reachable on this host (windows-vm); the gate has simply not been run and retained against the candidate commit",
-            "command": null,
+            "detail": "no exact-commit evidence is recorded for the windows-uia native gate. Running it on the native x86_64 Windows guest showed the gate had been red since d957df5 because the harness spelled the runner `reproit __uia`, which clap refuses; with the harness fix applied the gate passes on all three fixtures, but that run patched the checkout, so exact-commit evidence still needs one rerun at a pushed commit containing the fix",
+            "command": "python3 validation/backends/gate.py windows-uia",
             "evidence": [
-              "validation/field/qualification/infrastructure.json"
+              "validation/field/qualification/infrastructure.json",
+              "validation/field/evidence/windows-uia-harness-fix.md"
             ]
           },
           {
@@ -746,14 +747,6 @@
           "evidence": null
         },
         "blockers": [
-          {
-            "code": "environment-unreachable",
-            "detail": "the Linux GTK gate builds on the local x86_64 worker, but both owned fixture processes remain absent from the AT-SPI application bus before the first action",
-            "command": "DOCKER_DEFAULT_PLATFORM=linux/amd64 bash .github/scripts/atspi-scenario-e2e.sh",
-            "evidence": [
-              "validation/field/evidence/linux-atspi-amd64-local.md"
-            ]
-          },
           {
             "code": "incomplete-evidence",
             "detail": "no application campaign has been executed. 5 candidate defects across 4 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",

@@ -28,5 +28,13 @@ Observed result:
 
 Promotion consequence:
 
-Linux GTK remains Preview until the amd64 worker proves fixture process
-readiness and AT-SPI discovery, then completes the field and corpus gates.
+Linux GTK remains Preview until it completes the field and corpus gates.
+
+Resolution:
+
+The emulated amd64 worker was the limitation, not the target. On
+2026-07-31 the same gate passed on a native x86_64 worker at the exact commit
+`414c1a14c7d60e1127a7738834e995020366fed0`, reaching both owned fixture
+processes on the AT-SPI application bus. See
+`validation/field/evidence/native/linux-containers/`. The
+`environment-unreachable` blocker was removed because that evidence closes it.

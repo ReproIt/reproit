@@ -23,6 +23,10 @@ dist/
 # Retained no-repro evidence is the record a policy declaration cites, so it is
 # tracked on purpose; without this every such log needs `git add -f`.
 !validation/self-dogfood/evidence/*.log
+# Retained native gate logs are the artifact `check-native-evidence.py` hashes,
+# and the field diagnostics are cited by name from their markdown records.
+!validation/field/evidence/native/*/*.log
+!validation/field/evidence/*.log
 .DS_Store
 .forbidden-terms
 .training/

@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "gateId": "linux-atspi-gtk",
+  "commit": "414c1a14c7d60e1127a7738834e995020366fed0",
+  "startedAt": "2026-07-31T22:17:49.797107Z",
+  "finishedAt": "2026-07-31T22:18:51.819786Z",
+  "executor": {
+    "os": "linux",
+    "architecture": "x86_64"
+  },
+  "targetOs": "linux-container",
+  "architectures": [
+    "x86_64"
+  ],
+  "fixture": "embedded GTK multi-actor fixture",
+  "command": [
+    "bash",
+    ".github/scripts/atspi-scenario-e2e.sh"
+  ],
+  "status": "passed",
+  "exitCode": 0,
+  "checks": {
+    "atspi-scenario-e2e: all assertions passed": true
+  },
+  "resetStrategy": "fresh pinned container, display, accessibility bus, and actor processes",
+  "cleanupStrategy": "ephemeral container plus outer temporary directory cleanup",
+  "logSha256": "79a02c0821fd6ebfd5b6e888773d8d9c7571457cce9c7dedc31602390f7c4460",
+  "logPath": "/home/black/.cache/reproit-linux-validation/reproit-linux-20260731T221746Z-79812/evidence/linux-atspi-gtk.log"
+}

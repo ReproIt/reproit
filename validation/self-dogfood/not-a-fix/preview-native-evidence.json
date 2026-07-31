@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "preview-native-evidence",
+  "changeType": "maintenance",
+  "detail": "Retains exact-commit native qualification evidence for the Preview lanes (Linux containers, Apple simulators, Android emulator, macOS Accessibility) and closes the Linux GTK environment-unreachable blocker, which the native x86_64 run disproves. No runtime product behavior changes and no target is promoted.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/native/linux-containers/validated-summary.json",
+      "sha256": "sha256:005bbff80bc55d5b1fc7726c844e4cf85110d9c28553d96146e4a82e79e5c9a2"
+    }
+  ]
+}

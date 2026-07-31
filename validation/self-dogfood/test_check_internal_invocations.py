@@ -35,13 +35,21 @@ ROOT = Path(__file__).resolve().parents[2]
 # Harness trees: scripts that drive the CLI as part of asserting a claim.
 HARNESS_GLOBS = (
     ".github/scripts/*.sh",
+    ".github/scripts/*.ps1",
     "validation/**/*.sh",
     "validation/**/*.py",
+    "validation/**/*.ps1",
     "examples/**/*.sh",
 )
 
 # `reproit`, or a path ending in it, followed by the next word.
 INVOCATION = re.compile(r"\breproit(?:\.exe)?\b[\"']?\s+(\S+)")
+
+# The same command passed as a standalone argument string, which is how the
+# Windows harness spells it: the binary is a variable, so the command never
+# sits next to the word `reproit`. A whole quoted argument that is exactly one
+# internal command is the dead spelling; `"internal __uia"` is not.
+ARGUMENT = re.compile(r"[\"'](__[a-z][a-z0-9-]*)[\"']")
 
 SKIP_DIRS = ("/target/", "/.claude/", "/node_modules/")
 
@@ -82,6 +90,10 @@ def bad_invocations(text: str) -> list[tuple[int, str]]:
             if before.endswith("internal"):
                 continue
             found.append((number, word))
+        for match in ARGUMENT.finditer(line):
+            if (number, match.group(1)) in found:
+                continue
+            found.append((number, match.group(1)))
     return found
 
 
@@ -128,6 +140,18 @@ class InternalInvocationTests(unittest.TestCase):
     def test_a_python_docstring_about_the_dead_spelling_is_not_a_failure(self) -> None:
         text = '"""Origin: `reproit __atspi` was top level.\n\nProse.\n"""\nx = 1\n'
         self.assertEqual(bad_invocations(text), [])
+
+    def test_a_standalone_argument_string_is_refused(self) -> None:
+        # The exact line that made the windows-uia gate red: the binary is a
+        # variable, so the command never sits next to the word `reproit`.
+        text = '            $start.Arguments = "__uia"\n'
+        self.assertEqual(bad_invocations(text), [(1, "__uia")])
+
+    def test_a_multiplexed_argument_string_passes(self) -> None:
+        self.assertEqual(bad_invocations('$start.Arguments = "internal __uia"\n'), [])
+
+    def test_a_dunder_identifier_is_not_a_command(self) -> None:
+        self.assertEqual(bad_invocations('if __name__ == "__main__":\n'), [])
 
     def test_a_non_internal_command_is_ignored(self) -> None:
         self.assertEqual(bad_invocations("reproit check self-dogfood-cli\n"), [])

@@ -1,0 +1,96 @@
+Monitoring boot status for Reproit-Gate-82164 (D03517FC-66BB-46C7-876E-D47636DEFD1E).
+[2026-07-31 22:20:38 +0000] Status=2, isTerminal=NO, Elapsed=00:01.
+	Waiting on Data Migration
+		Reason:(null)
+		Migration Elapsed:00:00 seconds
+
+[2026-07-31 22:20:54 +0000] Status=2, isTerminal=NO, Elapsed=00:18.
+	Waiting on Data Migration
+		Reason:Running plugin com.apple.securityd.KeychainMigrator (KeychainMigrator.migrator, user-agnostic)
+		Migration Elapsed:00:15 seconds
+
+[2026-07-31 22:20:55 +0000] Status=2, isTerminal=NO, Elapsed=00:19.
+	Waiting on Data Migration
+		Reason:Running plugin com.apple.managedconfiguration.migrator (MCProfile.migrator, user-agnostic)
+		Migration Elapsed:00:16 seconds
+
+[2026-07-31 22:20:56 +0000] Status=2, isTerminal=NO, Elapsed=00:19.
+	Waiting on Data Migration
+		Reason:Running plugin com.apple.accounts.migrator (Accounts.migrator)
+		Migration Elapsed:00:17 seconds
+
+[2026-07-31 22:20:57 +0000] Status=2, isTerminal=NO, Elapsed=00:20.
+	Waiting on Data Migration
+		Reason:Running plugin com.apple.PreferencesMigrator (PreferencesMigrator.migrator)
+		Migration Elapsed:00:18 seconds
+
+[2026-07-31 22:20:58 +0000] Status=4, isTerminal=NO, Elapsed=00:21.
+	Waiting on System App
+
+[2026-07-31 22:20:58 +0000] Status=4, isTerminal=NO, Elapsed=00:21.
+	Waiting on System App
+
+[2026-07-31 22:20:59 +0000] Status=4, isTerminal=NO, Elapsed=00:22.
+	Waiting on System App
+
+[2026-07-31 22:21:00 +0000] Status=4, isTerminal=NO, Elapsed=00:23.
+	Waiting on System App
+
+[2026-07-31 22:21:01 +0000] Status=4294967295, isTerminal=YES, Elapsed=00:24.
+	Finished
+
+iOS simulator reset: created D03517FC-66BB-46C7-876E-D47636DEFD1E runtime=com.apple.CoreSimulator.SimRuntime.iOS-18-5 deviceType=com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro
+appium-ios-swiftui-smoke: using simulator D03517FC-66BB-46C7-876E-D47636DEFD1E
+appium-ios-swiftui-smoke: built fixture /var/folders/t8/3d_hrsxs157d0bxdpsm1m5b80000gn/T/tmp.X24HMZEUHJ/ReproItSwiftUIFixture.app
+Monitoring boot status for Reproit-Gate-82164 (D03517FC-66BB-46C7-876E-D47636DEFD1E).
+Device already booted, nothing to do.
+
+appium-ios-swiftui-smoke: simulator runtime iOS 18.5
+JOURNEY claimed role=a
+FUZZ:OBS {"sig":"806e0b4f","labels":["ReproItSwiftUIFixture","ReproIt SwiftUI Fixture","Reveal detail"],"elements":[{"role":"button"}]}
+EXPLORE:STATE {"sig":"806e0b4f","labels":["ReproItSwiftUIFixture","ReproIt SwiftUI Fixture","Reveal detail"],"elements":[{"sel":"key:fixture.toggle","role":"button","label":"Reveal detail","bounds":[153,463,97,21]}],"texts":[{"text":"ReproItSwiftUIFixture","bounds":[0,0,402,874]},{"text":"ReproIt SwiftUI Fixture","bounds":[111,418,180,21]},{"text":"Reveal detail","bounds":[153,463,97,21]}]}
+2026-07-31T22:21:47.325Z ERROR webdriver: WebDriverError: Method is not implemented when running "execute/sync" with method "POST"
+2026-07-31T22:21:48.848Z ERROR webdriver: WebDriverError: Method is not implemented when running "execute/sync" with method "POST"
+JOURNEY[a] step: groundtruth probe skipped (no-js-channel; no fiber + no native operable)
+EXPLORE:GROUNDTRUTH {"sig":"806e0b4f","focusTrap":false,"elements":[]}
+REPROIT:CAPABILITIES {"http":{"status":"captured"},"http_replay":{"status":"captured"}}
+2026-07-31T22:21:50.551Z ERROR webdriver: WebDriverError: Unable To Rotate Device when running "orientation" with method "POST"
+FUZZ:OBS {"sig":"806e0b4f","labels":["ReproItSwiftUIFixture","ReproIt SwiftUI Fixture","Reveal detail"],"elements":[{"role":"button"}]}
+FUZZ:OBS {"sig":"806e0b4f","labels":["ReproItSwiftUIFixture","ReproIt SwiftUI Fixture","Reveal detail"],"elements":[{"role":"button"}]}
+FUZZ:ACT tap:key:fixture.toggle
+FUZZ:OBS {"sig":"ddd8db97","labels":["ReproItSwiftUIFixture","ReproIt SwiftUI Fixture","Hide detail","Detail revealed"],"elements":[{"role":"button"}]}
+EXPLORE:STATE {"sig":"ddd8db97","labels":["ReproItSwiftUIFixture","ReproIt SwiftUI Fixture","Hide detail","Detail revealed"],"elements":[{"sel":"key:fixture.toggle","role":"button","label":"Hide detail","bounds":[160,441,82,21]}],"texts":[{"text":"ReproItSwiftUIFixture","bounds":[0,0,402,874]},{"text":"ReproIt SwiftUI Fixture","bounds":[111,396,180,21]},{"text":"Hide detail","bounds":[160,441,82,21]},{"text":"Detail revealed","bounds":[144,485,114,21]}]}
+2026-07-31T22:21:56.406Z ERROR webdriver: WebDriverError: Method is not implemented when running "execute/sync" with method "POST"
+2026-07-31T22:21:57.925Z ERROR webdriver: WebDriverError: Method is not implemented when running "execute/sync" with method "POST"
+JOURNEY[a] step: groundtruth probe skipped (no-js-channel; no fiber + no native operable)
+EXPLORE:GROUNDTRUTH {"sig":"ddd8db97","focusTrap":false,"elements":[]}
+EXPLORE:EDGE {"from":"806e0b4f","action":"tap:key:fixture.toggle","to":"ddd8db97"}
+2026-07-31T22:21:59.574Z ERROR webdriver: WebDriverError: Unable To Rotate Device when running "orientation" with method "POST"
+FUZZ:OBS {"sig":"ddd8db97","labels":["ReproItSwiftUIFixture","ReproIt SwiftUI Fixture","Hide detail","Detail revealed"],"elements":[{"role":"button"}]}
+FUZZ:OBS {"sig":"ddd8db97","labels":["ReproItSwiftUIFixture","ReproIt SwiftUI Fixture","Hide detail","Detail revealed"],"elements":[{"role":"button"}]}
+FUZZ:ACT tap:key:fixture.toggle
+FUZZ:OBS {"sig":"806e0b4f","labels":["ReproItSwiftUIFixture","ReproIt SwiftUI Fixture","Reveal detail"],"elements":[{"role":"button"}]}
+EXPLORE:EDGE {"from":"ddd8db97","action":"tap:key:fixture.toggle","to":"806e0b4f"}
+FUZZ:ACT back
+FUZZ:OBS {"sig":"806e0b4f","labels":["ReproItSwiftUIFixture","ReproIt SwiftUI Fixture","Reveal detail"],"elements":[{"role":"button"}]}
+FUZZ:ACT tap:key:fixture.toggle
+FUZZ:OBS {"sig":"ddd8db97","labels":["ReproItSwiftUIFixture","ReproIt SwiftUI Fixture","Hide detail","Detail revealed"],"elements":[{"role":"button"}]}
+EXPLORE:EDGE {"from":"806e0b4f","action":"tap:key:fixture.toggle","to":"ddd8db97"}
+FUZZ:ACT back
+FUZZ:OBS {"sig":"ddd8db97","labels":["ReproItSwiftUIFixture","ReproIt SwiftUI Fixture","Hide detail","Detail revealed"],"elements":[{"role":"button"}]}
+JOURNEY[a] step: explored 2 states
+JOURNEY DONE
+All tests passed
+smoke ok: Appium session created (JOURNEY claimed)
+smoke ok: no runner exception marker
+smoke ok: at least one EXPLORE:STATE captured
+smoke ok: a state carries a well-formed 8-hex canonical signature
+smoke ok: a state carries a non-empty structural elements list
+smoke ok: at least one tap attempted (3 attempted)
+smoke ok: at least one tap resolved and clicked (3 attempted, 0 missed)
+smoke ok: the explorer re-observed after every tap that resolved (7 observations, 3 resolved taps)
+smoke ok: every observed state change was recorded as an edge (2 signatures, 3 edges)
+smoke ok: walk finished (JOURNEY DONE)
+smoke ok: clean finish, crash oracle silent ("All tests passed")
+appium smoke: all assertions passed
+iOS simulator cleanup: deleted D03517FC-66BB-46C7-876E-D47636DEFD1E

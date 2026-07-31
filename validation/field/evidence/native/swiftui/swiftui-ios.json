@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "gateId": "swiftui-ios",
+  "commit": "414c1a14c7d60e1127a7738834e995020366fed0",
+  "startedAt": "2026-07-31T22:20:33.945698Z",
+  "finishedAt": "2026-07-31T22:22:10.747981Z",
+  "executor": {
+    "os": "darwin",
+    "architecture": "arm64"
+  },
+  "targetOs": "ios-simulator",
+  "architectures": [
+    "arm64"
+  ],
+  "fixture": "examples/ios-swiftui-fixture",
+  "command": [
+    "bash",
+    "validation/backends/with-appium.sh",
+    "bash",
+    "validation/backends/with-ios-simulator.sh",
+    "bash",
+    ".github/scripts/appium-ios-swiftui-smoke.sh"
+  ],
+  "status": "passed",
+  "exitCode": 0,
+  "checks": {
+    "iOS simulator reset: created ": true,
+    "EXPLORE:STATE ": true,
+    "EXPLORE:EDGE ": true,
+    "JOURNEY DONE": true,
+    "All tests passed": true,
+    "iOS simulator cleanup: deleted ": true
+  },
+  "resetStrategy": "create and boot a disposable iPhone simulator, then install a fresh app",
+  "cleanupStrategy": "delete the simulator and remove build and fuzz directories",
+  "logSha256": "599e32a6040d2616c28d3231dd35258c161ae7599966562a0b6dd8820db74144",
+  "logPath": "/private/tmp/claude-501/-Users-obsidian-code-idea-reproit/03224fa5-b324-4d08-bc28-152c873a704b/scratchpad/apple-evidence/swiftui-ios.log"
+}

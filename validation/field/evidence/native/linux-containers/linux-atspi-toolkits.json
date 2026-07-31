@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "gateId": "linux-atspi-toolkits",
+  "commit": "414c1a14c7d60e1127a7738834e995020366fed0",
+  "startedAt": "2026-07-31T22:18:51.868926Z",
+  "finishedAt": "2026-07-31T22:20:20.657569Z",
+  "executor": {
+    "os": "linux",
+    "architecture": "x86_64"
+  },
+  "targetOs": "linux-container",
+  "architectures": [
+    "x86_64"
+  ],
+  "fixture": "examples/qt-fixture and examples/wxwidgets-fixture",
+  "command": [
+    "bash",
+    "examples/qt-fixture/qt-atspi-e2e.sh"
+  ],
+  "status": "passed",
+  "exitCode": 0,
+  "checks": {
+    "All tests passed": true
+  },
+  "resetStrategy": "fresh pinned container and toolkit builds",
+  "cleanupStrategy": "ephemeral container plus outer temporary directory cleanup",
+  "logSha256": "2869c89d7f4495846fb964d9b88f272d4acad0e6698722762d878c5818cef58d",
+  "logPath": "/home/black/.cache/reproit-linux-validation/reproit-linux-20260731T221746Z-79812/evidence/linux-atspi-toolkits.log"
+}

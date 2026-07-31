@@ -1,0 +1,204 @@
+React Native template cache verified: 455467d2ca54f1b600ed9a9ce774d73d95e49314053c589603989bdfd799cb12
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated @babel/plugin-proposal-nullish-coalescing-operator@7.18.6: This proposal has been merged to the ECMAScript standard and thus this plugin is no longer maintained. Please use @babel/plugin-transform-nullish-coalescing-operator instead.
+npm warn deprecated @babel/plugin-proposal-class-properties@7.18.6: This proposal has been merged to the ECMAScript standard and thus this plugin is no longer maintained. Please use @babel/plugin-transform-class-properties instead.
+npm warn deprecated rimraf@2.6.3: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated @humanwhocodes/config-array@0.13.0: Use @eslint/config-array instead
+npm warn deprecated rimraf@3.0.2: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated @babel/plugin-proposal-optional-chaining@7.21.0: This proposal has been merged to the ECMAScript standard and thus this plugin is no longer maintained. Please use @babel/plugin-transform-optional-chaining instead.
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated sudo-prompt@9.2.1: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+npm warn deprecated @humanwhocodes/object-schema@2.0.3: Use @eslint/object-schema instead
+npm warn deprecated eslint@8.57.1: This version is no longer supported. Please see https://eslint.org/version-support for other options.
+
+added 952 packages in 6s
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.10.2/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :gradle-plugin:settings-plugin:checkKotlinGradlePluginConfigurationErrors
+> Task :gradle-plugin:shared:checkKotlinGradlePluginConfigurationErrors
+> Task :gradle-plugin:shared:processResources NO-SOURCE
+> Task :gradle-plugin:settings-plugin:pluginDescriptors
+> Task :gradle-plugin:settings-plugin:processResources
+> Task :gradle-plugin:shared:compileKotlin
+> Task :gradle-plugin:shared:compileJava NO-SOURCE
+> Task :gradle-plugin:shared:classes UP-TO-DATE
+> Task :gradle-plugin:shared:jar
+> Task :gradle-plugin:settings-plugin:compileKotlin
+> Task :gradle-plugin:settings-plugin:compileJava NO-SOURCE
+> Task :gradle-plugin:settings-plugin:classes
+> Task :gradle-plugin:settings-plugin:jar
+> Task :gradle-plugin:react-native-gradle-plugin:checkKotlinGradlePluginConfigurationErrors
+> Task :gradle-plugin:react-native-gradle-plugin:pluginDescriptors
+> Task :gradle-plugin:react-native-gradle-plugin:processResources
+> Task :gradle-plugin:react-native-gradle-plugin:compileKotlin
+> Task :gradle-plugin:react-native-gradle-plugin:compileJava NO-SOURCE
+> Task :gradle-plugin:react-native-gradle-plugin:classes
+> Task :gradle-plugin:react-native-gradle-plugin:jar
+> Task :app:checkKotlinGradlePluginConfigurationErrors
+> Task :app:generateAutolinkingPackageList
+> Task :app:generateCodegenSchemaFromJavaScript SKIPPED
+> Task :app:generateCodegenArtifactsFromSchema SKIPPED
+> Task :app:preBuild
+> Task :app:preReleaseBuild
+> Task :app:generateReleaseBuildConfig
+> Task :app:checkReleaseAarMetadata
+
+> Task :app:createBundleReleaseJsAndAssets
+debug Using @react-naive-community/cli-tools' logger
+debug Reading Metro config from /tmp/tmp.6rDCulqMWL/app/metro.config.js
+ WARN  the transform cache was reset.
+                Welcome to Metro v0.81.5
+              Fast - Scalable - Integrated
+
+
+info Writing bundle output to: /tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle
+info Writing sourcemap output to: /tmp/tmp.6rDCulqMWL/app/android/app/build/intermediates/sourcemaps/react/release/index.android.bundle.packager.map
+info Done writing bundle output
+info Done writing sourcemap output
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:1187:23: warning: the variable "DebuggerInternal" was not declared in function "__shouldPauseOnThrow"
+        return typeof DebuggerInternal !== 'undefined' && DebuggerInternal.sh...
+                      ^~~~~~~~~~~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:5529:7: warning: the variable "setTimeout" was not declared in function "logCapturedError"
+      setTimeout(function () {
+      ^~~~~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:3763:31: warning: the variable "nativeFabricUIManager" was not declared in anonymous function " 134#"
+  var _nativeFabricUIManage = nativeFabricUIManager,
+                              ^~~~~~~~~~~~~~~~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:3791:21: warning: the variable "clearTimeout" was not declared in anonymous function " 134#"
+    cancelTimeout = clearTimeout;
+                    ^~~~~~~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:3804:51: warning: the variable "RN$enableMicrotasksInReact" was not declared in anonymous function " 134#"
+... "undefined" !== typeof RN$enableMicrotasksInReact && !!RN$enableMicrotask...
+                           ^~~~~~~~~~~~~~~~~~~~~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:3805:47: warning: the variable "queueMicrotask" was not declared in anonymous function " 134#"
+...otask = "function" === typeof queueMicrotask ? queueMicrotask : scheduleTi...
+                                 ^~~~~~~~~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:8226:30: warning: the variable "__REACT_DEVTOOLS_GLOBAL_HOOK__" was not declared in anonymous function " 134#"
+  if ("undefined" !== typeof __REACT_DEVTOOLS_GLOBAL_HOOK__) {
+                             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:10267:5: warning: the variable "setImmediate" was not declared in function "handleResolved"
+    setImmediate(function () {
+    ^~~~~~~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:13984:12: warning: the variable "fetch" was not declared in anonymous function " 388#"
+    fetch: fetch,
+           ^~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:13985:14: warning: the variable "Headers" was not declared in anonymous function " 388#"
+    Headers: Headers,
+             ^~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:13986:14: warning: the variable "Request" was not declared in anonymous function " 388#"
+    Request: Request,
+             ^~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:13987:15: warning: the variable "Response" was not declared in anonymous function " 388#"
+    Response: Response
+              ^~~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:14144:24: warning: the variable "FileReader" was not declared in function "readBlobAsArrayBuffer"
+      var reader = new FileReader();
+                       ^~~~~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:14195:36: warning: the variable "Blob" was not declared in anonymous function " 399#"
+        } else if (support.blob && Blob.prototype.isPrototypeOf(body)) {
+                                   ^~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:14197:40: warning: the variable "FormData" was not declared in anonymous function " 399#"
+        } else if (support.formData && FormData.prototype.isPrototypeOf(body)) {
+                                       ^~~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:14199:44: warning: the variable "URLSearchParams" was not declared in anonymous function " 399#"
+...e if (support.searchParams && URLSearchParams.prototype.isPrototypeOf(body...
+                                 ^~~~~~~~~~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:14318:26: warning: the variable "AbortController" was not declared in anonymous function " 405#"
+          var ctrl = new AbortController();
+                         ^~~~~~~~~~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:14452:23: warning: the variable "XMLHttpRequest" was not declared in anonymous function " 409#"
+        var xhr = new XMLHttpRequest();
+                      ^~~~~~~~~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:13997:71: warning: the variable "self" was not declared in anonymous function " 391#"
+...undefined' && globalThis || typeof self !== 'undefined' && self ||
+                                      ^~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:22183:26: warning: the variable "navigator" was not declared in anonymous function " 701#"
+  "undefined" !== typeof navigator && undefined !== navigator.scheduling && u...
+                         ^~~~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:22293:37: warning: the variable "MessageChannel" was not declared in anonymous function " 701#"
+  };else if ("undefined" !== typeof MessageChannel) {
+                                    ^~~~~~~~~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:22308:34: warning: the variable "nativeRuntimeScheduler" was not declared in anonymous function " 701#"
+... = "undefined" !== typeof nativeRuntimeScheduler ? nativeRuntimeScheduler....
+                             ^~~~~~~~~~~~~~~~~~~~~~
+/tmp/tmp.6rDCulqMWL/app/android/app/build/generated/assets/createBundleReleaseJsAndAssets/index.android.bundle:30393:34: warning: the variable "requestAnimationFrame" was not declared in function "start 9#"
+...    this._animationFrame = requestAnimationFrame(this.onUpdate.bind(this));
+                              ^~~~~~~~~~~~~~~~~~~~~
+
+> Task :app:generateReleaseResValues
+> Task :app:mapReleaseSourceSetPaths
+> Task :app:generateReleaseResources
+> Task :app:packageReleaseResources
+> Task :app:mergeReleaseResources
+> Task :app:createReleaseCompatibleScreenManifests
+> Task :app:extractDeepLinksRelease
+> Task :app:parseReleaseLocalResources
+> Task :app:processReleaseMainManifest
+> Task :app:processReleaseManifest
+> Task :app:buildKotlinToolingMetadata
+> Task :app:javaPreCompileRelease
+> Task :app:extractProguardFiles
+> Task :app:mergeReleaseJniLibFolders
+> Task :app:desugarReleaseFileDependencies
+> Task :app:mergeReleaseStartupProfile
+> Task :app:checkReleaseDuplicateClasses
+> Task :app:mergeReleaseArtProfile
+> Task :app:mergeReleaseNativeLibs
+> Task :app:mergeReleaseShaders
+> Task :app:compileReleaseShaders NO-SOURCE
+> Task :app:generateReleaseAssets UP-TO-DATE
+> Task :app:mergeReleaseAssets
+
+> Task :app:stripReleaseDebugSymbols
+Unable to strip the following libraries, packaging them as they are: libc++_shared.so, libfbjni.so, libhermes.so, libhermestooling.so, libimagepipeline.so, libjsi.so, libnative-filters.so, libnative-imagetranscoder.so, libreactnative.so.
+
+> Task :app:extractReleaseNativeSymbolTables
+> Task :app:compressReleaseAssets
+> Task :app:extractReleaseVersionControlInfo
+> Task :app:mergeReleaseNativeDebugMetadata NO-SOURCE
+> Task :app:collectReleaseDependencies
+> Task :app:sdkReleaseDependencyData
+> Task :app:validateSigningRelease
+> Task :app:writeReleaseAppMetadata
+> Task :app:writeReleaseSigningConfigVersions
+> Task :app:processReleaseManifestForPackage
+> Task :app:processReleaseResources
+> Task :app:optimizeReleaseResources
+> Task :app:compileReleaseKotlin
+> Task :app:compileReleaseJavaWithJavac
+> Task :app:mergeExtDexRelease
+> Task :app:generateReleaseLintVitalReportModel
+> Task :app:dexBuilderRelease
+> Task :app:mergeReleaseGlobalSynthetics
+> Task :app:processReleaseJavaRes
+> Task :app:mergeReleaseJavaResource
+> Task :app:mergeDexRelease
+> Task :app:compileReleaseArtProfile
+> Task :app:packageRelease
+> Task :app:createReleaseApkListingFileRedirect
+> Task :app:lintVitalAnalyzeRelease
+> Task :app:lintVitalReportRelease
+> Task :app:lintVitalRelease
+> Task :app:assembleRelease
+
+BUILD SUCCESSFUL in 27s
+66 actionable tasks: 66 executed
+JOURNEY claimed role=a
+JOURNEY[a] step: jank-floor=80 (software GPU) baseline=50%
+FUZZ:OBS {"sig":"671d64a3","route":".MainActivity","labels":["Reproit React Native Fixture","Toggle"],"elements":[{"role":"button"}]}
+EXPLORE:STATE {"sig":"671d64a3","route":".MainActivity","labels":["Reproit React Native Fixture","Toggle"],"elements":[{"sel":"key:toggle","role":"button","label":"Toggle","bounds":[63,1217,954,135]}],"texts":[{"text":"Reproit React Native Fixture","bounds":[63,1113,954,51]},{"text":"Toggle","bounds":[63,1217,954,135]},{"text":"Toggle","bounds":[105,1259,870,51]}]}
+JOURNEY[a] step: groundtruth from native a11y tree (no-js-channel; 1 operable)
+EXPLORE:GROUNDTRUTH {"sig":"671d64a3","focusTrap":false,"elements":[{"id":"key:toggle","operable":true,"gestureKind":"tap","a11y":{"rolePresent":true,"namePresent":true,"keyboardActivatable":true,"inTabOrder":true,"focusable":true}}]}
+FUZZ:OBS {"sig":"671d64a3","route":".MainActivity","labels":["Reproit React Native Fixture","Toggle"],"elements":[{"role":"button"}]}
+FUZZ:OBS {"sig":"671d64a3","route":".MainActivity","labels":["Reproit React Native Fixture","Toggle"],"elements":[{"role":"button"}]}
+FUZZ:ACT tap:key:toggle
+EXPLORE:JANK {"from":"671d64a3","action":"tap:key:toggle","bucket":30,"count":1}
+FUZZ:OBS {"sig":"cfae62a1","route":".MainActivity","labels":["Reproit React Native Fixture","Toggle","Detail revealed"],"elements":[{"role":"button"}]}
+EXPLORE:STATE {"sig":"cfae62a1","route":".MainActivity","labels":["Reproit React Native Fixture","Toggle","Detail revealed"],"elements":[{"sel":"key:toggle","role":"button","label":"Toggle","bounds":[63,1166,954,135]}],"texts":[{"text":"Reproit React Native Fixture","bounds":[63,1062,954,51]},{"text":"Toggle","bounds":[63,1166,954,135]},{"text":"Toggle","bounds":[105,1208,870,51]},{"text":"Detail revealed","bounds":[63,1353,954,51]}]}
+JOURNEY[a] step: groundtruth from native a11y tree (no-js-channel; 1 operable)
+EXPLORE:GROUNDTRUTH {"sig":"cfae62a1","focusTrap":false,"elements":[{"id":"key:toggle","operable":true,"gestureKind":"tap","a11y":{"rolePresent":true,"namePresent":true,"keyboardActivatable":true,"inTabOrder":true,"focusable":true}}]}
+EXPLORE:EDGE {"from":"671d64a3","action":"tap:key:toggle","to":"cfae62a1"}
+JOURNEY[a] step: explored 2 states
+JOURNEY DONE
+All tests passed
+Appium backend passed native React Native Android runtime
