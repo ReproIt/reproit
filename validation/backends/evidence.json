@@ -3,7 +3,9 @@
   "resultSchema": "validation/backends/result.schema.json",
   "gates": {
     "flutter-ios": {
-      "platforms": ["flutter"],
+      "platforms": [
+        "flutter"
+      ],
       "backend": "flutter-drive",
       "command": [
         "bash",
@@ -13,7 +15,9 @@
       ],
       "fixture": "examples/flutter-fixture",
       "targetOs": "ios-simulator",
-      "architectures": ["arm64"],
+      "architectures": [
+        "arm64"
+      ],
       "tier": "release",
       "timeoutSeconds": 1200,
       "resetStrategy": "create and boot a disposable iPhone simulator plus a generated app",
@@ -26,10 +30,16 @@
         "All tests passed",
         "iOS simulator cleanup: deleted "
       ],
-      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "macos-flutter"}
+      "automation": {
+        "mode": "required-ci",
+        "workflow": ".github/workflows/native-gates.yml",
+        "job": "macos-flutter"
+      }
     },
     "flutter-android": {
-      "platforms": ["flutter"],
+      "platforms": [
+        "flutter"
+      ],
       "backend": "flutter-drive",
       "command": [
         "bash",
@@ -37,7 +47,9 @@
       ],
       "fixture": "examples/flutter-fixture",
       "targetOs": "android-emulator",
-      "architectures": ["x86_64"],
+      "architectures": [
+        "x86_64"
+      ],
       "tier": "release",
       "timeoutSeconds": 1200,
       "resetStrategy": "fresh generated application on a boot-complete reset emulator",
@@ -55,63 +67,126 @@
       }
     },
     "web-chromium": {
-      "platforms": ["web"],
+      "platforms": [
+        "web"
+      ],
       "backend": "web-cdp",
-      "command": ["bash", "validation/backends/run-web-cdp.sh"],
+      "command": [
+        "bash",
+        "validation/backends/run-web-cdp.sh"
+      ],
       "fixture": "examples/web-fixture",
       "targetOs": "linux",
-      "architectures": ["x86_64"],
+      "architectures": [
+        "x86_64"
+      ],
       "tier": "release",
       "timeoutSeconds": 900,
       "resetStrategy": "disposable HTTP server and fuzz configuration",
       "cleanupStrategy": "server terminated and temporary directory removed by EXIT trap",
-      "requiredOutput": ["EXPLORE:STATE ", "EXPLORE:EDGE ", "JOURNEY DONE", "All tests passed"],
-      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "linux-hosted"}
+      "requiredOutput": [
+        "EXPLORE:STATE ",
+        "EXPLORE:EDGE ",
+        "JOURNEY DONE",
+        "All tests passed"
+      ],
+      "automation": {
+        "mode": "required-ci",
+        "workflow": ".github/workflows/native-gates.yml",
+        "job": "linux-hosted"
+      }
     },
     "web-engines": {
-      "platforms": ["web"],
+      "platforms": [
+        "web"
+      ],
       "backend": "web-cdp",
-      "command": ["bash", "validation/backends/run-web-engines.sh"],
+      "command": [
+        "bash",
+        "validation/backends/run-web-engines.sh"
+      ],
       "fixture": "examples/web-fixture",
       "targetOs": "linux",
-      "architectures": ["x86_64"],
+      "architectures": [
+        "x86_64"
+      ],
       "tier": "release",
       "timeoutSeconds": 1200,
       "resetStrategy": "fresh server and runner state per browser engine",
       "cleanupStrategy": "each engine gate owns bounded temporary state and server cleanup",
-      "requiredOutput": ["Playwright Firefox/WebKit browser runtime matrix passed"],
-      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "linux-hosted"}
+      "requiredOutput": [
+        "Playwright Firefox/WebKit browser runtime matrix passed"
+      ],
+      "automation": {
+        "mode": "required-ci",
+        "workflow": ".github/workflows/native-gates.yml",
+        "job": "linux-hosted"
+      }
     },
     "electron": {
-      "platforms": ["electron"],
+      "platforms": [
+        "electron"
+      ],
       "backend": "web-cdp",
-      "command": ["bash", "validation/backends/run-electron.sh"],
+      "command": [
+        "bash",
+        "validation/backends/run-electron.sh"
+      ],
       "fixture": "examples/electron-fixture",
       "targetOs": "linux",
-      "architectures": ["x86_64"],
+      "architectures": [
+        "x86_64"
+      ],
       "tier": "release",
       "timeoutSeconds": 1200,
       "resetStrategy": "fresh copied fixture with pinned Electron runtime",
       "cleanupStrategy": "temporary application directory removed by EXIT trap",
-      "requiredOutput": ["EXPLORE:STATE ", "EXPLORE:EDGE ", "JOURNEY DONE", "All tests passed"],
-      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "linux-hosted"}
+      "requiredOutput": [
+        "EXPLORE:STATE ",
+        "EXPLORE:EDGE ",
+        "JOURNEY DONE",
+        "All tests passed"
+      ],
+      "automation": {
+        "mode": "required-ci",
+        "workflow": ".github/workflows/native-gates.yml",
+        "job": "linux-hosted"
+      }
     },
     "tauri": {
-      "platforms": ["tauri"],
+      "platforms": [
+        "tauri"
+      ],
       "backend": "web-cdp",
-      "command": ["bash", "validation/backends/run-tauri.sh"],
+      "command": [
+        "bash",
+        "validation/backends/run-tauri.sh"
+      ],
       "fixture": "examples/tauri-fixture",
       "targetOs": "linux",
-      "architectures": ["x86_64"],
+      "architectures": [
+        "x86_64"
+      ],
       "tier": "release",
       "timeoutSeconds": 2400,
       "resetStrategy": "fresh pinned container and copied fixture",
       "cleanupStrategy": "ephemeral container plus outer temporary directory cleanup",
-      "requiredOutput": ["EXPLORE:STATE ", "EXPLORE:EDGE ", "JOURNEY DONE", "All tests passed"],
-      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "linux-containers"}
+      "requiredOutput": [
+        "EXPLORE:STATE ",
+        "EXPLORE:EDGE ",
+        "JOURNEY DONE",
+        "All tests passed"
+      ],
+      "automation": {
+        "mode": "required-ci",
+        "workflow": ".github/workflows/native-gates.yml",
+        "job": "linux-containers"
+      }
     },
     "react-native-android": {
-      "platforms": ["react-native"],
+      "platforms": [
+        "react-native"
+      ],
       "backend": "appium",
       "command": [
         "bash",
@@ -121,16 +196,29 @@
       ],
       "fixture": "examples/react-native-fixture",
       "targetOs": "android-emulator",
-      "architectures": ["x86_64"],
+      "architectures": [
+        "x86_64"
+      ],
       "tier": "release",
       "timeoutSeconds": 3600,
       "resetStrategy": "fresh pinned release application install on a boot-complete emulator",
       "cleanupStrategy": "generated application directory removed by EXIT trap",
-      "requiredOutput": ["EXPLORE:STATE ", "EXPLORE:EDGE ", "JOURNEY DONE", "All tests passed"],
-      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "android-hosted"}
+      "requiredOutput": [
+        "EXPLORE:STATE ",
+        "EXPLORE:EDGE ",
+        "JOURNEY DONE",
+        "All tests passed"
+      ],
+      "automation": {
+        "mode": "required-ci",
+        "workflow": ".github/workflows/native-gates.yml",
+        "job": "android-hosted"
+      }
     },
     "react-native-ios": {
-      "platforms": ["react-native"],
+      "platforms": [
+        "react-native"
+      ],
       "backend": "appium",
       "command": [
         "bash",
@@ -142,7 +230,9 @@
       ],
       "fixture": "examples/react-native-fixture",
       "targetOs": "ios-simulator",
-      "architectures": ["arm64"],
+      "architectures": [
+        "arm64"
+      ],
       "tier": "release",
       "timeoutSeconds": 3600,
       "resetStrategy": "fresh pinned release application on a disposable iPhone simulator",
@@ -162,7 +252,9 @@
       }
     },
     "compose-android": {
-      "platforms": ["android"],
+      "platforms": [
+        "android"
+      ],
       "backend": "appium",
       "command": [
         "bash",
@@ -172,16 +264,29 @@
       ],
       "fixture": "examples/compose-fixture",
       "targetOs": "android-emulator",
-      "architectures": ["x86_64"],
+      "architectures": [
+        "x86_64"
+      ],
       "tier": "release",
       "timeoutSeconds": 1800,
       "resetStrategy": "fixture rebuild, reinstall, force-stop, and explicit launch",
       "cleanupStrategy": "temporary fuzz configuration removed by EXIT trap",
-      "requiredOutput": ["EXPLORE:STATE ", "EXPLORE:EDGE ", "JOURNEY DONE", "All tests passed"],
-      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "android-hosted"}
+      "requiredOutput": [
+        "EXPLORE:STATE ",
+        "EXPLORE:EDGE ",
+        "JOURNEY DONE",
+        "All tests passed"
+      ],
+      "automation": {
+        "mode": "required-ci",
+        "workflow": ".github/workflows/native-gates.yml",
+        "job": "android-hosted"
+      }
     },
     "swiftui-ios": {
-      "platforms": ["swift-ios"],
+      "platforms": [
+        "swift-ios"
+      ],
       "backend": "appium",
       "command": [
         "bash",
@@ -193,7 +298,9 @@
       ],
       "fixture": "examples/ios-swiftui-fixture",
       "targetOs": "ios-simulator",
-      "architectures": ["arm64"],
+      "architectures": [
+        "arm64"
+      ],
       "tier": "release",
       "timeoutSeconds": 900,
       "resetStrategy": "create and boot a disposable iPhone simulator, then install a fresh app",
@@ -206,20 +313,36 @@
         "All tests passed",
         "iOS simulator cleanup: deleted "
       ],
-      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "macos-swiftui"}
+      "automation": {
+        "mode": "required-ci",
+        "workflow": ".github/workflows/native-gates.yml",
+        "job": "macos-swiftui"
+      }
     },
     "macos-ax": {
-      "platforms": ["swift-macos"],
+      "platforms": [
+        "swift-macos"
+      ],
       "backend": "desktop-ax",
-      "command": ["bash", "validation/backends/run-macos-ax.sh"],
+      "command": [
+        "bash",
+        "validation/backends/run-macos-ax.sh"
+      ],
       "fixture": "examples/macos-swiftui-fixture",
       "targetOs": "macos",
-      "architectures": ["arm64"],
+      "architectures": [
+        "arm64"
+      ],
       "tier": "release",
       "timeoutSeconds": 900,
       "resetStrategy": "fresh fixture build and bounded launch readiness",
       "cleanupStrategy": "fixture process terminated and temporary directory removed by EXIT trap",
-      "requiredOutput": ["EXPLORE:STATE ", "EXPLORE:EDGE ", "JOURNEY DONE", "All tests passed"],
+      "requiredOutput": [
+        "EXPLORE:STATE ",
+        "EXPLORE:EDGE ",
+        "JOURNEY DONE",
+        "All tests passed"
+      ],
       "automation": {
         "mode": "permissioned-self-hosted",
         "workflow": ".github/workflows/native-gates.yml",
@@ -229,17 +352,27 @@
       }
     },
     "windows-uia": {
-      "platforms": ["winui", "avalonia"],
+      "platforms": [
+        "winui",
+        "avalonia"
+      ],
       "backend": "desktop-uia",
-      "command": ["powershell", "validation/backends/run-windows-desktop.ps1"],
+      "command": [
+        "powershell",
+        "validation/backends/run-windows-desktop.ps1"
+      ],
       "fixture": "examples/wpf-fixture, examples/avalonia-fixture, examples/winui-fixture",
       "targetOs": "windows-x86_64-interactive",
-      "architectures": ["x86_64"],
+      "architectures": [
+        "x86_64"
+      ],
       "tier": "release",
       "timeoutSeconds": 2400,
       "resetStrategy": "fixture process cleanup, fresh builds, and an interactive Windows session",
       "cleanupStrategy": "fixture process and temporary artifact cleanup",
-      "requiredOutput": ["Windows DesktopUia backend passed WPF, Avalonia, and WinUI"],
+      "requiredOutput": [
+        "Windows DesktopUia backend passed WPF, Avalonia, and WinUI"
+      ],
       "automation": {
         "mode": "required-ci",
         "workflow": ".github/workflows/native-gates.yml",
@@ -250,80 +383,188 @@
       }
     },
     "linux-atspi-gtk": {
-      "platforms": ["gtk"],
+      "platforms": [
+        "gtk"
+      ],
       "backend": "desktop-atspi",
-      "command": ["bash", ".github/scripts/atspi-scenario-e2e.sh"],
+      "command": [
+        "bash",
+        ".github/scripts/atspi-scenario-e2e.sh"
+      ],
       "fixture": "embedded GTK multi-actor fixture",
       "targetOs": "linux-container",
-      "architectures": ["x86_64"],
+      "architectures": [
+        "x86_64"
+      ],
       "tier": "release",
       "timeoutSeconds": 2400,
       "resetStrategy": "fresh pinned container, display, accessibility bus, and actor processes",
       "cleanupStrategy": "ephemeral container plus outer temporary directory cleanup",
-      "requiredOutput": ["atspi-scenario-e2e: all assertions passed"],
-      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "linux-containers"}
+      "requiredOutput": [
+        "atspi-scenario-e2e: all assertions passed"
+      ],
+      "automation": {
+        "mode": "required-ci",
+        "workflow": ".github/workflows/native-gates.yml",
+        "job": "linux-containers"
+      }
     },
     "linux-atspi-toolkits": {
-      "platforms": ["qt", "wxwidgets"],
+      "platforms": [
+        "qt",
+        "wxwidgets"
+      ],
       "backend": "desktop-atspi",
-      "command": ["bash", "examples/qt-fixture/qt-atspi-e2e.sh"],
+      "command": [
+        "bash",
+        "examples/qt-fixture/qt-atspi-e2e.sh"
+      ],
       "fixture": "examples/qt-fixture and examples/wxwidgets-fixture",
       "targetOs": "linux-container",
-      "architectures": ["x86_64"],
+      "architectures": [
+        "x86_64"
+      ],
       "tier": "release",
       "timeoutSeconds": 2400,
       "resetStrategy": "fresh pinned container and toolkit builds",
       "cleanupStrategy": "ephemeral container plus outer temporary directory cleanup",
-      "requiredOutput": ["All tests passed"],
-      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "linux-containers"}
+      "requiredOutput": [
+        "All tests passed"
+      ],
+      "automation": {
+        "mode": "required-ci",
+        "workflow": ".github/workflows/native-gates.yml",
+        "job": "linux-containers"
+      }
     },
     "tui-pty": {
-      "platforms": ["tui"],
+      "platforms": [
+        "tui"
+      ],
       "backend": "tui-pty",
-      "command": ["bash", "validation/backends/run-tui.sh"],
+      "command": [
+        "bash",
+        "validation/backends/run-tui.sh"
+      ],
       "fixture": "examples/tui-demo/menu.py",
       "targetOs": "linux",
-      "architectures": ["x86_64"],
+      "architectures": [
+        "x86_64"
+      ],
       "tier": "release",
       "timeoutSeconds": 900,
       "resetStrategy": "fresh PTY process and fixed fuzz input",
       "cleanupStrategy": "child process ownership plus temporary directory cleanup",
-      "requiredOutput": ["EXPLORE:STATE ", "EXPLORE:EDGE ", "JOURNEY DONE", "All tests passed"],
-      "automation": {"mode": "required-ci", "workflow": ".github/workflows/native-gates.yml", "job": "linux-hosted"}
-    },
-    "backend-contract": {
-      "platforms": [],
-      "backend": "backend-contract",
-      "command": ["bash", "validation/backend/cli-e2e/run.sh"],
-      "fixture": "validation/backend/cli-e2e",
-      "targetOs": "linux",
-      "architectures": ["x86_64"],
-      "tier": "release",
-      "timeoutSeconds": 1200,
-      "resetStrategy": "fresh loopback service and empty Reproit state per case",
-      "cleanupStrategy": "owned service process and Reproit state removed by EXIT trap",
-      "requiredOutput": ["real reproit internal scan backend contract gate passed"],
+      "requiredOutput": [
+        "EXPLORE:STATE ",
+        "EXPLORE:EDGE ",
+        "JOURNEY DONE",
+        "All tests passed"
+      ],
       "automation": {
         "mode": "required-ci",
         "workflow": ".github/workflows/native-gates.yml",
         "job": "linux-hosted"
       }
+    },
+    "backend-contract": {
+      "platforms": [],
+      "backend": "backend-contract",
+      "command": [
+        "bash",
+        "validation/backend/cli-e2e/run.sh"
+      ],
+      "fixture": "validation/backend/cli-e2e",
+      "targetOs": "linux",
+      "architectures": [
+        "x86_64"
+      ],
+      "tier": "release",
+      "timeoutSeconds": 1200,
+      "resetStrategy": "fresh loopback service and empty Reproit state per case",
+      "cleanupStrategy": "owned service process and Reproit state removed by EXIT trap",
+      "requiredOutput": [
+        "real reproit internal scan backend contract gate passed"
+      ],
+      "automation": {
+        "mode": "required-ci",
+        "workflow": ".github/workflows/native-gates.yml",
+        "job": "linux-hosted"
+      }
+    },
+    "process-checkpoint": {
+      "platforms": [
+        "linux"
+      ],
+      "backend": "process-capsule",
+      "command": [
+        "bash",
+        ".github/scripts/checkpoint-e2e.sh"
+      ],
+      "fixture": "validation/process-checkpoint/subject.c, a long running writer",
+      "targetOs": "linux-container",
+      "architectures": [
+        "x86_64"
+      ],
+      "tier": "release",
+      "timeoutSeconds": 2400,
+      "resetStrategy": "fresh privileged bookworm container, reproit rebuilt against that image",
+      "cleanupStrategy": "ephemeral container plus outer temporary directory cleanup",
+      "requiredOutput": [
+        "the anchor skips the head, the tail resumes, and every outcome it cannot observe fails closed"
+      ],
+      "automation": {
+        "mode": "required-ci",
+        "workflow": ".github/workflows/native-gates.yml",
+        "job": "linux-containers"
+      }
     }
   },
   "platforms": {
-    "flutter": ["flutter-ios", "flutter-android"],
-    "web": ["web-chromium", "web-engines"],
-    "react-native": ["react-native-android", "react-native-ios"],
-    "electron": ["electron"],
-    "tauri": ["tauri"],
-    "swift-ios": ["swiftui-ios"],
-    "android": ["compose-android"],
-    "swift-macos": ["macos-ax"],
-    "winui": ["windows-uia"],
-    "tui": ["tui-pty"],
-    "qt": ["linux-atspi-toolkits"],
-    "gtk": ["linux-atspi-gtk"],
-    "avalonia": ["windows-uia"],
-    "wxwidgets": ["linux-atspi-toolkits"]
+    "flutter": [
+      "flutter-ios",
+      "flutter-android"
+    ],
+    "web": [
+      "web-chromium",
+      "web-engines"
+    ],
+    "react-native": [
+      "react-native-android",
+      "react-native-ios"
+    ],
+    "electron": [
+      "electron"
+    ],
+    "tauri": [
+      "tauri"
+    ],
+    "swift-ios": [
+      "swiftui-ios"
+    ],
+    "android": [
+      "compose-android"
+    ],
+    "swift-macos": [
+      "macos-ax"
+    ],
+    "winui": [
+      "windows-uia"
+    ],
+    "tui": [
+      "tui-pty"
+    ],
+    "qt": [
+      "linux-atspi-toolkits"
+    ],
+    "gtk": [
+      "linux-atspi-gtk"
+    ],
+    "avalonia": [
+      "windows-uia"
+    ],
+    "wxwidgets": [
+      "linux-atspi-toolkits"
+    ]
   }
 }

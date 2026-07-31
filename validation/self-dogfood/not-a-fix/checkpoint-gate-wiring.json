@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "checkpoint-gate-wiring",
+  "changeType": "tooling",
+  "detail": "validation/process-checkpoint/run.sh has proven Class C checkpoint anchoring since it was written, but no workflow ever ran it, so it only executed when someone invoked it by hand. That is precisely why the criu 4.1.1 restore hang was found by a manual run rather than by a red build: an acceptance nobody runs cannot report drift, which is the same class as a job that cannot be scheduled (gate-environment-independence) and a harness that stops before its assertions (check-harness-integrity.py). This change adds no product code and fixes no product defect. It registers the harness as the process-checkpoint gate in validation/backends/evidence.json and runs it from the linux-containers job alongside the AT-SPI gates. Two environment facts are load bearing and the wrapper states them rather than inheriting them: the image must be bookworm, because criu 4.1.1 from trixie hangs in restore while 3.17.1 restores the same image fine; and the reproit binary must be built inside that same image, because a binary needing a newer glibc or linked against libatspi the runtime image lacks dies at exec, which surfaces as a failed capture and reads like a product defect. The second one was not theoretical: the first run of this gate failed at 'cannot find -latspi', so the Dockerfile installs the link dependencies of the product and not only those of the gate. criu additionally needs CAP_SYS_ADMIN and refuses to dump a process whose files live on a bind mounted host path, so the container is privileged and /work stays on the container's own filesystem with only the repository mounted read only. Verified through gate.py, the entry point CI actually uses rather than as a bare script: 7 of 7 cases, exit 0, 802 boundary entries captured over 400 iterations, full replay 2713 ms, and the anchor skipping the first 357 iterations rather than replaying them.",
+  "evidence": [
+    {
+      "path": "validation/self-dogfood/evidence/checkpoint-gate-wiring.log",
+      "sha256": "sha256:fe95397b4f0a2de9fb8ab8e11f615556267fd5cef697af56b655d2b7e386c52b"
+    },
+    {
+      "path": "validation/process-checkpoint/MEASUREMENT.md",
+      "sha256": "sha256:6cfb55c813f63ac429b6c6adae1a76a460bba4ea1ad64cc7be36c171af4010ab"
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+Wiring validation/process-checkpoint/run.sh into CI as the process-checkpoint gate.
+Run through validation/backends/gate.py, the same entry point the
+linux-containers job uses, on 2026-07-31.
+
+criu available in the gate image:
+  Version: 3.17.1
+
+Gate run:
+
+  #0 building with "desktop-linux" instance using docker driver
+  
+  #1 [internal] load build definition from Dockerfile
+  #1 transferring dockerfile: 845B done
+  #1 DONE 0.0s
+  
+  #2 [internal] load metadata for docker.io/library/debian:bookworm
+  #2 DONE 0.0s
+  
+  #3 [internal] load .dockerignore
+  #3 transferring context: 2B done
+  #3 DONE 0.0s
+  
+  #4 [1/3] FROM docker.io/library/debian:bookworm@sha256:9344f8b8992482f80cba753f323adeaf17690076c095ccff6cc9536be98185dc
+  #4 resolve docker.io/library/debian:bookworm@sha256:9344f8b8992482f80cba753f323adeaf17690076c095ccff6cc9536be98185dc 0.0s done
+  #4 DONE 0.0s
+  
+  #5 [2/3] RUN apt-get update   && apt-get install -y --no-install-recommends        criu gcc libc6-dev curl ca-certificates pkg-config        libatspi2.0-dev libglib2.0-dev   && rm -rf /var/lib/apt/lists/*
+  #5 CACHED
+  
+  #6 [3/3] RUN curl -sSf https://sh.rustup.rs       | sh -s -- -y --profile minimal --default-toolchain 1.88.0
+  #6 CACHED
+  
+  #7 exporting to image
+  #7 exporting layers done
+  #7 exporting manifest sha256:89f45bea117dc6d014ca025ba1bc604c6402142cb6b9cd4cf323159561f6e89c done
+  #7 exporting config sha256:c613ef02b3a6cc3451256f8f92b906da75b2b3903eed6b06e19d1073be285c6e done
+  #7 exporting attestation manifest sha256:3a8f858bdc237fef4ea9a3574d29db1b3e89c38a53979f927649076d521711e8 0.0s done
+  #7 exporting manifest list sha256:ef25ae09c4d2642ae4e5fef803bda3044821d37e6275b3d97020c64a361ebfea
+  #7 exporting manifest list sha256:ef25ae09c4d2642ae4e5fef803bda3044821d37e6275b3d97020c64a361ebfea 0.0s done
+  #7 naming to docker.io/library/reproit-checkpoint-e2e:latest done
+  #7 unpacking to docker.io/library/reproit-checkpoint-e2e:latest done
+  #7 DONE 0.1s
+   Downloading crates ...
+   Downloading crates ...
+   Downloading crates ...
+      Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 23s
+    captured 802 boundary entries over 400 iterations
+  PASS captured a long running failure into a process capsule
+    replay from zero: 2713 ms, verdict=reproduced, exit=1
+  PASS replay from zero reproduces the failure with the config deleted
+    anchored after 353 lines of the subject's own output
+  PASS checkpointed the replaying process into an anchor
+    restore: verdict=inconclusive exit=3
+    tail resumed from 357 to 400 lines of the subject's own output
+  PASS restoring the anchor resumes the tail and runs it to completion
+    MEASURED: full replay 2713 ms for 400 iterations;
+              the anchor skipped the first 357 of them
+  PASS the anchor skips the head of the run rather than replaying it
+  PASS an unobservable tail outcome fails closed instead of claiming a reproduction
+  PASS a tampered image, a missing image, and a tampered capsule are all refused
+  process-checkpoint: the anchor skips the head, the tail resumes, and every outcome it cannot observe fails closed
+  native gate result: /private/tmp/gate-out/process-checkpoint.json
+
+Exit status of gate.py: 0
