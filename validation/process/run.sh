@@ -80,10 +80,11 @@ rm -rf /tmp/reproit-subject
 
 run_case() {
   local capsule="$1" command="$2" expected="$3" label="$4" marker="$5"
-  set +e
+  # This script runs without errexit on purpose: several subjects below are
+  # SUPPOSED to exit non-zero. Enabling it here and never restoring it aborted
+  # the run at the first such command, so the status is simply captured.
   "$REPROIT" --yes check "$capsule" --exec "$command" > "$WORK/out.txt" 2>&1
   local status=$?
-  set -e
   if [[ "$status" -ne "$expected" ]]; then
     echo "FAIL $label: expected exit $expected, got $status" >&2
     cat "$WORK/out.txt" >&2
@@ -140,5 +141,46 @@ fi
 # resolve identically to the recorded run.
 run_case "$WORK/py-capsule.json" "python3 $WORK/script.py" 1 \
   "python3 subject reproduces hermetically" "reproduced by re-execution"
+
+# The verdict alone does not prove the replayed program produced the same
+# OUTPUT, only that it failed the same way. This compares stdout byte for
+# byte, at the shim boundary because the CLI discards the subject's stdout and
+# a redirect inside --exec would itself be an unrecorded open.
+mkdir -p /tmp/reproit-subject
+printf 'boom' > /tmp/reproit-subject/input.txt
+LD_PRELOAD="$WORK/reproit_shim.so" REPROIT_RECORD="$WORK/stdout.log" \
+  python3 "$WORK/script.py" > "$WORK/stdout.record" 2>/dev/null
+rm -rf /tmp/reproit-subject
+LD_PRELOAD="$WORK/reproit_shim.so" REPROIT_REPLAY_LOG="$WORK/stdout.log" \
+  REPROIT_REPLAY_SEED=c0ffee00c0ffee00 \
+  python3 "$WORK/script.py" > "$WORK/stdout.replay" 2>/dev/null
+if ! cmp -s "$WORK/stdout.record" "$WORK/stdout.replay"; then
+  echo "FAIL python3 replayed stdout is not byte identical to the recording" >&2
+  echo "  recorded: $(tr '\n' '|' < "$WORK/stdout.record")" >&2
+  echo "  replayed: $(tr '\n' '|' < "$WORK/stdout.replay")" >&2
+  exit 1
+fi
+echo "PASS python3 replayed stdout is byte identical to the recording"
+
+# An interpreted runtime this boundary does NOT replay correctly. Ruby reaches
+# zero divergences but its startup resolves libraries in a different order, so
+# it must never claim a reproduction. This pins the fail closed property: the
+# honest verdict is INCONCLUSIVE, not a pass and not a reproduction.
+if command -v ruby > /dev/null 2>&1; then
+  mkdir -p /tmp/reproit-subject
+  printf 'boom' > /tmp/reproit-subject/input.txt
+  cat > "$WORK/script.rb" <<'RB_SUBJECT'
+data = File.read('/tmp/reproit-subject/input.txt').strip
+puts "read:" + data
+exit(data == "boom" ? 3 : 0)
+RB_SUBJECT
+  "$REPROIT" --yes internal process-capture --out "$WORK/rb-capsule.json" -- \
+    ruby "$WORK/script.rb" > "$WORK/rb-capture.txt" 2>&1
+  rm -rf /tmp/reproit-subject
+  run_case "$WORK/rb-capsule.json" "ruby $WORK/script.rb" 3 \
+    "ruby subject fails closed rather than claiming a reproduction" "INCONCLUSIVE"
+else
+  echo "SKIP ruby case: no ruby in this image"
+fi
 
 echo "process-e2e: all four verdicts hold"

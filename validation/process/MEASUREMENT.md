@@ -14,13 +14,13 @@ in silence?
 Measured with the seccomp completeness layer active (the default on Linux;
 set `REPROIT_SECCOMP=0` to force the libc-only boundary).
 
-| program | entries | divergences | replay output correct | verdict |
+| program | entries | divergences | stdout byte identical | verdict |
 | --- | ---: | ---: | --- | --- |
 | C program, plain `open`/`read` | 3 | 0 | yes | replay correct |
 | C program, `-D_FILE_OFFSET_BITS=64` | 3 | 0 | yes | replay correct |
 | coreutils `cat` | 3 | 0 | yes | replay correct |
-| `python3` script | 782 | 0 | yes at the verdict, see note | REPRODUCES hermetically |
-| `ruby` script | 1779 | 1 | no | fails closed, DIVERGED |
+| `python3` script | 782 | 0 | **yes** | REPRODUCES hermetically |
+| `ruby` script | 1780 | 0 | no | fails closed, INCONCLUSIVE |
 | C program, `gcc -static` | 0 | 0 | n/a | capture REFUSED before it runs |
 
 Every replay above ran with the input file DELETED.
@@ -86,14 +86,17 @@ ITSELF from the capsule and diverged on its own scratch paths. The memfd path
 never called `open`, which is why it had stayed hidden. The supervisor now
 latches a flag `LEAVE()` cannot clear.
 
-**One honest caveat on python3.** The verdict reproduces: the oracle, the exit
-status, and the divergence count all match the recorded run, which is what the
-product judges. Byte for byte its stdout is not identical, because the
-replayed interpreter emits its line TWICE. That is not stdio buffering
-inherited across the supervisor fork (tested by discarding those buffers, no
-change). The most likely remaining explanation is the interpreter re-executing
-itself during startup under replay, which this layer does not trap. It is
-NOT diagnosed to certainty and is recorded here rather than claimed closed.
+**The python3 double stdout caveat is CLOSED, and it was stale.** It was
+recorded before the real file serving change and never re-measured after it.
+The decisive measurement is per writer: tracing `write(2)` on fd 1 through a
+replay shows ONE pid performing ONE write of `read:boom\n`, and six
+consecutive replays each produced exactly one line. `cmp` of the recorded and
+replayed stdout is now an assertion in `validation/process/run.sh`, so the
+claim is pinned rather than remembered.
+
+The lesson is the one this file exists for: a caveat carried forward without
+re-measurement is indistinguishable from a live defect, and this one had
+already been fixed by a change made for an unrelated reason.
 
 ## What still does not work: the wall, with evidence
 
@@ -130,22 +133,40 @@ Closing it needs the locale object served as a real file whose mapping and
 metadata match the recording, not a memfd copy. That is the next honest
 increment and it is NOT done.
 
-**`ruby` still does not replay: one divergence remains.** It no longer
-segfaults and no longer diverges on shared objects, which real file serving
-fixed. What is left is a single unrecorded path:
+**`ruby` reaches zero divergences and still does not replay.** The last
+divergence was `/var/lib/gems/3.1.0/specifications/default`, and the capsule
+DID hold the answer: the recording opened the parent
+`/var/lib/gems/3.1.0/specifications` and got ENOENT (`a = -2`). A directory
+observed as absent cannot contain anything, so replay now answers ENOENT from
+that recorded fact instead of reporting drift that never happened. See the
+section below on answering from the recording.
+
+What remains is NOT a missing entry. Ruby's replay evaluates `rbconfig.rb`
+twice, which it reports itself:
 
 ```
-REPROIT:DIVERGENCE {"kind":"file","detail":"/var/lib/gems/3.1.0/specifications/default","served":89}
+rbconfig.rb:369: warning: already initialized constant RbConfig::TOPDIR
+rbconfig.rb:16:  warning: previous definition of TOPDIR was here
 ```
 
-Eighty nine entries serve correctly before it. The remaining path is a gem
-specification directory the replayed interpreter enumerates but the recorded
-run never opened, so the capsule cannot serve it. That is the same class as
-the old locale case, one step later in startup, and it is not closed.
+`strace` on the replay shows `/usr/lib/aarch64-linux-gnu/ruby/3.1.0/rbconfig.rb`
+opened twice, while the recorded run searched the `site_ruby` prefixes first.
+So the library search resolves in a different ORDER under replay, `require`
+dedupes on the resolved path, and the same file is loaded under two names.
+Closing it means pinning the interpreter's search order, not adding another
+syscall to the boundary.
 
-It fails closed. At the product level the verdict is `DIVERGED`, exit 3. No
-configuration reports a passing or reproducing verdict for a replay that did
-not re-execute.
+It fails closed. At the product level the verdict is `INCONCLUSIVE`, exit 3:
+
+```
+INCONCLUSIVE recorded exit 3, observed exit 1; failing closed
+boundary: 91 served, 0 diverged, 0 clock overrun, 0 rng overrun, 1 env fallthrough
+```
+
+That distinction matters and is now pinned by a case in
+`validation/process/run.sh`: zero divergences at the boundary is NOT a
+reproduction, and the product must never report one for a replay whose program
+did not do what it did when recorded.
 
 ## Static binaries: measured, and now refused
 
@@ -231,3 +252,31 @@ Per file inline content is capped at 4 MiB, deliberately larger than the SDKs'
 which the completeness oracle turns into a loud `truncated-file` when the
 program reads past what the capsule holds. The capsule keeps its 8192 entry
 bound with the dropped count stated.
+
+## Answering from the recording, not only from what it read
+
+A branchy startup does not take the same path twice, so replay asks questions
+the recording never asked. Two of those are answerable from what the capsule
+already holds, and answering them is faithful rather than permissive:
+
+- **The parent was enumerated and the name was not in it.** The recording
+  listed the directory, so it knows the name did not exist.
+- **An ancestor was observed as absent.** A directory recorded with ENOENT or
+  ENOTDIR cannot contain anything beneath it.
+
+Both are evidence, not inference about the host. Without either, the caller
+still DIVERGES, and a name that IS in a recorded listing but has no entry of
+its own also still diverges, because the capsule knows it existed and not what
+it held. This is what took ruby from one divergence to zero without loosening
+the contract, and it is exactly the same lesson as recording FAILURES
+faithfully: what the recording observed includes the negatives.
+
+## A latent bug in this script, found while extending it
+
+`run_case` enabled `errexit` and never restored it, in a script that
+deliberately runs subjects which exit non-zero. The first such command after a
+verdict case therefore killed the run silently, with the harness reporting the
+subject's exit status as its own. It is fixed by capturing the status without
+touching shell flags. Worth stating because the failure mode is the one this
+project keeps finding: a harness that stops early looks exactly like a harness
+that passed everything it printed.

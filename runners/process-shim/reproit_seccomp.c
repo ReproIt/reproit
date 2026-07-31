@@ -445,6 +445,85 @@ static int serve_dir(const char *absolute) {
     return open(template, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 }
 
+/* Widen replay from "what the recording READ" to "what the recording can
+ * ANSWER". A branchy startup does not take the same path twice: the recorded
+ * run enumerated a directory and moved on, while replay asks about a name
+ * inside it that the recording never opened. If the capsule holds that
+ * directory's full listing and the name is NOT in it, the recording already
+ * answers the question authoritatively: the name did not exist. Serving that
+ * ENOENT is faithful, not a guess.
+ *
+ * Fail closed is preserved in both directions. Without a recorded listing for
+ * the parent there is no evidence either way, so the caller diverges as
+ * before; and a name that IS in the listing but has no entry of its own still
+ * diverges, because the capsule knows it existed but not what it held. */
+/* Did the recording observe this exact path as absent? A path metadata call
+ * that failed is recorded with a = -errno, and ENOENT or ENOTDIR is a fact
+ * about the filesystem, not about the call that asked. */
+static int recorded_absent(const char *path) {
+    for (size_t i = 0; i < G.entry_count; i++) {
+        entry_t *e = &G.entries[i];
+        if (e->kind != K_OPEN && e->kind != K_STAT && e->kind != K_STATX &&
+            e->kind != K_ACCESS) {
+            continue;
+        }
+        if (strcmp(e->key, path) != 0) {
+            continue;
+        }
+        if (e->a == -ENOENT || e->a == -ENOTDIR) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int listing_denies(const char *absolute) {
+    const char *slash = strrchr(absolute, '/');
+    if (!slash || slash == absolute) {
+        return 0;
+    }
+    char parent[MAX_PATH_LEN];
+    size_t parent_len = (size_t)(slash - absolute);
+    if (parent_len >= sizeof(parent)) {
+        return 0;
+    }
+    memcpy(parent, absolute, parent_len);
+    parent[parent_len] = 0;
+    const char *name = slash + 1;
+    size_t name_len = strlen(name);
+    int listed = 0;
+    for (size_t i = 0; i < G.entry_count; i++) {
+        entry_t *e = &G.entries[i];
+        if (e->kind != K_DIRENT || strcmp(e->key, parent) != 0 || !e->blob) {
+            continue;
+        }
+        listed = 1;
+        if (e->blob_len == name_len && memcmp(e->blob, name, name_len) == 0) {
+            return 0;
+        }
+    }
+    if (listed) {
+        return 1;
+    }
+    /* No listing for the parent, but the recording may still answer: a
+     * directory it observed as ABSENT cannot contain anything. Walk the
+     * ancestors and let a recorded ENOENT or ENOTDIR settle every path
+     * beneath it. Ruby's gem search asks about a specifications/default
+     * directory whose parent the recording already saw fail with ENOENT. */
+    char probe[MAX_PATH_LEN];
+    snprintf(probe, sizeof(probe), "%s", parent);
+    for (;;) {
+        if (recorded_absent(probe)) {
+            return 1;
+        }
+        char *cut = strrchr(probe, '/');
+        if (!cut || cut == probe) {
+            return 0;
+        }
+        *cut = 0;
+    }
+}
+
 static void serve_open(__u64 id, const char *absolute) {
     unsigned char *content = NULL;
     size_t len = gather(K_READ, absolute, &content);
@@ -463,6 +542,11 @@ static void serve_open(__u64 id, const char *absolute) {
         return;
     }
     if (!opened && !content) {
+        if (listing_denies(absolute)) {
+            G.served++;
+            respond_error(id, ENOENT);
+            return;
+        }
         diverge("file", absolute);
         respond_error(id, ENOENT);
         return;
@@ -496,6 +580,11 @@ static void serve_stat(__u64 id, kind_t kind, const char *absolute, unsigned lon
                        size_t out_len) {
     entry_t *e = find_entry(kind, absolute);
     if (!e) {
+        if (listing_denies(absolute)) {
+            G.served++;
+            respond_error(id, ENOENT);
+            return;
+        }
         diverge("stat", absolute);
         respond_error(id, ENOENT);
         return;
@@ -519,6 +608,11 @@ static void serve_string(__u64 id, kind_t kind, const char *key, unsigned long o
                          size_t out_cap) {
     entry_t *e = find_entry(kind, key);
     if (!e) {
+        if (kind == K_READLINK && listing_denies(key)) {
+            G.served++;
+            respond_error(id, ENOENT);
+            return;
+        }
         diverge(kind == K_READLINK ? "readlink" : "getcwd", key);
         respond_error(id, ENOENT);
         return;
@@ -608,6 +702,11 @@ static void handle_access(const struct seccomp_notif *req, int dirfd_arg, int pa
     if (G.mode == 2) {
         entry_t *e = find_entry(K_ACCESS, absolute);
         if (!e) {
+            if (listing_denies(absolute)) {
+                G.served++;
+                respond_error(req->id, ENOENT);
+                return;
+            }
             diverge("access", absolute);
             respond_error(req->id, ENOENT);
             return;

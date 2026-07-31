@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "process-capsule-listing-evidence",
+  "changeType": "feature",
+  "detail": "The process capsule now answers a replay lookup from recorded directory evidence (a parent enumerated without the name, or an ancestor recorded absent), which removed ruby's last boundary divergence, and the acceptance gained three pinned properties including byte-identical replayed stdout. This extends unreleased phase 1 work. The harness fix it also carries corrected a latent errexit leak in the acceptance script itself.",
+  "evidence": [
+    { "path": "validation/process/MEASUREMENT.md", "sha256": "sha256:57a7f88d2ec40d4cec0ecfdb67bf3641cf4d0a874a9598e0b753e3a6aea8d1cd" },
+    { "path": "validation/process/run.sh", "sha256": "sha256:ae4fbbc31e020380491e0efb0c2057a02762ac9a56bcd2916be42b067ff55296" }
+  ]
+}
