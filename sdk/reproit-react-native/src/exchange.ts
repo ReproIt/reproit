@@ -253,7 +253,11 @@ export function boundedBody(body: string | null | undefined, contentType: string
 
 /** Bound and lowercase one header set, redacting secret-named values. */
 export function boundedHeaders(headers: Record<string, string>): ExchangeSide {
-  const entries = Object.entries(headers).slice(0, MAX_EXCHANGE_HEADERS);
+  // Sort by name BEFORE capping. Capping in insertion order kept a different
+  // subset per run, which is the Go defect the shared vectors pin.
+  const entries = Object.entries(headers)
+    .sort((left, right) => (left[0].toLowerCase() < right[0].toLowerCase() ? -1 : 1))
+    .slice(0, MAX_EXCHANGE_HEADERS);
   if (entries.length === 0) return {};
   const out: Record<string, string> = {};
   for (const [name, value] of entries) {

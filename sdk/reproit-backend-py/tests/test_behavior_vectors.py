@@ -2,7 +2,28 @@
 
 Eleven SDKs hand implement one contract, so a defect otherwise has to be found
 eleven times. Four instances of one class landed in a single day, and every
-group below was written against one of them.
+group below was written against one of them. The groups are harvested, not
+invented; each names the defect it pins:
+
+  bounds                a budget measured in string length rather than encoded
+                        bytes recorded 4096 characters of "euro" inline, 12288
+                        bytes, past a budget the replayer trusts.
+  headers               the 32 header cap applied in arrival order recorded a
+                        different subset per run (Go's defect, repeated by
+                        Android). The cap is over NAME SORTED order, so the
+                        generated case is fed scrambled on purpose.
+  redaction.typeCases   the $reproit stub must report the ORIGINAL type and
+                        length, not "string" for everything.
+  redaction.foldingCases  secret detection folds case and separators and
+                        matches substrings: `X-Authorization` and `tokenizer`
+                        are secret, `username` is not.
+  redaction.nestingCases  redaction recurses through objects AND arrays; a
+                        top-level-only scrub shipped nested keys in plaintext.
+  redaction.structureCases  redaction preserves shape: no key dropped, no array
+                        shortened, an explicit null stays a null VALUE. An
+                        Android encoder dropping null map values made a capsule
+                        say {"symbol": "ACME"} where production sent
+                        {"prices": null}, and replay reproduced a DIFFERENT bug.
 """
 
 from __future__ import annotations
@@ -24,6 +45,19 @@ def body_of(spec: dict) -> object:
         char, count = spec["bodyRepeat"]
         return char * count
     return spec.get("body")
+
+
+def scrambled_headers(spec: dict) -> dict:
+    """Build the generated header table in an order that is neither ascending
+    nor descending: 17 is coprime with 40, so `step * 17 % count` is a
+    permutation. A cap applied before sorting then keeps a visibly wrong
+    subset instead of accidentally passing on already-sorted input."""
+    count = spec["headerCount"]
+    headers = {}
+    for step in range(count):
+        index = (step * 17) % count
+        headers[spec["namePattern"] % index] = spec["value"]
+    return headers
 
 
 def test_constants_match_the_shared_vectors() -> None:
@@ -55,6 +89,21 @@ def test_bounds_digests_are_over_every_byte() -> None:
         assert case["expect"]["bodyBytes"] == len(whole)
 
 
+def test_header_vectors() -> None:
+    for case in VECTORS["headers"]["cases"]:
+        if "input" in case:
+            assert instrument._bounded_headers(case["input"]["headers"]) == case["expect"], (
+                case["name"]
+            )
+            continue
+        actual = instrument._bounded_headers(scrambled_headers(case["inputGenerated"]))
+        names = sorted(actual["headers"])
+        assert len(names) == case["expect"]["headerCount"], case["name"]
+        # The cap is over sorted names, not the order the headers arrived in.
+        assert names[0] == case["expect"]["firstName"], case["name"]
+        assert names[-1] == case["expect"]["lastName"], case["name"]
+
+
 def test_redaction_type_vectors() -> None:
     for case in VECTORS["redaction"]["typeCases"]:
         assert redact(case["input"]) == case["expect"], case["input"]
@@ -71,6 +120,11 @@ def test_redaction_key_folding_vectors() -> None:
 def test_redaction_nesting_vectors() -> None:
     for case in VECTORS["redaction"]["nestingCases"]:
         assert redact(case["input"]) == case["expect"], case["input"]
+
+
+def test_redaction_structure_vectors() -> None:
+    for case in VECTORS["redaction"]["structureCases"]:
+        assert redact(case["input"]) == case["expect"], case["name"]
 
 
 def test_trigger_token_is_in_the_protocol_vocabulary() -> None:

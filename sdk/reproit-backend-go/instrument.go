@@ -239,12 +239,16 @@ func boundedHeaders(headers http.Header) map[string]any {
 		return nil
 	}
 	// http.Header iteration order is random; sort so the recorded subset is
-	// stable when the cap truncates.
+	// stable when the cap truncates. The order is over the LOWERCASED name,
+	// which is the name that gets recorded: sorting the wire spelling puts
+	// `X-Trace` before `content-type` and picks a different subset.
 	names := make([]string, 0, len(headers))
 	for name := range headers {
 		names = append(names, name)
 	}
-	sort.Strings(names)
+	sort.SliceStable(names, func(i, j int) bool {
+		return strings.ToLower(names[i]) < strings.ToLower(names[j])
+	})
 	fields := make(map[string]any, len(names))
 	for _, name := range names {
 		if len(fields) >= maxExchangeHeaders {

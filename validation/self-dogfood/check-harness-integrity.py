@@ -38,6 +38,7 @@ ACCEPTANCE_GLOBS = (
     "validation/backend/*-e2e/run.sh",
     "validation/process/run.sh",
     "validation/process-checkpoint/*.sh",
+    "validation/mobile/*/run.sh",
     "sdk/*/validation/hermetic-e2e.sh",
 )
 

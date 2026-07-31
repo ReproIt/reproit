@@ -43,6 +43,9 @@ because a run that could not conclude was once reported as clean.
 | artifact-portability | A version 3 artifact replays from a moved checkout, and versions 1 and 2 still replay through the legacy path | `validation/backend/artifact-portability-e2e/run.sh` | script | Artifacts stored absolute schema paths and ephemeral-port URLs, so they only worked beside the checkout that wrote them |
 | contract-null-optional | A kept guard's contract loads when an optional field serialized as an explicit null | `crates/reproit/src/domain/backend/tests/query.rs::an_explicit_null_optional_field_reads_as_absent` | cargo | Found building the live demo: a guard with a query-semantics invariant could not load, so it silently stopped guarding |
 | backend-contract-gate | The real binary scans a real service and its backend contract gate holds end to end | `validation/backend/cli-e2e/run.sh` | script | The backend pillar's own acceptance |
+| behavior-vector-coverage | Every directory under `sdk/` either executes the shared behavioral vectors or records why they are meaningless for it; no SDK can be added unwired | `sdk/check-behavior-coverage.py` | python | Gaps 4 and 5: the vectors existed and most SDKs did not run them. Bounds was executed by five of ten wired SDKs and the header cap by exactly one, so nine SDKs shipped the same cap-before-sort defect independently while a vector describing sorted order sat unread in the same repository |
+| capture-bounds-shared | The 8 KiB inline budget is measured in encoded BYTES, the 32 header cap is taken over name-sorted order, and an over-budget body keeps only its byte count and sha256, identically in eleven languages | `sdk/capture-behavior-v1.json` | sdk | Gap 5. The bounds were asserted in several SDK suites independently with no single source of truth; wiring the shared vector to all eleven found the header cap applied in arrival order in nine of them |
+| redaction-folding-shared | One secret-key folding rule across every SDK: `api-key`, `Access Key` and `X-Authorization` fold to secret and `username` does not, and redaction is structure preserving so a scrubbed body still replays | `sdk/capture-behavior-v1.json` | sdk | Gap 4. Proven per SDK with no shared vector, so a language could quietly diverge on which keys count as secret. The frozen runner wire gets its own group, `causalRedaction`, because it carries thirteen parts where capture carries fourteen |
 
 ## Process capsule, the general-program boundary
 
@@ -99,6 +102,7 @@ them, which is stated rather than implied.
 | android-capsule-delivery | A capsule is spooled to disk during a crash and uploaded on the next launch, rather than racing process death | `sdk/reproit-android/validation/capsule-delivery.sh` | manual | Measured on a Pixel emulator: the crash-to-death window is 168 to 768 ms and a cold POST takes 40 to 316 ms, so delivery was 4 of 6 on loopback and 0 of 2 with realistic latency |
 | android-capsule-fidelity | A captured null in a payload is recorded and served as null, so replay reproduces the same error as production | `sdk/reproit-android/validation/EMULATOR-PROOF.md` | manual | The emulator caught an encoder dropping null map values; replay had reproduced a DIFFERENT error than production |
 | ios-secret-never-leaves | The literal secret is absent from the bytes that leave the device, asserted by grep over the posted batch | `sdk/reproit-ios/validation/simulator-e2e.sh` | manual | Proven on an iPhone 16 Pro simulator with a real URLSession call |
+| mobile-divergence-parity | Android, iOS and React Native each emit the structured `REPROIT:DIVERGENCE` marker at the start of a stderr line ALONGSIDE the frozen `CAPSULE:MISS` contract, and all three produce byte-identical payloads for one shared capsule | `validation/mobile/divergence-parity/run.sh` | manual | Gap 3. Mobile had shipped emitting `CAPSULE:MISS` alone, so a mobile capsule replayed through `check` could never report Diverged; the fix was additive on all three SDKs and had no cross-platform test. Run on a Pixel_9a emulator under ART, an iPhone 16 Pro simulator, and node |
 | schedule-fuzz-bounded | Schedule fuzzing raises a race's reproduction rate only when the window crosses a hookable boundary, and instrumentation itself widens the window | `validation/process-parallel/MEASUREMENT.md` | manual | 200 runs per cell: 2 to 10 percent natural becomes 46 to 48 percent fuzzed for a libc-crossing window, and nil for a pure memory race; at fire rate zero the rate still rose from 2 to 17 percent |
 | gpu-determinism-must-be-measured | A requested determinism flag is not evidence of determinism; MPS accepts `use_deterministic_algorithms(True)`, reports enabled, and changes nothing | `validation/process-parallel/MEASUREMENT.md` | manual | `scatter_add_` gave 8 distinct results across 8 processes while the flag reported enabled, so recording the flag would record a false assurance |
 
@@ -126,22 +130,50 @@ would cost.
    but never asserts that an inconclusive run fails closed. The rule this
    project paid the most for is therefore enforced by a grep.
 
-3. **The mobile divergence marker split has no cross-platform proof.** Android,
-   iOS and React Native now emit `REPROIT:DIVERGENCE` alongside the frozen
-   `CAPSULE:MISS`, so the CLI's verdict path can read a mobile replay. Nothing
-   asserts that both markers are emitted together on all three platforms; the
-   simulator and emulator scripts are per-platform and manual. A platform that
-   silently dropped the structured marker would report a mobile divergence as
-   something else, which is exactly the class of bug this addition existed to
-   fix.
+3. CLOSED 2026-07-31 by `validation/mobile/divergence-parity/run.sh`
+   (`mobile-divergence-parity` above). One capsule and one unmatched call, taken
+   from `sdk/capture-behavior-v1.json`, put to all three platforms as they
+   actually run: the real `CausalHttp` dexed and executed under ART on a Pixel_9a
+   emulator, the real `ReproItCausalURLProtocol` on an iPhone 16 Pro simulator,
+   and the real `installCausalFetch` under node. All three emitted
+   `REPROIT:DIVERGENCE ` at the start of a stderr line, all three still threw the
+   frozen `CAPSULE:MISS`, and both payloads were byte-identical across the three.
+   Four negative controls were run and each failed exactly the assertion it
+   should: the marker on stdout instead of stderr, the marker prefixed so it no
+   longer starts the line (Ruby's `warn(uplevel:)` shape), the marker dropped
+   entirely while `CAPSULE:MISS` still threw, and one platform disagreeing with
+   the other two on the payload. The fourth is the one no per-platform script
+   could catch, because every platform passed its own check and the run was still
+   wrong. Measurement in that directory's `MEASUREMENT.md`; the device-free half
+   is asserted in each mobile SDK's own behavior-vectors suite.
 
-4. Redaction keyword folding is proven per SDK but has no shared vector, so a
-   language could quietly diverge on which keys count as secret. This is the
-   gap that `plan-simplification.md` step 1.1 exists to close.
+4. CLOSED 2026-07-31 by `sdk/capture-behavior-v1.json` and
+   `sdk/check-behavior-coverage.py` (`redaction-folding-shared` and
+   `behavior-vector-coverage` above). The folding rule is now one table executed
+   by every SDK rather than fourteen restatements of it: eleven capture SDKs run
+   `redaction.foldingCases`, `typeCases`, `nestingCases` and the new
+   `structureCases`, and the eight replay-only SDKs run `causalRedaction`, the
+   frozen runner wire's own thirteen-part list. The two lists differ by exactly
+   `idempotencykey`, and that difference is now asserted in both directions so it
+   cannot be closed by accident. `structureCases` pins the property the matcher
+   depends on and nothing had stated: redaction is structure preserving, so a key
+   is never dropped, an array never shortens, and an explicit null stays a null
+   value. Negative controls in ten languages each made redaction drop a null or a
+   redacted key and each failed naming the missing path.
 
-5. The capture bounds (8 KiB inline, 32 headers, sha256 beyond the budget) are
-   asserted in several SDK suites independently, with no single source of
-   truth. Same origin, same fix, same plan step.
+5. CLOSED 2026-07-31 by `sdk/capture-behavior-v1.json` and
+   `sdk/check-behavior-coverage.py` (`capture-bounds-shared` above). The bounds
+   were not wrong, they were unread: the vectors already described them and
+   `bounds` was executed by five of the ten wired SDKs while `headers` was
+   executed by one. Wiring all eleven found the 32-header cap applied in arrival
+   order rather than over sorted names in nine of them (node, python, rust, java,
+   dotnet, ruby, php, react native, android; go sorted the wire spelling rather
+   than the recorded lowercase name). That is the Go defect, shipped nine more
+   times, each one a capsule whose recorded header subset could differ from the
+   live call it was recorded from. A new case, `budgetIsBytesNotCharacters`, pins
+   the budget in encoded bytes with a 4096-character body that is 12288 bytes.
+   Negative controls per SDK broke the cap ordering and the byte budget and each
+   failed naming the kept subset or the inline body.
 
 6. CLOSED 2026-07-31 by `crates/reproit/src/workflows/verdict_lattice.rs`
    (`verdict-lattice` above). The eight vocabularies still exist, deliberately:
@@ -157,9 +189,8 @@ would cost.
    provider fold, `Diverged` exiting zero, and `check`'s exit-code 3 read as
    clean across the process hop.
 
-Closing gaps 1 through 3 is cheap and should happen before any refactor that
-touches verdict handling; the lattice already defends 1 and 2 structurally (a
-`Diverged` collapsed into `Inconclusive` no longer compiles, and every
-"could not evaluate" state is asserted to fail closed in all eight
-vocabularies), leaving their per-path behavioral proof as the remaining work.
-Gaps 4 and 5 are the conformance-vector work already planned.
+Closing gaps 1 and 2 is cheap and should happen before any refactor that touches
+verdict handling; the lattice already defends both structurally (a `Diverged`
+collapsed into `Inconclusive` no longer compiles, and every "could not evaluate"
+state is asserted to fail closed in all eight vocabularies), leaving their
+per-path behavioral proof as the remaining work.

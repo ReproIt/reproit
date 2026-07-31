@@ -31,7 +31,7 @@ fi
 
 cargo test -p reproit
 node --test runners/web/capsule.test.mjs runners/electron-capsule.test.mjs
-node --test sdk/reproit-tauri/test/init.test.mjs
+node --test sdk/reproit-tauri/test/init.test.mjs sdk/reproit-tauri/test/behavior_vectors.test.mjs
 cargo check --manifest-path sdk/reproit-tauri/Cargo.toml
 
 (
@@ -42,7 +42,7 @@ cargo check --manifest-path sdk/reproit-tauri/Cargo.toml
   pod ipc spec reproit-react-native.podspec >/dev/null
 )
 (cd sdk/reproit-linux && pytest_run -q)
-(cd sdk/reproit_flutter && flutter test test/causal_test.dart)
+(cd sdk/reproit_flutter && flutter test test/causal_test.dart test/behavior_vectors_test.dart)
 (cd sdk/reproit-ios && swift test)
 sdk/reproit-android/run_host_test.sh
 (cd sdk/reproit-tui-go && go test ./...)

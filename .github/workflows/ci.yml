@@ -283,6 +283,7 @@ jobs:
           python3 sdk/reproit-linux/tests/test_parity.py
           python3 sdk/reproit-linux/tests/test_capture.py
           python3 sdk/reproit-linux/tests/test_context.py
+          python3 sdk/reproit-linux/tests/test_behavior_vectors.py
       - name: Linux SDK package builds with its license and metadata
         run: |
           python3 -m pip install --disable-pip-version-check build
@@ -312,6 +313,12 @@ jobs:
         run: curl -LsSf https://astral.sh/uv/install.sh | sh
       - name: SDK tier declaration matches reality
         run: python3 sdk/check-tiers.py
+      # Every SDK under sdk/ either executes the shared behavioral vectors or
+      # says why they are meaningless for it. Bounds was once executed by five
+      # of ten wired SDKs and the header cap by exactly one, which is how nine
+      # SDKs shipped the same cap-before-sort defect independently.
+      - name: Every SDK executes the shared behavioral vectors
+        run: python3 sdk/check-behavior-coverage.py
       - name: node (reproit-backend-node)
         working-directory: sdk/reproit-backend-node
         run: node --test test/trace.test.js test/capture.test.js test/instrument.test.js test/replay.test.js test/behavior-vectors.test.js
@@ -686,14 +693,16 @@ jobs:
         with:
           node-version: "24"
       - name: TS TUI SDK signature parity (node type-strips TS natively; no install)
-        run: node --test test/parity.test.ts
+        run: node --test test/parity.test.ts test/behavior_vectors.test.ts
 
   tui-py-sdk:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - name: Python TUI SDK signature parity (pure stdlib)
-        run: python3 sdk/reproit-tui-py/tests/test_parity.py
+        run: |
+          python3 sdk/reproit-tui-py/tests/test_parity.py
+          PYTHONPATH=sdk/reproit-tui-py python3 sdk/reproit-tui-py/tests/test_behavior_vectors.py
 
   windows-sdk:
     runs-on: ubuntu-latest

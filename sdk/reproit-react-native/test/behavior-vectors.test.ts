@@ -3,6 +3,30 @@
 // This SDK is one of the two that independently shipped the trigger token
 // `user-action`, which is not in the protocol vocabulary; the validator caught
 // both. The triggerTokens group pins it so a third instance cannot ship.
+//
+// The remaining groups are harvested from defects, not invented. Each names
+// the one it pins:
+//
+//   bounds            a budget measured in string length rather than encoded
+//                     bytes records 4096 characters of "€" inline, 12288
+//                     bytes, past a budget the replayer trusts.
+//   headers           this SDK capped the 32 headers in insertion order, the
+//                     Go defect verbatim, so the retained subset changed run
+//                     to run. The cap is defined over NAME SORTED order, so
+//                     the generated case is fed scrambled on purpose.
+//   redaction.type    the $reproit stub must report the ORIGINAL type and
+//                     length; a stub claiming "string" for everything makes
+//                     the recorded shape unreplayable.
+//   redaction.folding secret detection folds case and separators and matches
+//                     substrings, so `X-Authorization` and `tokenizer` are
+//                     secret and `username` is not.
+//   redaction.nesting redaction recurses through objects AND arrays; a
+//                     top-level-only scrub shipped nested keys in plaintext.
+//   redaction.structure  redaction preserves shape: no key dropped, no array
+//                     shortened, an explicit null stays a null VALUE. An
+//                     encoder dropping null values made a capsule say
+//                     {"symbol":"ACME"} where production sent
+//                     {"prices":null}, and replay reproduced a DIFFERENT bug.
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -11,6 +35,7 @@ import {
   MAX_EXCHANGE_BODY_BYTES,
   MAX_EXCHANGE_HEADERS,
   boundedBody,
+  boundedHeaders,
   redactExchangeValue,
 } from '../src/exchange';
 
@@ -22,6 +47,30 @@ function bodyOf(spec: Record<string, unknown>): unknown {
   const repeat = spec.bodyRepeat as [string, number] | undefined;
   if (repeat) return repeat[0].repeat(repeat[1]);
   return spec.body;
+}
+
+// jest matchers take no message argument, so the case name is folded into both
+// sides of the comparison: a failure then prints WHICH vector failed rather
+// than an anonymous diff.
+function labelled(name: string, value: unknown): { case: string; value: unknown } {
+  return { case: name, value };
+}
+
+// Build the generated header table in an order that is neither ascending nor
+// descending: 17 is coprime with 40, so `index * 17 % count` is a permutation.
+// A cap applied before sorting therefore keeps a visibly wrong subset instead
+// of accidentally passing on an already-sorted input.
+function scrambledHeaders(spec: {
+  headerCount: number;
+  namePattern: string;
+  value: string;
+}): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (let step = 0; step < spec.headerCount; step += 1) {
+    const index = (step * 17) % spec.headerCount;
+    headers[spec.namePattern.replace('%02d', String(index).padStart(2, '0'))] = spec.value;
+  }
+  return headers;
 }
 
 describe('shared behavior vectors', () => {
@@ -40,13 +89,34 @@ describe('shared behavior vectors', () => {
       if (expected.body && Array.isArray(expected.body.repeat)) {
         expected.body = expected.body.repeat[0].repeat(expected.body.repeat[1]);
       }
-      expect(actual).toEqual(expected);
+      expect(labelled(kase.name, actual)).toEqual(labelled(kase.name, expected));
+    }
+  });
+
+  test('header vectors', () => {
+    for (const kase of VECTORS.headers.cases) {
+      if (kase.input) {
+        const actual = boundedHeaders(kase.input.headers);
+        expect(labelled(kase.name, actual)).toEqual(labelled(kase.name, kase.expect));
+        continue;
+      }
+      const actual = boundedHeaders(scrambledHeaders(kase.inputGenerated));
+      const names = Object.keys(actual.headers as Record<string, string>).sort();
+      expect(labelled(kase.name, names.length)).toEqual(
+        labelled(kase.name, kase.expect.headerCount),
+      );
+      // The cap must be over sorted names, not the order the headers arrived.
+      expect(names[0]).toBe(kase.expect.firstName);
+      expect(names[names.length - 1]).toBe(kase.expect.lastName);
     }
   });
 
   test('redaction type vectors', () => {
     for (const kase of VECTORS.redaction.typeCases) {
-      expect(redactExchangeValue(kase.input)).toEqual(kase.expect);
+      const label = JSON.stringify(kase.input);
+      expect(labelled(label, redactExchangeValue(kase.input))).toEqual(
+        labelled(label, kase.expect),
+      );
     }
   });
 
@@ -58,6 +128,25 @@ describe('shared behavior vectors', () => {
       >;
       const redacted = Boolean(out[kase.field] && out[kase.field].$reproit);
       expect(redacted).toBe(kase.secret);
+    }
+  });
+
+  test('redaction nesting vectors', () => {
+    for (const kase of VECTORS.redaction.nestingCases) {
+      const label = JSON.stringify(kase.input);
+      expect(labelled(label, redactExchangeValue(kase.input))).toEqual(
+        labelled(label, kase.expect),
+      );
+    }
+  });
+
+  test('redaction structure vectors', () => {
+    for (const kase of VECTORS.redaction.structureCases) {
+      // toStrictEqual, not toEqual: a key present as `undefined` is a key the
+      // matcher no longer walks, so it must fail exactly like a dropped one.
+      expect(labelled(kase.name, redactExchangeValue(kase.input))).toStrictEqual(
+        labelled(kase.name, kase.expect),
+      );
     }
   });
 

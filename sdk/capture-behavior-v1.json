@@ -76,6 +76,22 @@
         }
       },
       {
+        "name": "budgetIsBytesNotCharacters",
+        "input": {
+          "bodyRepeat": [
+            "€",
+            4096
+          ],
+          "contentType": "text/plain"
+        },
+        "expect": {
+          "bodyBytes": 12288,
+          "bodySha256": "1de494f645ee47b14c63bf2351f6a28b9e33b76580a1d69ab2708ff4c124a786",
+          "truncated": true
+        },
+        "why": "4096 characters is well under the budget and 12288 bytes is well over it. A runtime measuring string length rather than encoded bytes records this inline and the recorded body then exceeds a budget the replayer trusts."
+      },
+      {
         "name": "jsonParsedWhenDeclared",
         "input": {
           "body": "{\"a\":1}",
@@ -363,6 +379,122 @@
         "expect": {
           "keep": "visible"
         }
+      }
+    ],
+    "structureCases": [
+      {
+        "name": "everyKeySurvivesAtItsOwnDepthAndNullIsAValue",
+        "why": "Redaction is structure preserving so scrubbed data still replays: the matcher walks the recorded body and wildcards only the placeholder leaves. A key DROPPED by redaction, an array shortened, or a null collapsed away all change the shape the matcher walks, and the capsule stops matching the live call it was recorded from. An Android encoder dropping null map values is this same failure one layer down: the capsule said {\"symbol\":\"ACME\"} where production sent {\"prices\":null}, and replay reproduced a DIFFERENT error.",
+        "input": {
+          "order": {
+            "id": "o-1",
+            "token": "t0psecret",
+            "lines": [
+              {
+                "sku": "ACME",
+                "apiKey": "k"
+              }
+            ],
+            "prices": null
+          }
+        },
+        "expect": {
+          "order": {
+            "id": "o-1",
+            "token": {
+              "$reproit": {
+                "redacted": true,
+                "type": "string",
+                "length": 9
+              }
+            },
+            "lines": [
+              {
+                "sku": "ACME",
+                "apiKey": {
+                  "$reproit": {
+                    "redacted": true,
+                    "type": "string",
+                    "length": 1
+                  }
+                }
+              }
+            ],
+            "prices": null
+          }
+        }
+      }
+    ]
+  },
+  "causalRedaction": {
+    "rule": "The FROZEN runner wire, deliberately not the capture wire. Eight replay-only SDKs (linux, windows, tauri, flutter and the four tui ports) never record a capture batch, so they have no body budget, no header table and no $reproit placeholder: their whole redaction surface is the secret-key predicate and the <reproit:...> string it produces. That predicate is language neutral and is exactly what gap 4 named, so it gets its own vector rather than being waved through as not-applicable. The list is thirteen parts, one shorter than the capture list: idempotencykey was added to capture only, because changing the runner list would change bytes the fuzz harness compares.",
+    "placeholder": "<reproit:secret>",
+    "secretParts": [
+      "password",
+      "passwd",
+      "secret",
+      "token",
+      "authorization",
+      "cookie",
+      "email",
+      "phone",
+      "apikey",
+      "publishablekey",
+      "privatekey",
+      "accesskey",
+      "signingkey"
+    ],
+    "foldingCases": [
+      {
+        "field": "api-key",
+        "secret": true
+      },
+      {
+        "field": "Access Key",
+        "secret": true
+      },
+      {
+        "field": "X-Authorization",
+        "secret": true
+      },
+      {
+        "field": "signingKey",
+        "secret": true
+      },
+      {
+        "field": "user_email",
+        "secret": true
+      },
+      {
+        "field": "PASSWORD",
+        "secret": true
+      },
+      {
+        "field": "private.key",
+        "secret": true
+      },
+      {
+        "field": "username",
+        "secret": false
+      },
+      {
+        "field": "id",
+        "secret": false
+      },
+      {
+        "field": "tokenizer",
+        "secret": true,
+        "note": "substring match is intentional; tokenizer contains token"
+      },
+      {
+        "field": "phoneme",
+        "secret": true,
+        "note": "substring match is intentional; phoneme contains phone"
+      },
+      {
+        "field": "idempotency_key",
+        "secret": false,
+        "note": "capture redacts this and the runner wire does not. The difference is deliberate and is asserted here so it cannot be closed by accident in either direction."
       }
     ]
   },
@@ -704,7 +836,148 @@
       "structured": "REPROIT:DIVERGENCE ",
       "runnerContract": "CAPSULE:MISS",
       "mobileEmitsBoth": true,
-      "note": "The invariant ledger recorded that nothing asserted both markers are emitted together. A platform silently dropping the structured marker would misreport a mobile divergence, which is the exact defect that addition existed to fix."
+      "note": "The invariant ledger recorded that nothing asserted both markers are emitted together. A platform silently dropping the structured marker would misreport a mobile divergence, which is the exact defect that addition existed to fix.",
+      "parityScenario": {
+        "why": "One question asked of Android, iOS and React Native so their answers can be compared rather than merely each checked. Executed on a real Pixel emulator, a real iPhone simulator and node by validation/mobile/divergence-parity/run.sh. Every platform gets this capsule and this live call; every platform must produce both markers, and the two payloads must be identical across all three.",
+        "capsule": {
+          "exchanges": [
+            {
+              "id": "a-0-0",
+              "actor": "a",
+              "actionIndex": 0,
+              "ordinal": 0,
+              "required": true,
+              "method": "GET",
+              "url": "http://svc.internal/prices",
+              "status": 200,
+              "responseHeaders": {},
+              "responseBody": "{}"
+            }
+          ]
+        },
+        "live": {
+          "method": "GET",
+          "url": "http://svc.internal/unknown"
+        },
+        "expect": {
+          "structured": {
+            "protocol": "http",
+            "got": {
+              "method": "GET",
+              "url": "http://svc.internal/unknown"
+            },
+            "action": 0
+          },
+          "structuredStream": "stderr",
+          "structuredMustStartLine": true,
+          "runnerContract": "CAPSULE:MISS GET http://svc.internal/unknown action=0"
+        }
+      }
+    }
+  },
+  "coverage": {
+    "rule": "Which vector groups each SDK under sdk/ must EXECUTE, and for the rest, why not. A vector nobody runs proves nothing: before this table bounds was executed by five of ten wired SDKs and the header cap by exactly one, so a language could quietly diverge on the very rules the vectors exist to pin. Every directory under sdk/ is accounted for here, either as capture (the full capture contract), causal (the frozen runner wire, whose only shared surface is the secret-key predicate), or notApplicable with the reason. sdk/check-behavior-coverage.py fails closed on an unlisted directory, on a listed file that does not exist, and on a test file that does not execute every group its role requires.",
+    "roles": {
+      "capture": {
+        "why": "Records a capture batch: an inline body budget, a header table, and the $reproit body placeholder the replay matcher wildcards on.",
+        "requiredGroups": [
+          "bounds",
+          "headers",
+          "redaction.typeCases",
+          "redaction.foldingCases",
+          "redaction.nestingCases",
+          "redaction.structureCases"
+        ]
+      },
+      "causal": {
+        "why": "Replay only. No capture batch, so no budget, no header table and no $reproit placeholder exist to test. The secret-key predicate on the frozen runner wire is the one shared surface, and it is the surface gap 4 named.",
+        "requiredGroups": [
+          "causalRedaction.foldingCases"
+        ]
+      }
+    },
+    "sdks": {
+      "reproit-backend-node": {
+        "role": "capture",
+        "test": "test/behavior-vectors.test.js"
+      },
+      "reproit-backend-rs": {
+        "role": "capture",
+        "test": "tests/behavior_vectors.rs"
+      },
+      "reproit-backend-py": {
+        "role": "capture",
+        "test": "tests/test_behavior_vectors.py"
+      },
+      "reproit-backend-go": {
+        "role": "capture",
+        "test": "behavior_vectors_test.go"
+      },
+      "reproit-backend-java": {
+        "role": "capture",
+        "test": "src/test/java/dev/reproit/backend/BehaviorVectorsTest.java"
+      },
+      "reproit-backend-dotnet": {
+        "role": "capture",
+        "test": "ReproitBackend.Tests/BehaviorVectorsTests.cs"
+      },
+      "reproit-backend-rb": {
+        "role": "capture",
+        "test": "test/behavior_vectors_test.rb"
+      },
+      "reproit-backend-php": {
+        "role": "capture",
+        "test": "test/behavior_vectors_test.php"
+      },
+      "reproit-ios": {
+        "role": "capture",
+        "test": "Tests/ReproItTests/BehaviorVectorsTests.swift"
+      },
+      "reproit-react-native": {
+        "role": "capture",
+        "test": "test/behavior-vectors.test.ts"
+      },
+      "reproit-android": {
+        "role": "capture",
+        "test": "src/test/kotlin/com/reproit/android/BehaviorVectorsTest.kt"
+      },
+      "reproit-linux": {
+        "role": "causal",
+        "test": "tests/test_behavior_vectors.py"
+      },
+      "reproit-windows": {
+        "role": "causal",
+        "test": "test/ReproIt.ParityTests/BehaviorVectorsTest.cs"
+      },
+      "reproit-tauri": {
+        "role": "causal",
+        "test": "test/behavior_vectors.test.mjs"
+      },
+      "reproit_flutter": {
+        "role": "causal",
+        "test": "test/behavior_vectors_test.dart"
+      },
+      "reproit-tui-go": {
+        "role": "causal",
+        "test": "behavior_vectors_test.go"
+      },
+      "reproit-tui-py": {
+        "role": "causal",
+        "test": "tests/test_behavior_vectors.py"
+      },
+      "reproit-tui-rs": {
+        "role": "causal",
+        "test": "tests/behavior_vectors.rs"
+      },
+      "reproit-tui-ts": {
+        "role": "causal",
+        "test": "test/behavior_vectors.test.ts"
+      }
+    },
+    "notApplicable": {
+      "reproit-recorder-node": "The source-neutral capture-batch recorder. It is handed events by a caller and never observes an HTTP exchange itself, so it has no body budget, no header table, no secret-key predicate and no capsule matcher; its own 16 KiB text bound and 64 KiB JSON bound belong to a different contract with a different reason. Its batch SHAPE is already pinned by sdk/capture-conformance-v1.json.",
+      "src": "Not an SDK. The three concatenated source fragments that sdk/build-reproit-web.mjs assembles into sdk/reproit-web.js. No capture, no redaction, no divergence marker.",
+      "test": "Not an SDK. The shared host test suite for the web SDK plus the cross-SDK backend batch gate."
     }
   }
 }

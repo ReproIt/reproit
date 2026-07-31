@@ -46,10 +46,14 @@ module ReproitBackendRb
       { "body" => text.valid_encoding? ? text : bytes.unpack1("H*") }
     end
 
+    # Sorted BEFORE the cap. Capping arrival order records a different subset
+    # whenever the caller's header order shifts, so two runs of one request
+    # disagree and the capsule stops matching.
     def bounded_headers(headers)
-      entries = (headers || {}).first(MAX_EXCHANGE_HEADERS).map do |name, value|
+      entries = (headers || {}).map do |name, value|
         [name.to_s.downcase, value.is_a?(Array) ? value.join(", ") : value.to_s]
       end
+      entries = entries.sort_by(&:first).first(MAX_EXCHANGE_HEADERS)
       entries.empty? ? {} : { "headers" => entries.to_h }
     end
 

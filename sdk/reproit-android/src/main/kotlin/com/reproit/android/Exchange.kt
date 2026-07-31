@@ -158,9 +158,17 @@ internal fun markJsonNulls(value: Any?): Any? =
 internal fun boundedHeaders(headers: Map<String, String>): Map<String, Any?> {
   if (headers.isEmpty()) return emptyMap()
   val bounded = LinkedHashMap<String, Any?>()
-  for ((name, value) in headers.entries.take(MAX_EXCHANGE_HEADERS)) {
-    bounded[name.lowercase(Locale.ROOT)] = value
-  }
+  // The cap is defined over NAME SORTED order, never arrival order. Go recorded
+  // a different subset on every run because it capped a randomized map before
+  // sorting it, and a capsule whose recorded headers vary between runs cannot be
+  // matched twice. A LinkedHashMap does not randomize, so the wrong subset here
+  // would be stable and therefore even harder to notice.
+  val sorted =
+    headers.entries
+      .map { it.key.lowercase(Locale.ROOT) to it.value }
+      .sortedBy { it.first }
+      .take(MAX_EXCHANGE_HEADERS)
+  for ((name, value) in sorted) bounded[name] = value
   return linkedMapOf("headers" to bounded)
 }
 

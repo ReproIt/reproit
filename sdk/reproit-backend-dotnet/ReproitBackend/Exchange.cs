@@ -52,18 +52,25 @@ public static class Exchange
         return fields;
     }
 
-    // Lowercased header names, capped; absent when empty.
+    // Lowercased header names, capped over NAME SORTED order; absent when empty. Sorting
+    // before the cap is the contract: a table iterated in arrival order records a different
+    // subset per run, so two runs of one request disagree and the capsule stops matching.
     internal static Dictionary<string, object?> BoundedHeaders(
         IEnumerable<KeyValuePair<string, string>>? headers)
     {
         var fields = new Dictionary<string, object?>();
         if (headers == null) return fields;
-        var capped = new Dictionary<string, object?>();
+        var sorted = new SortedDictionary<string, string>(StringComparer.Ordinal);
         foreach (var (name, value) in headers)
         {
-            if (capped.Count >= MaxExchangeHeaders) break;
             if (name == null || value == null) continue;
-            capped[name.ToLowerInvariant()] = value;
+            sorted[name.ToLowerInvariant()] = value;
+        }
+        var capped = new Dictionary<string, object?>();
+        foreach (var (name, value) in sorted)
+        {
+            if (capped.Count >= MaxExchangeHeaders) break;
+            capped[name] = value;
         }
         if (capped.Count > 0) fields["headers"] = capped;
         return fields;

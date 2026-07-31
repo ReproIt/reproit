@@ -42,6 +42,11 @@
       <Link>signature_vectors.json</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <!-- Same reason, for the shared behavioral vectors: sdk/ is three up. -->
+    <None Include="..\..\..\capture-behavior-v1.json">
+      <Link>capture-behavior-v1.json</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>
