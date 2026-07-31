@@ -574,8 +574,14 @@ impl<'de> Deserialize<'de> for BackendInvariant {
                             .transpose()
                             .map_err(D::Error::custom)?
                             .unwrap_or_default(),
+                        // An explicit null means absent, not a malformed
+                        // struct. A kept guard serializes the whole contract,
+                        // so `"sort": null` round-trips through every saved
+                        // artifact; treating it as present made any guard
+                        // carrying a query-semantics invariant unreplayable.
                         sort: object
                             .get("sort")
+                            .filter(|value| !value.is_null())
                             .cloned()
                             .map(serde_json::from_value)
                             .transpose()
@@ -586,6 +592,7 @@ impl<'de> Deserialize<'de> for BackendInvariant {
                             .map(str::to_string),
                         pagination: object
                             .get("pagination")
+                            .filter(|value| !value.is_null())
                             .cloned()
                             .map(serde_json::from_value)
                             .transpose()

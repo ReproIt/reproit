@@ -1,0 +1,24 @@
+Found while building the live axum demo (2026-07-31): keeping a guard whose
+contract carries a query-semantics invariant produced an artifact the reader
+then rejected.
+
+  Error: invalid type: null, expected struct QuerySortContract
+
+Cause: `keep` serializes the whole contract, so an optional field that was
+absent when authored is written as an explicit null. The hand written
+deserializer in contracts.rs treated a present-but-null key as present and
+tried to parse null as the struct.
+
+Consequence: any kept guard carrying that invariant could not load, so the
+guard silently stopped guarding. That is a fail-open in the one artifact the
+CI gate depends on.
+
+Verified as an affected/fixed pair against the parent file:
+
+  parent (655a95e contracts.rs):
+    panicked ... invalid type: null, expected struct QuerySortContract
+    test result: FAILED. 0 passed; 1 failed
+  fixed:
+    test result: ok. 1 passed; 0 failed
+
+The live demo had been working around it by stripping nulls after keep.

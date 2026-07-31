@@ -326,3 +326,31 @@ fn query_semantics_abstain_for_inferred_contracts_and_mixed_sessions() {
     ));
     assert!(evaluate(&config, &mixed).is_empty());
 }
+
+/// A kept guard serializes the whole contract, so an optional field that was
+/// absent comes back as an explicit null. Reading that null as a malformed
+/// struct made every guard carrying a query-semantics invariant unreplayable,
+/// which is a fail-open in the one artifact the CI gate depends on.
+#[test]
+fn an_explicit_null_optional_field_reads_as_absent() {
+    let with_nulls = serde_json::json!({
+        "kind": "query-semantics",
+        "operation": "listNotes",
+        "itemsPath": "$.items",
+        "identityPath": "id",
+        "consistency": "strong",
+        "sort": null,
+        "pagination": null,
+    });
+    let parsed: BackendInvariant =
+        serde_json::from_value(with_nulls).expect("explicit nulls read as absent");
+    match parsed {
+        BackendInvariant::QuerySemantics {
+            sort, pagination, ..
+        } => {
+            assert!(sort.is_none());
+            assert!(pagination.is_none());
+        }
+        other => panic!("expected query semantics, got {other:?}"),
+    }
+}
