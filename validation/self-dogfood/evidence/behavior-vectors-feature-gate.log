@@ -1,0 +1,29 @@
+CI run 30635617132 (push 6695474), workflow ci, job rust, step
+"Clippy (warnings are errors)":
+
+  Checking reproit-backend v0.0.0 (sdk/reproit-backend-rs)
+  error[E0433]: cannot find `instrument` in `reproit_backend`
+    --> sdk/reproit-backend-rs/tests/behavior_vectors.rs:23:26
+
+Not a lint. The behavior vectors assert the exchange bound and the
+divergence marker, which live in the instrument module. That module is
+feature gated so the core adapter stays dependency light, so the test file
+did not compile under the default features CI's clippy uses.
+
+The local gate that missed it was mine: I ran clippy on two packages
+(-p reproit -p reproit-protocol) while CI runs the whole workspace with
+all targets, so the SDK crate was never compiled locally at all.
+
+Affected and fixed, measured with the narrow command:
+
+  parent  cargo clippy -p reproit-backend --all-targets   exit 101, 3x E0433
+  fix     cargo clippy -p reproit-backend --all-targets   exit 0
+
+Why this is declared an exception rather than no-repro: the gate proves a
+no-repro test by overlaying that test file onto the parent commit. Here the
+test file IS the artifact being fixed, so the overlay makes the parent
+compile and the affected run exits 0 instead of 101. The gate cannot
+express a defect whose reproduction is the test file itself. Measured:
+
+  check-fix-policy.py --base 6695474 --head <fix>
+  self-dogfood fix policy: affected no-repro test exited 0, expected 101

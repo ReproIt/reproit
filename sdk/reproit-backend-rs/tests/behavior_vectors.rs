@@ -15,6 +15,12 @@ fn vectors() -> Value {
     serde_json::from_slice(&std::fs::read(&path).expect("read vectors")).expect("parse vectors")
 }
 
+// The bound and the marker live in the instrument module, which is feature
+// gated so the core adapter stays dependency light. Without this gate the file
+// fails to compile under the default features CI's clippy uses, which is how
+// it broke the rust job; the sdk-backend job below builds the feature so the
+// constants stay pinned rather than merely skipped.
+#[cfg(feature = "instrument")]
 #[test]
 fn constants_match_the_shared_vectors() {
     let vectors = vectors();

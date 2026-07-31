@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "behavior-vectors-feature-gate",
+  "code": "unsupported-capability",
+  "detail": "The defect is a compile failure inside a test file, and the fix is in that same file. The policy proves a no-repro declaration by overlaying its test onto the parent commit, which here overlays the fix itself, so the affected run compiles and exits 0. The gate cannot express a defect whose reproduction IS the test file. The retained evidence carries the CI failure, the narrow affected and fixed measurement (exit 101 versus 0), and the policy output showing why the executable form is unavailable.",
+  "issue": "CI run 30635617132, workflow ci, job rust, E0433 in behavior_vectors.rs",
+  "missingCapability": "a policy overlay that can hold the parent's version of the test under repair",
+  "retainedEvidence": [
+    { "path": "validation/self-dogfood/evidence/behavior-vectors-feature-gate.log", "sha256": "sha256:605ad9cfd8e4e74232af3a491001f3581d3f4daf604de8fb160a54e1aaf69a13" }
+  ]
+}
