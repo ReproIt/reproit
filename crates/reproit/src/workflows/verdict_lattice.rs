@@ -18,7 +18,7 @@ use super::backend_headless::replay::ReplayVerdict;
 use super::backend_headless::replay_command::artifact_verdict;
 use super::backend_headless::retraction::ArtifactVerdict;
 use super::check::aggregate_plan_runs;
-use super::triage::reproduction::{ReproVerdict, classify_repro};
+use super::triage::reproduction::{classify_repro, ReproVerdict};
 use crate::adapters::execution::runner::fold_provider_verdicts;
 use crate::adapters::execution::runner::model::{PlanRun, ProviderVerdict};
 use crate::domain::execution::ExecutionVerdict;
@@ -193,12 +193,18 @@ fn plan_run(verdict: ExecutionVerdict) -> PlanRun {
 fn exactly_one_disposition_per_vocabulary_is_a_proof_of_fix() {
     // If a second variant of any enum ever starts certifying, this catches it.
     assert_eq!(
-        HERMETIC.iter().filter(|v| hermetic(**v).certifies()).count(),
+        HERMETIC
+            .iter()
+            .filter(|v| hermetic(**v).certifies())
+            .count(),
         1
     );
     assert_eq!(REPLAY.iter().filter(|v| replay(**v).certifies()).count(), 1);
     assert_eq!(
-        artifacts().iter().filter(|v| artifact(v).certifies()).count(),
+        artifacts()
+            .iter()
+            .filter(|v| artifact(v).certifies())
+            .count(),
         1
     );
     assert_eq!(
@@ -303,12 +309,18 @@ fn folding_provider_verdicts_never_invents_evidence() {
     }
     // Severity precedence: anything that means "not evidence about this bug"
     // outranks a reproduction, which outranks a clean run.
-    let unevaluable = [ProviderVerdict::Reproduced, ProviderVerdict::InfrastructureFailed];
+    let unevaluable = [
+        ProviderVerdict::Reproduced,
+        ProviderVerdict::InfrastructureFailed,
+    ];
     assert_eq!(
         execution(fold_provider_verdicts(&unevaluable)),
         Disposition::Unevaluable
     );
-    let different = [ProviderVerdict::Reproduced, ProviderVerdict::DifferentFailure];
+    let different = [
+        ProviderVerdict::Reproduced,
+        ProviderVerdict::DifferentFailure,
+    ];
     assert_eq!(
         execution(fold_provider_verdicts(&different)),
         Disposition::NotAboutThisBug

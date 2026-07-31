@@ -6,7 +6,7 @@
   "evidence": [
     {
       "path": "crates/reproit/src/workflows/verdict_lattice.rs",
-      "sha256": "sha256:a7f703dd5ab0d802e6fb3a1877e5a4d39940bb57b0fbb22ac35dd7a4438a759a"
+      "sha256": "sha256:371ef0bf33cbcd810cf955a8acb136a76836f66332d8b58dc0ae67187efa75cb"
     }
   ]
 }
