@@ -14,7 +14,7 @@ shim_state_t G;
 static const char *KIND_NAMES[K_KINDS] = {"open",  "read",   "connect",  "send",   "recv",
                                           "clock", "time",   "random",   "env",    "stat",
                                           "statx", "access", "readlink", "getcwd", "dirent",
-                                          "input"};
+                                          "input", "exec"};
 
 /* This half resolves its own libc pointers so it never depends on the
  * interposition half's resolution order. */
@@ -36,6 +36,60 @@ static void cap_resolve(void) {
     if (!cap_close) {
         cap_close = dlsym(RTLD_NEXT, "close");
     }
+}
+
+void reproit_normalize_path(char *path) {
+    char *write = path;
+    const char *read = path;
+    while (*read) {
+        if (read[0] == '/' && read[1] == '/') {
+            read++;
+            continue;
+        }
+        if (read[0] == '/' && read[1] == '.' && (read[2] == '/' || read[2] == 0)) {
+            read += 2;
+            continue;
+        }
+        *write++ = *read++;
+    }
+    /* A trailing separator names the same directory, so it must not make a
+     * second key for it. The root itself keeps its one slash. */
+    while (write > path + 1 && *(write - 1) == '/') {
+        write--;
+    }
+    if (write == path) {
+        *write++ = '/';
+    }
+    *write = 0;
+}
+
+/* FNV-1a. Only ever compared against itself, so the choice is about spread
+ * and size, not about cryptography. */
+static uint64_t key_hash(const char *s) {
+    uint64_t h = 1469598103934665603ULL;
+    for (; *s; s++) {
+        h ^= (unsigned char)*s;
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+void reproit_path_key(const char *absolute, char *out, size_t cap) {
+    if (!absolute || !absolute[0] || cap < 32) {
+        snprintf(out, cap, "-");
+        return;
+    }
+    char folded[MAX_PATH_LEN];
+    snprintf(folded, sizeof(folded), "%s", absolute);
+    reproit_normalize_path(folded);
+    size_t len = strlen(folded);
+    if (len < cap) {
+        memcpy(out, folded, len + 1);
+        return;
+    }
+    /* 16 hex digits, one separator, one NUL. */
+    size_t tail = cap - 18;
+    snprintf(out, cap, "%016llx:%s", (unsigned long long)key_hash(folded), folded + (len - tail));
 }
 
 static const char B64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -214,7 +268,7 @@ void load_replay(const char *path) {
     }
 }
 
-entry_t *next_entry(kind_t kind, const char *key) {
+entry_t *next_entry_at(kind_t kind, const char *key, size_t *index) {
     for (size_t i = 0; i < G.entry_count; i++) {
         entry_t *e = &G.entries[i];
         if (e->consumed || e->kind != kind) {
@@ -224,13 +278,19 @@ entry_t *next_entry(kind_t kind, const char *key) {
             continue;
         }
         e->consumed = 1;
+        if (index) {
+            *index = i;
+        }
         return e;
     }
     return NULL;
 }
 
-entry_t *find_entry(kind_t kind, const char *key) {
+entry_t *next_entry(kind_t kind, const char *key) { return next_entry_at(kind, key, NULL); }
+
+entry_t *find_entry_at(kind_t kind, const char *key, size_t *index) {
     entry_t *fallback = NULL;
+    size_t fallback_index = 0;
     for (size_t i = 0; i < G.entry_count; i++) {
         entry_t *e = &G.entries[i];
         if (e->kind != kind) {
@@ -241,18 +301,38 @@ entry_t *find_entry(kind_t kind, const char *key) {
         }
         if (!e->consumed) {
             e->consumed = 1;
+            if (index) {
+                *index = i;
+            }
             return e;
         }
         fallback = e;
+        fallback_index = i;
+    }
+    if (fallback && index) {
+        *index = fallback_index;
     }
     return fallback;
 }
 
-/* Every recorded read of one key, concatenated: replay serves a file as one
- * buffer so a differing read granularity cannot diverge. */
-size_t gather(kind_t kind, const char *key, unsigned char **out) {
+entry_t *find_entry(kind_t kind, const char *key) { return find_entry_at(kind, key, NULL); }
+
+size_t next_key_index(kind_t kind, const char *key, size_t after) {
+    for (size_t i = after + 1; i < G.entry_count; i++) {
+        entry_t *e = &G.entries[i];
+        if (e->kind == kind && (!key || strcmp(e->key, key) == 0)) {
+            return i;
+        }
+    }
+    return G.entry_count;
+}
+
+size_t gather_span(kind_t kind, const char *key, size_t from, size_t to, unsigned char **out) {
+    if (to > G.entry_count) {
+        to = G.entry_count;
+    }
     size_t total = 0;
-    for (size_t i = 0; i < G.entry_count; i++) {
+    for (size_t i = from; i < to; i++) {
         entry_t *e = &G.entries[i];
         if (e->kind == kind && strcmp(e->key, key) == 0 && e->blob) {
             total += e->blob_len;
@@ -262,13 +342,13 @@ size_t gather(kind_t kind, const char *key, unsigned char **out) {
         *out = NULL;
         return 0;
     }
-    unsigned char *buf = malloc(total ? total : 1);
+    unsigned char *buf = malloc(total);
     if (!buf) {
         *out = NULL;
         return 0;
     }
     size_t off = 0;
-    for (size_t i = 0; i < G.entry_count; i++) {
+    for (size_t i = from; i < to; i++) {
         entry_t *e = &G.entries[i];
         if (e->kind == kind && strcmp(e->key, key) == 0 && e->blob) {
             memcpy(buf + off, e->blob, e->blob_len);
@@ -278,6 +358,15 @@ size_t gather(kind_t kind, const char *key, unsigned char **out) {
     }
     *out = buf;
     return total;
+}
+
+/* Every recorded read of one key, concatenated: replay serves a file as one
+ * buffer so a differing read granularity cannot diverge. Callers that know
+ * WHICH open they are serving use gather_span instead; this whole-log form is
+ * the answer only when the capsule has reads for a key and no open to tie
+ * them to. */
+size_t gather(kind_t kind, const char *key, unsigned char **out) {
+    return gather_span(kind, key, 0, G.entry_count, out);
 }
 
 

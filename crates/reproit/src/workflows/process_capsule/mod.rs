@@ -356,16 +356,31 @@ fn elf_is_dynamic(path: &Path) -> Option<bool> {
     Some(false)
 }
 
-fn digest_of(path: &Path) -> Option<String> {
+/// The first statically linked image the recording saw the process exec into,
+/// if any. The shim records one `exec` entry per new image and only for the
+/// static ones, so the presence of the line is the whole signal.
+fn static_exec(entries: &[String]) -> Option<&str> {
+    entries
+        .iter()
+        .filter_map(|line| line.strip_prefix("exec\t"))
+        .filter_map(|rest| rest.split('\t').next())
+        .find(|image| !image.is_empty() && *image != "-")
+}
+
+pub(super) fn hex_digest(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
-    let bytes = std::fs::read(path).ok()?;
-    let digest = Sha256::digest(&bytes);
+    let digest = Sha256::digest(bytes);
     let mut encoded = String::with_capacity(64);
     for byte in digest {
         use std::fmt::Write;
         let _ = write!(&mut encoded, "{byte:02x}");
     }
-    Some(format!("sha256:{encoded}"))
+    encoded
+}
+
+fn digest_of(path: &Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    Some(format!("sha256:{}", hex_digest(&bytes)))
 }
 
 /// `reproit internal process-capture --out <capsule> -- <command>`: run the
@@ -455,6 +470,20 @@ pub fn capture(ctx: &Ctx, out: &Path, command: &[String]) -> Result<ExitCode> {
             "the boundary observed nothing while {program} ran, so the shim was not loaded (a \
              static binary, or a loader that dropped the preload). Refusing to write a capsule \
              that would replay as a false success"
+        );
+    }
+    // The launched command was judged dynamic before it ran, but a program is
+    // free to exec into something else. A seccomp filter survives execve while
+    // LD_PRELOAD does not reach a static image at all, so the capture would
+    // hold real file entries and silently no clock, randomness, environment,
+    // or socket traffic. That capsule looks complete and is not.
+    if let Some(image) = static_exec(&entries) {
+        bail!(
+            "{program} exec'd into {image}, which is statically linked. The syscall layer still \
+             sees its files, but the libc layer sees none of its clock, randomness, environment, \
+             or socket traffic, so this capture is INCOMPLETE in classes it cannot report. \
+             Refusing to write a capsule that would look complete. Rebuild that image \
+             dynamically, or capture it directly so the refusal happens before it runs"
         );
     }
     let env = capture_env();
@@ -573,12 +602,46 @@ fn watch(child: &mut std::process::Child) -> Arc<Mutex<ReplayObservation>> {
     sink
 }
 
-/// `reproit check <capsule> --exec "<command>"`: re-exec the program under
-/// the serving shim, with the capsule's environment and seed pinned, and
-/// judge the verdict from how the re-executed program died.
-pub async fn check_exec(ctx: &Ctx, file: &Path, command: &str, _auto: bool) -> Result<ExitCode> {
-    let capsule = parse(file)?;
+/// What one hermetic re-execution of a capsule produced.
+pub(super) struct Replay {
+    pub verdict: HermeticVerdict,
+    observed: Outcome,
+    observed_failure: Option<String>,
+    divergences: Vec<Value>,
+    counters: Option<Counters>,
+    /// Why the run was not attempted at all. An abstention is INCONCLUSIVE
+    /// with a named cause, never a pass and never a reproduction.
+    abstained: Option<String>,
+}
+
+/// Re-exec the program under the serving shim, with the capsule's working
+/// directory, environment, and seed pinned, and judge how it died.
+pub(super) async fn replay(capsule: &ProcessCapsule, command: &str) -> Result<Replay> {
+    let abstain = |reason: String| Replay {
+        verdict: HermeticVerdict::Inconclusive,
+        observed: Outcome {
+            exit_code: None,
+            signal: None,
+        },
+        observed_failure: None,
+        divergences: Vec::new(),
+        counters: None,
+        abstained: Some(reason),
+    };
     let shim = shim_path()?;
+    // Relative paths are keyed against the working directory at BOTH record
+    // and replay, so replaying from somewhere else would ask the capsule
+    // about files it never saw. A guard kept in a repo is checked from the
+    // repo root, so the directory has to come from the capsule rather than
+    // from wherever the operator happens to stand.
+    let cwd = Path::new(&capsule.cwd);
+    if !cwd.is_dir() {
+        return Ok(abstain(format!(
+            "the recorded working directory {} no longer exists, and a program's relative paths \
+             cannot resolve the same way from anywhere else",
+            capsule.cwd
+        )));
+    }
     let log = tempfile_path("replay");
     std::fs::write(&log, capsule.entries.join("\n") + "\n")?;
 
@@ -595,6 +658,7 @@ pub async fn check_exec(ctx: &Ctx, file: &Path, command: &str, _auto: bool) -> R
     let mut child = std::process::Command::new("sh")
         .arg("-c")
         .arg(command)
+        .current_dir(cwd)
         .env_clear()
         .envs(capsule.env.clone())
         .env(preload_var(), &shim)
@@ -646,6 +710,40 @@ pub async fn check_exec(ctx: &Ctx, file: &Path, command: &str, _auto: bool) -> R
         // claiming a reproduction the capsule does not describe.
         HermeticVerdict::Inconclusive
     };
+    Ok(Replay {
+        verdict,
+        observed,
+        observed_failure,
+        divergences,
+        counters,
+        abstained: None,
+    })
+}
+
+/// `reproit check <capsule> --exec "<command>"`: replay the capsule and
+/// report the four-way verdict.
+pub async fn check_exec(ctx: &Ctx, file: &Path, command: &str, _auto: bool) -> Result<ExitCode> {
+    let capsule = parse(file)?;
+    let outcome = replay(&capsule, command).await?;
+    Ok(report(ctx, file, &capsule, &outcome))
+}
+
+/// Emit and print one replay's verdict, and return its exit code.
+pub(super) fn report(
+    ctx: &Ctx,
+    file: &Path,
+    capsule: &ProcessCapsule,
+    replayed: &Replay,
+) -> ExitCode {
+    let Replay {
+        verdict,
+        observed,
+        observed_failure,
+        divergences,
+        counters,
+        abstained,
+    } = replayed;
+    let (verdict, observed, divergences, counters) = (*verdict, *observed, divergences, *counters);
 
     ctx.emit(&json!({
         "command": "check",
@@ -660,6 +758,7 @@ pub async fn check_exec(ctx: &Ctx, file: &Path, command: &str, _auto: bool) -> R
             "recordedFailure": capsule.failure,
             "observedFailure": observed_failure,
             "divergences": divergences,
+            "abstained": abstained,
             "counters": counters.map(|c| json!({
                 "served": c.served,
                 "diverged": c.diverged,
@@ -693,15 +792,18 @@ pub async fn check_exec(ctx: &Ctx, file: &Path, command: &str, _auto: bool) -> R
         HermeticVerdict::Fixed => ctx.say("  PASS the program now exits cleanly"),
         HermeticVerdict::Diverged => {
             ctx.say("  DIVERGED the program read something the capsule never recorded:");
-            for report in &divergences {
+            for report in divergences {
                 ctx.say(format!("    {report}"));
             }
         }
-        HermeticVerdict::Inconclusive => ctx.say(format!(
-            "  INCONCLUSIVE recorded {}, observed {}; failing closed",
-            capsule.outcome.describe(),
-            observed.describe()
-        )),
+        HermeticVerdict::Inconclusive => match abstained {
+            Some(reason) => ctx.say(format!("  INCONCLUSIVE not replayed: {reason}")),
+            None => ctx.say(format!(
+                "  INCONCLUSIVE recorded {}, observed {}; failing closed",
+                capsule.outcome.describe(),
+                observed.describe()
+            )),
+        },
     }
     if let Some(counters) = counters {
         ctx.say(format!(
@@ -714,11 +816,11 @@ pub async fn check_exec(ctx: &Ctx, file: &Path, command: &str, _auto: bool) -> R
             counters.env_fallthrough
         ));
     }
-    Ok(match verdict {
+    match verdict {
         HermeticVerdict::Fixed => ExitCode::SUCCESS,
         HermeticVerdict::Reproduced => Exit::Regression.code(),
         _ => ExitCode::from(3),
-    })
+    }
 }
 
 #[cfg(unix)]
@@ -749,198 +851,8 @@ fn rand_seed() -> u64 {
     stamp ^ (std::process::id() as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)
 }
 
+mod keep;
+pub use keep::{keep_capsule_guard, try_replay_process_guard};
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn outcome_failure_and_equality_follow_how_the_program_died() {
-        let clean = Outcome {
-            exit_code: Some(0),
-            signal: None,
-        };
-        let aborted = Outcome {
-            exit_code: None,
-            signal: Some(6),
-        };
-        let nonzero = Outcome {
-            exit_code: Some(4),
-            signal: None,
-        };
-        assert!(!clean.failed());
-        assert!(aborted.failed());
-        assert!(nonzero.failed());
-        assert!(aborted.same_as(&aborted));
-        assert!(!aborted.same_as(&nonzero));
-        assert_eq!(aborted.describe(), "fatal signal 6");
-        assert_eq!(nonzero.describe(), "exit 4");
-        // A shell reports the same abort as 128 + SIGABRT; the two spellings
-        // of one death must compare equal, and must not swallow a genuinely
-        // different exit code.
-        let through_shell = Outcome {
-            exit_code: Some(134),
-            signal: None,
-        };
-        assert!(through_shell.same_as(&aborted));
-        assert!(aborted.same_as(&through_shell));
-        assert_eq!(through_shell.describe(), "fatal signal 6");
-        assert!(!through_shell.same_as(&nonzero));
-        assert!(!clean.same_as(&aborted));
-    }
-
-    /// A minimal 64 bit little endian ELF carrying one program header of the
-    /// given type. Synthetic on purpose: the host running these tests may not
-    /// be an ELF platform at all, and the property under test is how the
-    /// parser reads program headers, not what this machine links.
-    fn synthetic_elf(program_header_type: u32) -> Vec<u8> {
-        const HEADER: usize = 64;
-        const ENTRY: usize = 56;
-        let mut bytes = vec![0u8; HEADER + ENTRY];
-        bytes[0..4].copy_from_slice(b"\x7fELF");
-        bytes[4] = 2; // 64 bit
-        bytes[5] = 1; // little endian
-        bytes[0x20..0x28].copy_from_slice(&(HEADER as u64).to_le_bytes()); // e_phoff
-        bytes[0x36..0x38].copy_from_slice(&(ENTRY as u16).to_le_bytes()); // e_phentsize
-        bytes[0x38..0x3a].copy_from_slice(&1u16.to_le_bytes()); // e_phnum
-        bytes[HEADER..HEADER + 4].copy_from_slice(&program_header_type.to_le_bytes());
-        bytes
-    }
-
-    #[test]
-    fn static_linkage_is_judged_from_the_program_headers() {
-        let directory = std::env::temp_dir().join(format!("reproit-elf-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
-        // PT_INTERP present: the loader resolves symbols, so the shim is
-        // reachable and capture may proceed.
-        let dynamic = directory.join("dynamic.elf");
-        std::fs::write(&dynamic, synthetic_elf(3)).unwrap();
-        assert_eq!(elf_is_dynamic(&dynamic), Some(true));
-        // PT_LOAD only: nothing is interposed, so capture must refuse rather
-        // than write a capsule of nothing.
-        let statik = directory.join("static.elf");
-        std::fs::write(&statik, synthetic_elf(1)).unwrap();
-        assert_eq!(elf_is_dynamic(&statik), Some(false));
-        // Not an ELF: say nothing rather than guess, so a script or a wrapper
-        // is never refused as "static".
-        let script = directory.join("script.sh");
-        std::fs::write(&script, b"#!/bin/sh\necho hi\n").unwrap();
-        assert_eq!(elf_is_dynamic(&script), None);
-        // A truncated header is unjudgeable too.
-        let stub = directory.join("stub.elf");
-        std::fs::write(&stub, b"\x7fELF\x02\x01").unwrap();
-        assert_eq!(elf_is_dynamic(&stub), None);
-        let _ = std::fs::remove_dir_all(&directory);
-    }
-
-    #[test]
-    fn a_non_capsule_file_does_not_route_to_the_process_path() {
-        let directory =
-            std::env::temp_dir().join(format!("reproit-capsule-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
-        let backend = directory.join("backend.json");
-        std::fs::write(&backend, br#"{"format":"reproit-backend-capture"}"#).unwrap();
-        assert!(!is_process_capsule(&backend));
-        let capsule = directory.join("process.json");
-        std::fs::write(&capsule, br#"{"format":"reproit-process-capsule"}"#).unwrap();
-        assert!(is_process_capsule(&capsule));
-        assert!(!is_process_capsule(&directory.join("absent.json")));
-        let _ = std::fs::remove_dir_all(&directory);
-    }
-
-    #[test]
-    fn two_different_assertions_are_not_the_same_failure() {
-        // Both of these die with SIGABRT, so the exit status alone cannot
-        // tell them apart. This is the false proof the failure identity
-        // exists to prevent.
-        let recorded = failure_signature(&[
-            "engine: engine.c:52: main: Assertion `thrust <= MAX_THRUST' failed.".to_string(),
-        ]);
-        let other = failure_signature(&[
-            "engine: engine.c:81: main: Assertion `fuel >= 0' failed.".to_string(),
-        ]);
-        assert!(recorded.is_some());
-        assert_ne!(recorded, other);
-    }
-
-    #[test]
-    fn only_addresses_fold_because_everything_else_is_stable_across_a_replay() {
-        // ASLR moves addresses between two runs of the same defect, so they
-        // fold. Nothing else does: a replay runs the same binary, so the file,
-        // the line, and the predicate are all stable.
-        let first = failure_signature(&[
-            "app: src/main.c:52: run: Assertion `n < 8' failed. at 0x7ffd12ab".to_string(),
-        ]);
-        let second = failure_signature(&[
-            "app: src/main.c:52: run: Assertion `n < 8' failed. at 0x55aa9001".to_string(),
-        ]);
-        assert_eq!(first, second);
-        // A different asserted value is a DIFFERENT failure. Folding decimal
-        // digits would have made these equal, which is the false proof this
-        // guards against.
-        let third = failure_signature(&[
-            "app: src/main.c:52: run: Assertion `n < 9' failed. at 0x55aa9001".to_string(),
-        ]);
-        assert_ne!(first, third);
-    }
-
-    /// One determinism envelope contract across every capture kind. The
-    /// backend SDKs emit these keys as their `determinism-envelope`
-    /// checkpoint, and a process capsule must carry the same ones so a single
-    /// reader can pin a replay's clock, timezone and seed without asking
-    /// which capture produced it.
-    #[test]
-    fn the_envelope_matches_the_shape_every_capture_kind_emits() {
-        let envelope = determinism_envelope("c0ffee00c0ffee00");
-        for key in ["observedAtMs", "tz", "os", "arch", "replaySeed"] {
-            assert!(
-                envelope.get(key).is_some(),
-                "the shared envelope must carry {key}"
-            );
-        }
-        assert_eq!(
-            envelope.get("replaySeed").and_then(Value::as_str),
-            Some("c0ffee00c0ffee00")
-        );
-    }
-
-    /// A field the capture cannot know is ABSENT, never guessed. The SDKs
-    /// carry imageDigest only when the environment states one, and a process
-    /// capsule follows the same rule, so a reader can trust that a present
-    /// field was observed.
-    #[test]
-    fn an_unknowable_envelope_field_is_absent_rather_than_invented() {
-        // The test process may or may not have the variable set, so assert
-        // the RULE rather than one environment's answer.
-        let envelope = determinism_envelope("seed");
-        match std::env::var("REPROIT_IMAGE_DIGEST") {
-            Ok(digest) if !digest.is_empty() => {
-                assert_eq!(
-                    envelope.get("imageDigest").and_then(Value::as_str),
-                    Some(digest.as_str())
-                );
-            }
-            _ => assert!(
-                envelope.get("imageDigest").is_none(),
-                "an unstated image digest must not appear at all"
-            ),
-        }
-    }
-
-    #[test]
-    fn a_program_that_dies_without_declaring_why_has_no_signature() {
-        // A silent SIGSEGV leaves the signal as the whole story, so the
-        // capsule must not invent an identity it never observed.
-        assert_eq!(failure_signature(&["Segmentation fault".to_string()]), None);
-        assert_eq!(failure_signature(&[]), None);
-    }
-
-    #[test]
-    fn rust_and_go_failure_text_is_recognized_too() {
-        assert!(
-            failure_signature(&["thread 'main' panicked at src/lib.rs:9:5:".to_string()]).is_some()
-        );
-        assert!(
-            failure_signature(&["panic: runtime error: index out of range".to_string()]).is_some()
-        );
-    }
-}
+mod tests;

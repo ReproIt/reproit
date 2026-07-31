@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "process-capsule-four-deferred",
+  "changeType": "feature",
+  "detail": "This commit closes four deferred items in the unreleased process capsule and refutes one of their premises with measurement. Relative paths are keyed against the working directory in BOTH modes, which closed one file keying to two entries and, worse, two files keying to one and replaying concatenated. Reads are scoped to the open they followed, which turned ruby's abstention into a byte-identical reproduction: the diagnosis of record had been a different library search order, and strace plus a byte count showed the capsule serving a 37,245 byte file at 74,490 bytes instead. A process capsule now keeps as a guard and replays by id, which the loop had no route for at all. And a statically linked image reached through a dynamic wrapper is refused as an INCOMPLETE capture rather than shipped as a capsule that looks complete, because a seccomp filter survives execve while LD_PRELOAD does not. Every claim is measured on Linux aarch64 in Docker and pinned by cases in validation/process/run.sh, which goes from 13 to 20. This extends unreleased phase 1 work rather than correcting shipped behavior; nothing here has ever been in a release.",
+  "evidence": [
+    { "path": "validation/process/MEASUREMENT.md", "sha256": "sha256:f22d6acd80f6e1af0703b89c8d9919ab97b2f72f13af64bd9215bd81a6916cf6" },
+    { "path": "validation/process/run.sh", "sha256": "sha256:15122b51e5a8ec760cb01e1885f4f22912d2945547b2e7ad5f4ce448a5193aa0" },
+    { "path": "runners/process-shim/reproit_shim_capsule.h", "sha256": "sha256:ea7ded5c00b1637172ff2159ddf731c35aa911c555231851debe4d5b6fc1bd78" }
+  ]
+}

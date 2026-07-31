@@ -33,6 +33,25 @@ pub(super) async fn run(
     // from backend.exec in reproit.yaml when the flag is absent, so an
     // initialized project keeps a guard without repeating the command.
     if let Some(reference) = id {
+        // A process capsule is a sibling format of the backend capture: same
+        // guard directory, same four-way verdict, different trigger. Without
+        // this route a capsule could reproduce a failure and never be kept as
+        // a test, which breaks find-keep-check for exactly the programs the
+        // capsule exists to serve.
+        if super::process_capsule::is_process_capsule(Path::new(reference)) {
+            let exec = exec.context(
+                "keeping a process capsule as a guard needs the command that runs the program: \
+                 pass --exec \"<command>\". A capsule may never supply its own command",
+            )?;
+            return super::process_capsule::keep_capsule_guard(
+                ctx,
+                Path::new(reference),
+                exec,
+                as_name,
+                strict,
+            )
+            .await;
+        }
         if super::backend_headless::is_capture_file(Path::new(reference)) {
             let resolved = match exec {
                 Some(exec) => exec.to_string(),

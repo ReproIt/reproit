@@ -36,7 +36,10 @@ SHIM_SOURCES=(
   "$ROOT/runners/process-shim/reproit_shim.c"
   "$ROOT/runners/process-shim/reproit_shim_capsule.c"
   "$ROOT/runners/process-shim/reproit_shim_movers.c"
+  "$ROOT/runners/process-shim/reproit_shim_time.c"
   "$ROOT/runners/process-shim/reproit_seccomp.c"
+  "$ROOT/runners/process-shim/reproit_seccomp_scratch.c"
+  "$ROOT/runners/process-shim/reproit_elf.c"
 )
 gcc -shared -fPIC -O1 -o "$WORK/reproit_shim.so" "${SHIM_SOURCES[@]}" -ldl \
   || fail "could not build the process shim"

@@ -10,5 +10,5 @@ case "$(uname -s)" in
   *) SUFFIX="so" ;;
 esac
 cc -shared -fPIC -O1 -o "${OUT%.so}.$SUFFIX" \
-  "$HERE/reproit_shim.c" "$HERE/reproit_shim_capsule.c" "$HERE/reproit_shim_movers.c" -ldl
+  "$HERE/reproit_shim.c" "$HERE/reproit_shim_capsule.c" "$HERE/reproit_shim_movers.c" "$HERE/reproit_shim_time.c" -ldl
 echo "${OUT%.so}.$SUFFIX"

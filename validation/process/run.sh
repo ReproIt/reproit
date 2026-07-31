@@ -17,7 +17,10 @@ set -u
 # increments this counter after it has fully asserted, and the run fails
 # loudly if the total does not match.
 CASES_RUN=0
-EXPECTED_CASES=13
+# 13 through phase 3, plus: ruby byte identity (the abstention became a
+# reproduction), relative-path keying and its byte identity, the two static
+# binary refusals, and keeping a capsule as a guard and replaying it by id.
+EXPECTED_CASES=20
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 REPROIT="${REPROIT_BINARY:-$ROOT/target/debug/reproit}"
@@ -40,9 +43,12 @@ fi
 
 SHIM_SOURCES=("$ROOT/runners/process-shim/reproit_shim.c"
   "$ROOT/runners/process-shim/reproit_shim_capsule.c"
-  "$ROOT/runners/process-shim/reproit_shim_movers.c")
+  "$ROOT/runners/process-shim/reproit_shim_movers.c"
+  "$ROOT/runners/process-shim/reproit_shim_time.c")
 # The syscall completeness layer is Linux only; this script already is.
-SHIM_SOURCES+=("$ROOT/runners/process-shim/reproit_seccomp.c")
+SHIM_SOURCES+=("$ROOT/runners/process-shim/reproit_seccomp.c"
+  "$ROOT/runners/process-shim/reproit_seccomp_scratch.c"
+  "$ROOT/runners/process-shim/reproit_elf.c")
 gcc -shared -fPIC -O1 -o "$WORK/reproit_shim.so" "${SHIM_SOURCES[@]}" -ldl
 gcc -O1 -o "$WORK/subject" "$ROOT/validation/process/subject.c"
 export REPROIT_PROCESS_SHIM="$WORK/reproit_shim.so"
@@ -173,10 +179,15 @@ fi
 CASES_RUN=$((CASES_RUN + 1))
 echo "PASS python3 replayed stdout is byte identical to the recording"
 
-# An interpreted runtime this boundary does NOT replay correctly. Ruby reaches
-# zero divergences but its startup resolves libraries in a different order, so
-# it must never claim a reproduction. This pins the fail closed property: the
-# honest verdict is INCONCLUSIVE, not a pass and not a reproduction.
+# A SECOND interpreted runtime, and the one that used to fail closed. Ruby was
+# diagnosed as unreplayable because its library search "resolved in a different
+# order"; measuring it instead showed the capsule serving
+# /usr/lib/ruby/vendor_ruby/rubygems.rb at 74,490 bytes for a 37,245 byte file.
+# The recording opens it TWICE and the replay concatenated both copies, so
+# rubygems evaluated its own text twice and Debian's
+# `alias upstream_default_path default_path` aliased itself into a
+# SystemStackError. Reads are now scoped to the open they followed, and ruby
+# reproduces like python does.
 if command -v ruby > /dev/null 2>&1; then
   mkdir -p /tmp/reproit-subject
   printf 'boom' > /tmp/reproit-subject/input.txt
@@ -188,10 +199,116 @@ RB_SUBJECT
   "$REPROIT" --yes internal process-capture --out "$WORK/rb-capsule.json" -- \
     ruby "$WORK/script.rb" > "$WORK/rb-capture.txt" 2>&1
   rm -rf /tmp/reproit-subject
-  run_case "$WORK/rb-capsule.json" "ruby $WORK/script.rb" 3 \
-    "ruby subject fails closed rather than claiming a reproduction" "INCONCLUSIVE"
+  run_case "$WORK/rb-capsule.json" "ruby $WORK/script.rb" 1 \
+    "ruby subject reproduces hermetically" "reproduced by re-execution"
+
+  # Same byte-identity proof python gets: the verdict says how it died, this
+  # says it produced the same output getting there.
+  mkdir -p /tmp/reproit-subject
+  printf 'boom' > /tmp/reproit-subject/input.txt
+  LD_PRELOAD="$WORK/reproit_shim.so" REPROIT_RECORD="$WORK/rb-stdout.log" \
+    ruby "$WORK/script.rb" > "$WORK/rb.record" 2>/dev/null
+  rm -rf /tmp/reproit-subject
+  LD_PRELOAD="$WORK/reproit_shim.so" REPROIT_REPLAY_LOG="$WORK/rb-stdout.log" \
+    REPROIT_REPLAY_SEED=c0ffee00c0ffee00 \
+    ruby "$WORK/script.rb" > "$WORK/rb.replay" 2>/dev/null
+  if ! cmp -s "$WORK/rb.record" "$WORK/rb.replay"; then
+    echo "FAIL ruby replayed stdout is not byte identical to the recording" >&2
+    echo "  recorded: $(tr '\n' '|' < "$WORK/rb.record")" >&2
+    echo "  replayed: $(tr '\n' '|' < "$WORK/rb.replay")" >&2
+    exit 1
+  fi
+  CASES_RUN=$((CASES_RUN + 1))
+  echo "PASS ruby replayed stdout is byte identical to the recording"
 else
   echo "SKIP ruby case: no ruby in this image"
+fi
+
+# RELATIVE PATH KEYING, in both directions a bad key can break. Measured with
+# the libc boundary alone, because that is the layer that had the defect: the
+# syscall layer already resolved through /proc symmetrically.
+#
+# Before the fix this exact subject printed `A=<ERR>` with a divergence on a
+# file the capsule held, AND `B=OUTERINNER`, two different files concatenated
+# under one relative key with ZERO divergences. The second is the silent wrong
+# replay, so byte identity is the assertion that matters here, not the verdict
+# alone.
+gcc -O1 -o "$WORK/relkey" "$ROOT/validation/process/relkey.c"
+mkdir -p "$WORK/reldir/sub"
+printf 'OUTER' > "$WORK/reldir/data.txt"
+printf 'INNER' > "$WORK/reldir/sub/data.txt"
+(
+  cd "$WORK/reldir" || exit 1
+  export REPROIT_SECCOMP=0
+  "$REPROIT" --yes internal process-capture --out "$WORK/rel-capsule.json" -- \
+    "$WORK/relkey" > "$WORK/rel-capture.txt" 2>&1
+)
+( cd "$WORK/reldir" && "$WORK/relkey" > "$WORK/rel.record" 2>/dev/null )
+rm -f "$WORK/reldir/data.txt" "$WORK/reldir/sub/data.txt"
+# The capsule carries the recorded cwd, so check replays from there no matter
+# where it is run. Nothing below cds.
+run_case "$WORK/rel-capsule.json" "$WORK/relkey" 1 \
+  "a subject opening relative paths reproduces with both files deleted" \
+  "reproduced by re-execution"
+
+python3 - "$WORK/rel-capsule.json" "$WORK/rel.log" <<'PY'
+import json, sys
+capsule = json.load(open(sys.argv[1]))
+open(sys.argv[2], "w").write("\n".join(capsule["entries"]) + "\n")
+PY
+( cd "$WORK/reldir" && LD_PRELOAD="$WORK/reproit_shim.so" REPROIT_SECCOMP=0 \
+    REPROIT_REPLAY_LOG="$WORK/rel.log" REPROIT_REPLAY_SEED=c0ffee00c0ffee00 \
+    "$WORK/relkey" > "$WORK/rel.replay" 2>/dev/null )
+if ! cmp -s "$WORK/rel.record" "$WORK/rel.replay"; then
+  echo "FAIL relative-path keying: replayed output is not the recorded output" >&2
+  echo "  recorded: $(tr '\n' '|' < "$WORK/rel.record")" >&2
+  echo "  replayed: $(tr '\n' '|' < "$WORK/rel.replay")" >&2
+  exit 1
+fi
+CASES_RUN=$((CASES_RUN + 1))
+echo "PASS two files sharing a relative NAME replay apart, byte for byte"
+
+# STATIC BINARIES. The libc half of the boundary needs a dynamic loader, so a
+# statically linked image is covered by the syscall layer ALONE: its files are
+# seen and its clock, randomness, environment, and sockets are not. Both routes
+# into that state must refuse, and neither may write a capsule.
+gcc -static -O1 -o "$WORK/staticsub" "$ROOT/validation/process/subject.c" 2>/dev/null
+if [[ -x "$WORK/staticsub" ]]; then
+  mkdir -p /tmp/reproit-subject
+  printf '{ "strict": true }' > /tmp/reproit-subject/config.json
+  rm -f "$WORK/static-direct.json"
+  "$REPROIT" --yes internal process-capture --out "$WORK/static-direct.json" -- \
+    "$WORK/staticsub" > "$WORK/static-direct.txt" 2>&1
+  if [[ -f "$WORK/static-direct.json" ]] \
+    || ! grep -q "statically linked" "$WORK/static-direct.txt"; then
+    echo "FAIL a statically linked subject must be refused before it runs" >&2
+    cat "$WORK/static-direct.txt" >&2
+    exit 1
+  fi
+  CASES_RUN=$((CASES_RUN + 1))
+  echo "PASS a statically linked subject is refused before it runs"
+
+  # The launched command is judged before it runs, but a dynamic program can
+  # exec into a static one afterwards, and a seccomp filter survives execve
+  # while LD_PRELOAD does not. Measured: that shape produced a six entry
+  # capsule that replayed as a clean "reproduced" while seeing none of the
+  # libc classes. The supervisor now names the image and capture refuses.
+  printf '#!/bin/sh\nexec %s\n' "$WORK/staticsub" > "$WORK/wrap.sh"
+  chmod +x "$WORK/wrap.sh"
+  rm -f "$WORK/static-wrapped.json"
+  "$REPROIT" --yes internal process-capture --out "$WORK/static-wrapped.json" -- \
+    "$WORK/wrap.sh" > "$WORK/static-wrapped.txt" 2>&1
+  rm -rf /tmp/reproit-subject
+  if [[ -f "$WORK/static-wrapped.json" ]] \
+    || ! grep -q "INCOMPLETE in classes it cannot report" "$WORK/static-wrapped.txt"; then
+    echo "FAIL a static image reached through a dynamic wrapper must be named incomplete" >&2
+    cat "$WORK/static-wrapped.txt" >&2
+    exit 1
+  fi
+  CASES_RUN=$((CASES_RUN + 1))
+  echo "PASS a static image behind a dynamic wrapper is refused as an INCOMPLETE capture"
+else
+  echo "SKIP static binary cases: this image cannot link -static"
 fi
 
 # PHASE 2: a timed input stream. A session shaped program's trigger is input
@@ -262,6 +379,56 @@ run_case "$WORK/assert.json" "$WORK/twoasserts" 1 \
   "the same assertion reproduces" "reproduced by re-execution"
 run_case "$WORK/assert.json" "OTHER_BUG=1 $WORK/twoasserts" 3 \
   "a DIFFERENT assertion with the same signal is not a reproduction" "INCONCLUSIVE"
+
+# KEEPING a capsule as a regression test. A capsule that can reproduce a
+# failure and cannot be RETAINED breaks find-keep-check for exactly the
+# programs this format exists to serve. The guard is proven live at keep time,
+# lands in .reproit/repros/<id>/ as capsule.json plus its boot recipe, and
+# `reproit check <id>` replays it with no capsule path and no --exec.
+mkdir -p "$WORK/keepproj"
+KEPT="$(cd "$WORK/keepproj" && "$REPROIT" --yes --json keep "$WORK/capsule.json" \
+  --exec "$WORK/subject" 2>"$WORK/keep.err")"
+KEEP_STATUS=$?
+KEPT_ID="$(printf '%s' "$KEPT" | python3 -c \
+  'import json,sys
+text = sys.stdin.read()
+decoder = json.JSONDecoder()
+at = 0
+while at < len(text):
+    start = text.find("{", at)
+    if start < 0:
+        break
+    try:
+        value, end = decoder.raw_decode(text, start)
+    except ValueError:
+        at = start + 1
+        continue
+    at = end
+    if isinstance(value, dict) and value.get("command") == "keep":
+        print(value["id"])
+        break')"
+if [[ "$KEEP_STATUS" -ne 0 || -z "$KEPT_ID" \
+  || ! -f "$WORK/keepproj/.reproit/repros/$KEPT_ID/capsule.json" ]]; then
+  echo "FAIL keep: a process capsule did not land as a guard" >&2
+  cat "$WORK/keep.err" >&2
+  printf '%s\n' "$KEPT" >&2
+  exit 1
+fi
+CASES_RUN=$((CASES_RUN + 1))
+echo "PASS a process capsule keeps as a guard ($KEPT_ID)"
+
+# The prefixed id is the reference `check` resolves; the bare directory name
+# is not, which is why keep prints the prefixed form.
+( cd "$WORK/keepproj" && "$REPROIT" --yes check "rep_$KEPT_ID" ) > "$WORK/keep-check.txt" 2>&1
+KEEP_CHECK=$?
+if [[ "$KEEP_CHECK" -ne 1 ]] \
+  || ! grep -q "reproduced by re-execution" "$WORK/keep-check.txt"; then
+  echo "FAIL keep: the kept guard did not replay by id (exit $KEEP_CHECK)" >&2
+  cat "$WORK/keep-check.txt" >&2
+  exit 1
+fi
+CASES_RUN=$((CASES_RUN + 1))
+echo "PASS the kept guard replays from its id alone, with no capsule path and no --exec"
 
 if [[ "$CASES_RUN" -ne "$EXPECTED_CASES" ]]; then
   echo "FAIL harness accounting: $CASES_RUN of $EXPECTED_CASES cases ran" >&2

@@ -74,9 +74,8 @@ static ssize_t (*real_sendto)(int, const void *, size_t, int, const struct socka
 static ssize_t (*real_recv)(int, void *, size_t, int);
 static ssize_t (*real_recvfrom)(int, void *, size_t, int, struct sockaddr *, socklen_t *);
 static ssize_t (*real_write)(int, const void *, size_t);
-static int (*real_clock_gettime)(clockid_t, struct timespec *);
-static int (*real_gettimeofday)(struct timeval *, void *);
-static time_t (*real_time)(time_t *);
+/* Only `shim_init` reads the environment here; the getenv INTERPOSER lives in
+ * reproit_shim_time.c with the rest of the determinism envelope. */
 static char *(*real_getenv)(const char *);
 static FILE *(*real_fopen)(const char *, const char *);
 static size_t (*real_fread)(void *, size_t, size_t, FILE *);
@@ -121,6 +120,55 @@ void shim_init(void) {
 __attribute__((destructor)) static void shim_report(void) { reproit_report(); }
 
 
+/* Resolve a (dirfd, path) pair to the capsule key for that file, the SAME way
+ * in record and in replay. Doing it in only one of the two modes is what made
+ * a relative open divergent at replay while two different files shared one
+ * key at record; see reproit_path_key in the capsule header for the measured
+ * evidence in both directions.
+ *
+ * A base that cannot be resolved falls back to the path as given. That is
+ * symmetric between the two modes, so it costs a spurious divergence at worst
+ * and never a wrong answer. */
+static void path_key(int dirfd, const char *path, char *out, size_t cap) {
+    if (!path || !path[0]) {
+        snprintf(out, cap, "-");
+        return;
+    }
+    if (path[0] == '/') {
+        reproit_path_key(path, out, cap);
+        return;
+    }
+    char base[MAX_PATH_LEN / 2];
+    base[0] = 0;
+    if (dirfd == AT_FDCWD) {
+        if (!getcwd(base, sizeof(base))) {
+            base[0] = 0;
+        }
+    } else {
+#ifdef __linux__
+        char link[64];
+        snprintf(link, sizeof(link), "/proc/self/fd/%d", dirfd);
+        ssize_t n = readlink(link, base, sizeof(base) - 1);
+        if (n > 0) {
+            base[n] = 0;
+        } else {
+            base[0] = 0;
+        }
+#else
+        if (fcntl(dirfd, F_GETPATH, base) != 0) {
+            base[0] = 0;
+        }
+#endif
+    }
+    if (!base[0]) {
+        snprintf(out, cap, "%s", path);
+        return;
+    }
+    char absolute[MAX_PATH_LEN];
+    snprintf(absolute, sizeof(absolute), "%s/%s", base, path);
+    reproit_path_key(absolute, out, cap);
+}
+
 static void track_path(int fd, const char *path) {
     if (fd >= 0 && fd < MAX_FDS) {
         snprintf(G.paths[fd], sizeof(G.paths[fd]), "%s", path ? path : "-");
@@ -145,8 +193,14 @@ static int serve_open(const char *path) {
      * then serves read, pread, lseek, and fstat, so replay does not depend on
      * the program reading in the same sized chunks it did at record time. */
     unsigned char *content = NULL;
-    size_t len = gather(K_READ, path, &content);
-    entry_t *opened = next_entry(K_OPEN, path);
+    /* The open first: it bounds the reads that belong to this stream. A file
+     * opened twice is two streams, and gathering across the whole log served
+     * their bytes concatenated. */
+    size_t at = 0;
+    entry_t *opened = next_entry_at(K_OPEN, path, &at);
+    size_t from = opened ? at + 1 : 0;
+    size_t to = opened ? next_key_index(K_OPEN, path, at) : G.entry_count;
+    size_t len = gather_span(K_READ, path, from, to, &content);
     if (!opened && !content) {
         return -2; /* unknown path: caller diverges */
     }
@@ -218,22 +272,22 @@ int open(const char *path, int flags, ...) {
         return real_open(path, flags, mode);
     }
     int fd;
+    char key[MAX_KEY_LEN];
+    path_key(AT_FDCWD, path, key, sizeof(key));
     if (G.mode == 2) {
-        fd = serve_open(path);
+        fd = serve_open(key);
         if (fd == -2) {
-            diverge("file", path);
+            diverge("file", key);
             errno = ENOENT;
             fd = -1;
         } else if (fd == -3) {
-            diverge("incomplete-file", path);
+            diverge("incomplete-file", key);
             errno = EIO;
             fd = -1;
         }
     } else {
         fd = real_open(path, flags, mode);
-        track_path(fd, path);
-        char key[256];
-        snprintf(key, sizeof(key), "%s", path);
+        track_path(fd, key);
         record_blob(K_OPEN, key, NULL, 0, fd >= 0 ? fd : -errno, file_size(fd));
     }
     LEAVE();
@@ -256,41 +310,28 @@ int openat(int dirfd, const char *path, int flags, ...) {
         return real_openat(dirfd, path, flags, mode);
     }
     int fd;
+    /* Never fall through to the real filesystem at replay. Measured: falling
+     * through for relative paths made a python3 replay read the live disk, so
+     * a deleted input produced an empty result with ZERO divergences, a false
+     * negative. A path the capsule does not carry is a divergence, even when
+     * that makes an interpreted runtime noisy: fail closed is the whole
+     * contract. */
+    char key[MAX_KEY_LEN];
+    path_key(dirfd, path, key, sizeof(key));
     if (G.mode == 2) {
-        /* Never fall through to the real filesystem. Measured: falling
-         * through for relative paths made a python3 replay read the live
-         * disk, so a deleted input produced an empty result with ZERO
-         * divergences, a false negative. A path the capsule does not carry
-         * is a divergence, even when that makes an interpreted runtime
-         * noisy: fail closed is the whole contract. */
-        char absolute[MAX_PATH_LEN];
-        if (path && path[0] == '/') {
-            snprintf(absolute, sizeof(absolute), "%s", path);
-        } else if (dirfd == AT_FDCWD && path) {
-            char cwd[MAX_PATH_LEN / 2];
-            if (getcwd(cwd, sizeof(cwd))) {
-                snprintf(absolute, sizeof(absolute), "%s/%s", cwd, path);
-            } else {
-                snprintf(absolute, sizeof(absolute), "%s", path);
-            }
-        } else {
-            snprintf(absolute, sizeof(absolute), "%s", path ? path : "-");
-        }
-        fd = serve_open(absolute);
+        fd = serve_open(key);
         if (fd == -2) {
-            diverge("file", absolute);
+            diverge("file", key);
             errno = ENOENT;
             fd = -1;
         } else if (fd == -3) {
-            diverge("incomplete-file", absolute);
+            diverge("incomplete-file", key);
             errno = EIO;
             fd = -1;
         }
     } else if (G.mode == 1) {
         fd = real_openat(dirfd, path, flags, mode);
-        track_path(fd, path);
-        char key[256];
-        snprintf(key, sizeof(key), "%s", path);
+        track_path(fd, key);
         record_blob(K_OPEN, key, NULL, 0, fd >= 0 ? fd : -errno, file_size(fd));
     } else {
         fd = real_openat(dirfd, path, flags, mode);
@@ -600,219 +641,6 @@ ssize_t recvfrom(int fd, void *buf, size_t len, int flags, struct sockaddr *addr
     return got;
 }
 
-int clock_gettime(clockid_t id, struct timespec *ts) {
-    int return_real = 0;
-    RESOLVE(clock_gettime);
-    ENTER();
-    if (return_real) {
-        return real_clock_gettime(id, ts);
-    }
-    int result = 0;
-    G.tick++;
-    if (G.mode == 2) {
-        char key[32];
-        snprintf(key, sizeof(key), "%d", (int)id);
-        entry_t *e = next_entry(K_CLOCK, key);
-        if (e) {
-            ts->tv_sec = e->a;
-            ts->tv_nsec = e->b;
-            G.last_sec = e->a;
-            G.last_nsec = e->b;
-            G.served++;
-        } else {
-            /* Policy, not divergence: a replayed run makes a different NUMBER
-             * of clock reads while depending on the same external inputs.
-             *
-             * Past the end of the recording, time must keep MOVING at a real
-             * rate. Incrementing by a nanosecond per call hung a fixed program
-             * whose frame loop waits five milliseconds of wall clock: it
-             * outlived its recording, so the clock never advanced far enough
-             * and the loop spun forever. The served clock therefore continues
-             * from the last recorded instant at the real elapsed rate. */
-            struct timespec now;
-            if (real_clock_gettime(CLOCK_MONOTONIC, &now) == 0) {
-                if (!G.overrun_anchored) {
-                    G.overrun_anchored = 1;
-                    G.overrun_real_sec = now.tv_sec;
-                    G.overrun_real_nsec = now.tv_nsec;
-                }
-                long delta_sec = now.tv_sec - G.overrun_real_sec;
-                long delta_nsec = now.tv_nsec - G.overrun_real_nsec;
-                if (delta_nsec < 0) {
-                    delta_sec--;
-                    delta_nsec += 1000000000L;
-                }
-                ts->tv_sec = G.last_sec + delta_sec;
-                ts->tv_nsec = G.last_nsec + delta_nsec;
-                if (ts->tv_nsec >= 1000000000L) {
-                    ts->tv_sec++;
-                    ts->tv_nsec -= 1000000000L;
-                }
-            } else {
-                G.last_nsec++;
-                ts->tv_sec = G.last_sec;
-                ts->tv_nsec = G.last_nsec;
-            }
-            G.clock_overrun++;
-        }
-    } else {
-        result = real_clock_gettime(id, ts);
-        char key[32];
-        snprintf(key, sizeof(key), "%d", (int)id);
-        record_blob(K_CLOCK, key, NULL, 0, (long)ts->tv_sec, (long)ts->tv_nsec);
-    }
-    LEAVE();
-    return result;
-}
-
-int gettimeofday(struct timeval *tv, void *tz) {
-    int return_real = 0;
-    RESOLVE(gettimeofday);
-    ENTER();
-    if (return_real) {
-        return real_gettimeofday(tv, tz);
-    }
-    int result = 0;
-    G.tick++;
-    if (G.mode == 2) {
-        entry_t *e = next_entry(K_TIME, "gettimeofday");
-        if (e) {
-            tv->tv_sec = e->a;
-            tv->tv_usec = e->b;
-            G.served++;
-        } else {
-            tv->tv_sec = G.last_sec;
-            tv->tv_usec = 0;
-            G.clock_overrun++;
-        }
-    } else {
-        result = real_gettimeofday(tv, tz);
-        record_blob(K_TIME, "gettimeofday", NULL, 0, (long)tv->tv_sec, (long)tv->tv_usec);
-    }
-    LEAVE();
-    return result;
-}
-
-time_t time(time_t *out) {
-    int return_real = 0;
-    RESOLVE(time);
-    ENTER();
-    if (return_real) {
-        return real_time(out);
-    }
-    time_t value;
-    G.tick++;
-    if (G.mode == 2) {
-        entry_t *e = next_entry(K_TIME, "time");
-        if (e) {
-            value = (time_t)e->a;
-            G.last_sec = e->a;
-            G.served++;
-        } else {
-            value = (time_t)G.last_sec;
-            G.clock_overrun++;
-        }
-    } else {
-        value = real_time(out);
-        record_blob(K_TIME, "time", NULL, 0, (long)value, 0);
-    }
-    if (out) {
-        *out = value;
-    }
-    LEAVE();
-    return value;
-}
-
-static uint64_t next_random(void) {
-    /* xorshift64star, seeded from the capsule: replay determinism only. */
-    G.rng_state ^= G.rng_state >> 12;
-    G.rng_state ^= G.rng_state << 25;
-    G.rng_state ^= G.rng_state >> 27;
-    return G.rng_state * 0x2545f4914f6cdd1dULL;
-}
-
-#ifdef __linux__
-ssize_t getrandom(void *buf, size_t len, unsigned int flags) {
-    static ssize_t (*real_getrandom)(void *, size_t, unsigned int);
-    int return_real = 0;
-    if (!real_getrandom) {
-        real_getrandom = dlsym(RTLD_NEXT, "getrandom");
-    }
-    ENTER();
-    if (return_real) {
-        return real_getrandom(buf, len, flags);
-    }
-    ssize_t got;
-    if (G.mode == 2) {
-        entry_t *e = next_entry(K_RANDOM, "getrandom");
-        if (e && e->blob && e->blob_len >= len) {
-            memcpy(buf, e->blob, len);
-            G.served++;
-        } else {
-            unsigned char *out = buf;
-            for (size_t i = 0; i < len; i++) {
-                out[i] = (unsigned char)(next_random() & 0xff);
-            }
-            G.random_overrun++;
-        }
-        got = (ssize_t)len;
-    } else {
-        got = real_getrandom(buf, len, flags);
-        if (got > 0) {
-            record_blob(K_RANDOM, "getrandom", (const unsigned char *)buf, (size_t)got, 0, 0);
-        }
-    }
-    LEAVE();
-    return got;
-}
-#endif
-
-char *getenv(const char *name) {
-    int return_real = 0;
-    RESOLVE(getenv);
-    ENTER();
-    if (return_real) {
-        return real_getenv(name);
-    }
-    char *value;
-    if (G.mode == 2) {
-        /* When the whole environment block is pinned at exec (the CLI clears
-         * and restores it), the live environ IS the recorded one, and serving
-         * a capsule snapshot on top of it is worse than useless: it replays a
-         * value from before the PROGRAM's own setenv. Measured: CPython
-         * coerces LC_CTYPE at startup, the stale snapshot hid that write, and
-         * glibc then looked for a locale named "UTF-8" that the recorded run
-         * never opened. Falling through honours the program's own writes. */
-        if (G.env_pinned) {
-            G.env_fallthrough++;
-            value = real_getenv(name);
-            LEAVE();
-            return value;
-        }
-        entry_t *e = next_entry(K_ENV, name);
-        if (e && e->blob) {
-            static char stash[4096];
-            size_t take = e->blob_len < sizeof(stash) - 1 ? e->blob_len : sizeof(stash) - 1;
-            memcpy(stash, e->blob, take);
-            stash[take] = 0;
-            G.served++;
-            value = stash;
-        } else {
-            /* The environment itself is pinned by the capsule at exec time,
-             * so an unrecorded read falls through to the pinned environ
-             * rather than diverging. Counted, never silent. */
-            G.env_fallthrough++;
-            value = real_getenv(name);
-        }
-    } else {
-        value = real_getenv(name);
-        record_blob(K_ENV, name, value ? (const unsigned char *)value : NULL,
-                    value ? strlen(value) : 0, 0, 0);
-    }
-    LEAVE();
-    return value;
-}
-
 /* glibc's stdio calls its own internal __open and __read rather than the
  * public symbols, so fopen and fread are INVISIBLE to a libc-symbol boundary
  * unless the boundary also covers stdio. This was measured, not assumed: the
@@ -822,7 +650,7 @@ char *getenv(const char *name) {
 #define MAX_STREAMS 256
 static struct {
     FILE *handle;
-    char path[256];
+    char path[MAX_KEY_LEN];
 } G_streams[MAX_STREAMS];
 
 static void track_stream(FILE *handle, const char *path) {
@@ -869,18 +697,23 @@ FILE *fopen(const char *path, const char *mode) {
         return real_fopen(path, mode);
     }
     FILE *handle;
+    char key[MAX_KEY_LEN];
+    path_key(AT_FDCWD, path, key, sizeof(key));
     if (G.mode == 2) {
         unsigned char *content = NULL;
-        size_t len = gather(K_READ, path, &content);
-        entry_t *opened = next_entry(K_OPEN, path);
+        size_t at = 0;
+        entry_t *opened = next_entry_at(K_OPEN, key, &at);
+        size_t from = opened ? at + 1 : 0;
+        size_t to = opened ? next_key_index(K_OPEN, key, at) : G.entry_count;
+        size_t len = gather_span(K_READ, key, from, to, &content);
         if (!opened && !content) {
-            diverge("file", path);
+            diverge("file", key);
             errno = ENOENT;
             LEAVE();
             return NULL;
         }
         if (opened && opened->b > 0 && len == 0) {
-            diverge("incomplete-file", path);
+            diverge("incomplete-file", key);
             free(content);
             errno = EIO;
             LEAVE();
@@ -895,8 +728,8 @@ FILE *fopen(const char *path, const char *mode) {
         G.served++;
     } else {
         handle = real_fopen(path, mode);
-        track_stream(handle, path);
-        record_blob(K_OPEN, path, NULL, 0, handle ? 0 : -errno,
+        track_stream(handle, key);
+        record_blob(K_OPEN, key, NULL, 0, handle ? 0 : -errno,
                     handle ? file_size(fileno(handle)) : 0);
     }
     LEAVE();
