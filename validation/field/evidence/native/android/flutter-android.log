@@ -1,0 +1,130 @@
+Creating project ../tmp/tmp.QM8sIOKMgW/app...
+Wrote 35 files.
+
+All done!
+You can find general documentation for Flutter at: https://docs.flutter.dev/
+Detailed API documentation is available at: https://api.flutter.dev/
+If you prefer video documentation, consider: https://www.youtube.com/c/flutterdev
+
+In order to run your application, type:
+
+  $ cd ../tmp/tmp.QM8sIOKMgW/app
+  $ flutter run
+
+Your application code is in ../tmp/tmp.QM8sIOKMgW/app/lib/main.dart.
+
+   Compiling reproit v1.0.0 (/repo/crates/reproit)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.39s
+  write /tmp/tmp.QM8sIOKMgW/app/integration_test/journey_explore.dart
+  write /tmp/tmp.QM8sIOKMgW/app/test/fuzz_headless_test.dart
+  write /tmp/tmp.QM8sIOKMgW/app/integration_test/reproit_explorer.dart
+  write /tmp/tmp.QM8sIOKMgW/app/integration_test/reproit_explorer/config.dart
+  write /tmp/tmp.QM8sIOKMgW/app/integration_test/reproit_explorer/signature.dart
+  write /tmp/tmp.QM8sIOKMgW/app/integration_test/reproit_explorer/semantics.dart
+  write /tmp/tmp.QM8sIOKMgW/app/integration_test/reproit_explorer/ground_truth.dart
+  write /tmp/tmp.QM8sIOKMgW/app/integration_test/reproit_explorer/hygiene_oracles.dart
+  write /tmp/tmp.QM8sIOKMgW/app/integration_test/reproit_explorer/invariants.dart
+  write /tmp/tmp.QM8sIOKMgW/app/integration_test/reproit_explorer/environment_oracles.dart
+  write /tmp/tmp.QM8sIOKMgW/app/integration_test/reproit_explorer/simulator_watchdog.dart
+  write /tmp/tmp.QM8sIOKMgW/app/integration_test/reproit_explorer/runtime.dart
+  write /tmp/tmp.QM8sIOKMgW/app/integration_test/reproit_explorer/settling.dart
+  write /tmp/tmp.QM8sIOKMgW/app/integration_test/reproit_explorer/navigation.dart
+  write /tmp/tmp.QM8sIOKMgW/app/integration_test/reproit_explorer/action_execution.dart
+  write /tmp/tmp.QM8sIOKMgW/app/integration_test/reproit_explorer/oracle_collection.dart
+  write /tmp/tmp.QM8sIOKMgW/app/integration_test/reproit_explorer/runner.dart
+  write /tmp/tmp.QM8sIOKMgW/app/integration_test/journey_helpers.dart
+  write /tmp/tmp.QM8sIOKMgW/app/test_driver/integration_driver.dart
+  added integration_test dev dependency to /tmp/tmp.QM8sIOKMgW/app/pubspec.yaml
+  write /tmp/tmp.QM8sIOKMgW/app/reproit.yaml
+  write /tmp/tmp.QM8sIOKMgW/app/.reproit/.gitignore
+
+  reproit initialized.
+  1. confirm the app entry in integration_test/journey_explore.dart
+  2. reproit doctor
+  3. reproit find   # find bugs (surface scan, then deep fuzz)
+Resolving dependencies...
+Downloading packages...
++ async 2.13.1
++ boolean_selector 2.1.2
++ characters 1.4.1
++ clock 1.1.2
++ collection 1.19.1
++ cupertino_icons 1.0.9
++ fake_async 1.3.3
++ file 7.0.1
++ flutter 0.0.0 from sdk flutter
++ flutter_driver 0.0.0 from sdk flutter
++ flutter_lints 6.0.0
++ flutter_test 0.0.0 from sdk flutter
++ fuchsia_remote_debug_protocol 0.0.0 from sdk flutter
++ integration_test 0.0.0 from sdk flutter
++ leak_tracker 11.0.2
++ leak_tracker_flutter_testing 3.0.10
++ leak_tracker_testing 3.0.2
++ lints 6.1.0
++ matcher 0.12.19
++ material_color_utilities 0.13.0
++ meta 1.17.0
++ path 1.9.1
++ platform 3.1.6
++ process 5.0.5
++ sky_engine 0.0.0 from sdk flutter
++ source_span 1.10.2
++ stack_trace 1.12.1
++ stream_channel 2.1.4
++ string_scanner 1.4.1
++ sync_http 0.3.1
++ term_glyph 1.2.2
++ test_api 0.7.10
++ vector_math 2.2.0
++ vm_service 15.2.0
++ webdriver 3.1.0
+Changed 35 dependencies!
+Running Gradle task 'assembleDebug'...                             25.6s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk
+Installing build/app/outputs/flutter-apk/app-debug.apk...          392ms
+I/flutter_fixture( 5422): Compiler allocated 5042KB to compile void android.view.ViewRootImpl.performTraversals()
+D/WindowLayoutComponentImpl( 5422): Register WindowLayoutInfoListener on Context=com.example.reproit_flutter_fixture.MainActivity@ae610ea, of which baseContext=android.app.ContextImpl@2bd1624
+D/FlutterJNI( 5422): Sending viewport metrics to the engine.
+VMServiceFlutterDriver: Connecting to Flutter application at http://127.0.0.1:34083/uPzJIbk5W2Y=/
+VMServiceFlutterDriver: Isolate found with number: 2261990198342291
+VMServiceFlutterDriver: Isolate 2261990198342291 is runnable.
+VMServiceFlutterDriver: Isolate is paused at start.
+VMServiceFlutterDriver: Attempting to resume isolate
+I/flutter ( 5422): 00:00 +0: explore
+I/flutter ( 5422): JOURNEY claimed role=a
+I/flutter ( 5422): SEED:BEGIN 0
+VMServiceFlutterDriver: Connected to Flutter application.
+D/FlutterJNI( 5422): Sending viewport metrics to the engine.
+D/InsetsController( 5422): hide(ime(), fromIme=false)
+I/ImeTracker( 5422): com.example.reproit_flutter_fixture:de1410de: onCancelled at PHASE_CLIENT_ALREADY_HIDDEN
+I/flutter ( 5422): FUZZ:OBS {"sig":"b8776e47","route":"/","labels":["Toggle"],"elements":[{"role":"button"}]}
+I/flutter ( 5422): EXPLORE:STATE {"sig":"b8776e47","route":"/","labels":["Toggle"],"elements":[{"sel":"key:s:toggle","role":"button","label":"Toggle"}]}
+I/flutter ( 5422): EXPLORE:GROUNDTRUTH {"sig":"b8776e47","focusTrap":false,"elements":[{"id":"key:s:toggle","operable":true,"gestureKind":"button","a11y":{"rolePresent":true,"namePresent":true,"focusable":true,"inTabOrder":true,"keyboardActivatable":true}}]}
+I/flutter ( 5422): FUZZ:OBS {"sig":"b8776e47","route":"/","labels":["Toggle"],"elements":[{"role":"button"}]}
+D/ProfileInstaller( 5422): Installing profile for com.example.reproit_flutter_fixture
+I/flutter ( 5422): FUZZ:OBS {"sig":"b8776e47","route":"/","labels":["Toggle"],"elements":[{"role":"button"}]}
+I/flutter ( 5422): FUZZ:ACT tap:key:s:toggle
+I/flutter ( 5422): FUZZ:OBS {"sig":"655b22ba","route":"/","labels":["Toggle","Detail revealed"],"elements":[{"role":"button"}]}
+I/flutter ( 5422): EXPLORE:STATE {"sig":"655b22ba","route":"/","labels":["Toggle","Detail revealed"],"elements":[{"sel":"key:s:toggle","role":"button","label":"Toggle"}]}
+I/flutter ( 5422): EXPLORE:GROUNDTRUTH {"sig":"655b22ba","focusTrap":false,"elements":[{"id":"key:s:toggle","operable":true,"gestureKind":"button","a11y":{"rolePresent":true,"namePresent":true,"focusable":true,"inTabOrder":true,"keyboardActivatable":true}}]}
+I/flutter ( 5422): EXPLORE:EDGE {"from":"b8776e47","action":"tap:key:s:toggle","to":"655b22ba"}
+I/flutter ( 5422): FUZZ:OBS {"sig":"655b22ba","route":"/","labels":["Toggle","Detail revealed"],"elements":[{"role":"button"}]}
+I/flutter ( 5422): FUZZ:OBS {"sig":"655b22ba","route":"/","labels":["Toggle","Detail revealed"],"elements":[{"role":"button"}]}
+I/flutter ( 5422): FUZZ:ACT tap:key:s:toggle
+I/flutter ( 5422): FUZZ:OBS {"sig":"655b22ba","route":"/","labels":["Toggle","Detail revealed"],"elements":[{"role":"button"}]}
+I/flutter ( 5422): FUZZ:ACT back
+I/flutter ( 5422): FUZZ:OBS {"sig":"655b22ba","route":"/","labels":["Toggle","Detail revealed"],"elements":[{"role":"button"}]}
+I/flutter ( 5422): FUZZ:ACT back
+I/flutter ( 5422): FUZZ:OBS {"sig":"655b22ba","route":"/","labels":["Toggle","Detail revealed"],"elements":[{"role":"button"}]}
+I/flutter ( 5422): JOURNEY[a] step: explored 2 states
+I/flutter ( 5422): SEED:END 0
+I/flutter ( 5422): FRAMES:BATCH 0,5,45492;42,185598,87626;359,16068,8299;492,849,2996;609,493,2115;726,518,2475;842,616,2574;959,455,2355;1076,482,2116;1192,618,2284;1309,483,2291;1426,535,2662;1542,490,2337;1659,546,2418;1776,479,2572;1892,475,2221;2009,461,2436;2126,495,2163;2242,588,2492;2359,477,2244;2476,526,2387;2592,556,2780;2709,497,2202;2826,737,2478;2942,667,2465;3059,955,2929;3176,489,2089;3326,8990,0;3442,510,1;3559,498,1;3676,486,0;3792,4443,2428;3909,448,2076;4026,502,2478;4142,664,2245;4259,448,2083;4376,503,2217;4492,487,2327;4609,504,2198;4726,514,2981
+I/flutter ( 5422): FRAMES:BATCH 4842,465,3614;4909,19826,66597;4942,2034,17200;5009,1236,16298;5126,607,2027;5242,543,2166;5359,503,2510;5476,485,2244;5592,488,2813;5709,509,2284;5826,473,2275;5942,670,3489;6059,485,2341;6176,502,2585;6292,471,2322;6409,4096,0;6526,263,0;6642,223,0;6759,245,0;6876,4177,2621;6992,552,3581;7109,602,2660;7226,556,2239;7342,537,2311;7459,472,3204;7576,497,2241;7692,449,2332;7809,491,2787;7926,455,2854;7942,8365,2170;7959,2683,4146;7976,1145,5061;8042,435,2206;8159,434,2029;8276,395,2356;8392,462,2162;8509,475,2217;8626,492,2209;8742,497,2173;8859,454,2256
+I/flutter ( 5422): FRAMES:BATCH 8976,438,2625;9092,402,2295;9209,497,2438;9326,576,4643;9442,583,3209;9559,449,2147;9676,510,2229;9792,451,2520;9909,458,2437;10026,507,2214;10142,457,2242;10259,481,2495;10376,437,2506;10492,450,2307;10609,468,2674;10726,460,2875;10842,536,2338;10959,453,2373;11076,485,2284;11192,460,2334;11309,437,2229
+I/flutter ( 5422): JOURNEY[a] step: recorded 101 frames
+I/flutter ( 5422): JOURNEY DONE
+I/flutter ( 5422): 00:13 +1: (tearDownAll)
+I/flutter ( 5422): 00:13 +2: All tests passed!
+All tests passed.
+FlutterDrive backend passed native Flutter/Android emulator runtime

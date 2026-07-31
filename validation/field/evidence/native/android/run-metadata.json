@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "route": "black@zgx-5a09.local -> strix",
+  "host": "fedora",
+  "hostOs": "linux",
+  "hostArchitecture": "x86_64",
+  "docker": "x86_64/linux",
+  "sourceMode": "exact",
+  "baseCommit": "414c1a14c7d60e1127a7738834e995020366fed0",
+  "sourceArchiveSha256": "0dac53795ed7f03b9c06f67950383e86a31192a9ebbe110138cc86f763461b2e",
+  "gates": [
+    "flutter-android",
+    "react-native-android"
+  ],
+  "startedAt": "2026-07-31T22:24:38.230015+00:00",
+  "processOwnership": "two bounded named containers and one run-scoped AVD directory",
+  "readiness": "archive, source, host, Docker, KVM, toolchain, AVD, boot, API, and ABI",
+  "reset": "new run-scoped AVD plus -wipe-data and -no-snapshot",
+  "networkPolicy": "dependency preparation online, gate runtime Docker network none",
+  "cleanup": "container, emulator, ADB, Xvfb, AVD, and remote run-directory traps",
+  "workerDockerfileSha256": "07cae9bc60e8a40263ee7a4f72e26fd8a35e516a66912c927878c88a32411385",
+  "workerImageId": "sha256:2ee145df18dbe663817ce49a4e6ea7325254c107fdc1e63bbfd705695a21a896",
+  "evidenceRevision": "414c1a14c7d60e1127a7738834e995020366fed0",
+  "finishedAt": "2026-07-31T22:29:53.499626+00:00",
+  "outcome": "passed"
+}

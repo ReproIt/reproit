@@ -1,0 +1,34 @@
+{
+  "commit": "414c1a14c7d60e1127a7738834e995020366fed0",
+  "gates": [
+    {
+      "architectures": [
+        "arm64"
+      ],
+      "commit": "414c1a14c7d60e1127a7738834e995020366fed0",
+      "executor": {
+        "architecture": "arm64",
+        "os": "darwin"
+      },
+      "finishedAt": "2026-07-31T22:25:40.064714Z",
+      "gateId": "react-native-ios",
+      "logSha256": "4d6768f92fa2c1131b7325ce78f75048db662aa166915d0fb4dcf9715a217f95",
+      "startedAt": "2026-07-31T22:22:19.912482Z"
+    },
+    {
+      "architectures": [
+        "arm64"
+      ],
+      "commit": "414c1a14c7d60e1127a7738834e995020366fed0",
+      "executor": {
+        "architecture": "arm64",
+        "os": "darwin"
+      },
+      "finishedAt": "2026-07-31T22:22:10.747981Z",
+      "gateId": "swiftui-ios",
+      "logSha256": "599e32a6040d2616c28d3231dd35258c161ae7599966562a0b6dd8820db74144",
+      "startedAt": "2026-07-31T22:20:33.945698Z"
+    }
+  ],
+  "schema": 2
+}

@@ -133,8 +133,6 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [environment-unreachable] the Linux GTK gate builds on the local x86_64 worker, but both owned
-    fixture processes remain absent from the AT-SPI application bus before the first action
   - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 4
     application(s) are qualified with verified revisions, but none has three clean affected
     reproductions and three reached-observation fixed controls
@@ -465,9 +463,11 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] no exact-commit evidence is recorded for the windows-uia native gate. The
-    execution infrastructure is proven reachable on this host (windows-vm); the gate has simply not
-    been run and retained against the candidate commit
+  - [incomplete-evidence] no exact-commit evidence is recorded for the windows-uia native gate.
+    Running it on the native x86_64 Windows guest showed the gate had been red since d957df5 because
+    the harness spelled the runner `reproit __uia`, which clap refuses; with the harness fix applied
+    the gate passes on all three fixtures, but that run patched the checkout, so exact-commit
+    evidence still needs one rerun at a pushed commit containing the fix
   - [incomplete-evidence] no application campaign has been executed. 8 candidate defects across 2
     independent applications (DLSS Swapper, UniGetUI) are qualified with verified revisions, but
     neither has three clean affected reproductions and three reached-observation fixed controls

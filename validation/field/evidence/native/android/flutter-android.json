@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "gateId": "flutter-android",
+  "commit": "414c1a14c7d60e1127a7738834e995020366fed0",
+  "startedAt": "2026-07-31T22:28:04.717640Z",
+  "finishedAt": "2026-07-31T22:28:57.839152Z",
+  "executor": {
+    "os": "linux",
+    "architecture": "x86_64"
+  },
+  "targetOs": "android-emulator",
+  "architectures": [
+    "x86_64"
+  ],
+  "fixture": "examples/flutter-fixture",
+  "command": [
+    "bash",
+    "validation/backends/run-flutter-drive-android.sh"
+  ],
+  "status": "passed",
+  "exitCode": 0,
+  "checks": {
+    "EXPLORE:STATE ": true,
+    "EXPLORE:EDGE ": true,
+    "JOURNEY DONE": true,
+    "All tests passed": true
+  },
+  "resetStrategy": "fresh generated application on a boot-complete reset emulator",
+  "cleanupStrategy": "remove the generated application and temporary fuzz configuration",
+  "logSha256": "e993b1bc79b2e4583023a29fdd063492335146debecbea04ad14d931e9a71dad",
+  "logPath": "/evidence/flutter-android.log"
+}

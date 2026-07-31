@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "gateId": "tauri",
+  "commit": "414c1a14c7d60e1127a7738834e995020366fed0",
+  "startedAt": "2026-07-31T22:20:20.702540Z",
+  "finishedAt": "2026-07-31T22:24:17.241277Z",
+  "executor": {
+    "os": "linux",
+    "architecture": "x86_64"
+  },
+  "targetOs": "linux",
+  "architectures": [
+    "x86_64"
+  ],
+  "fixture": "examples/tauri-fixture",
+  "command": [
+    "bash",
+    "validation/backends/run-tauri.sh"
+  ],
+  "status": "passed",
+  "exitCode": 0,
+  "checks": {
+    "EXPLORE:STATE ": true,
+    "EXPLORE:EDGE ": true,
+    "JOURNEY DONE": true,
+    "All tests passed": true
+  },
+  "resetStrategy": "fresh pinned container and copied fixture",
+  "cleanupStrategy": "ephemeral container plus outer temporary directory cleanup",
+  "logSha256": "758539e91be026283fe8a464e00b98ceea84580297e6080dfbe1bd15e967a832",
+  "logPath": "/home/black/.cache/reproit-linux-validation/reproit-linux-20260731T221746Z-79812/evidence/tauri.log"
+}
