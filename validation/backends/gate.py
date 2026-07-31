@@ -86,7 +86,20 @@ class BoundedCapture:
 
 def stream_output(stream: Any, capture: BoundedCapture) -> None:
     read_chunk = getattr(stream, "read1", stream.read)
-    while chunk := read_chunk(64 * 1024):
+    while True:
+        try:
+            chunk = read_chunk(64 * 1024)
+        except ValueError:
+            # The timeout path closes the pipe under this thread, so the read
+            # raises "I/O operation on closed file". That exception used to be
+            # the LAST thing in the log, so a gate that timed out was reported
+            # as a Python crash in the harness and the real cause (the child was
+            # SIGTERMed after its timeout) was two hundred lines further up.
+            # Attributing a timeout to the harness is the same misattribution
+            # that made a criu hang read as a product regression.
+            return
+        if not chunk:
+            return
         capture.append(chunk)
         try:
             sys.stdout.buffer.write(chunk)

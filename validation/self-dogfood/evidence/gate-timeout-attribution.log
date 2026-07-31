@@ -1,0 +1,30 @@
+gate.py reported a timed-out gate as a harness crash.
+
+native-backend-gates run on 2a85979, job macos-swiftui. The visible tail:
+
+  .github/scripts/appium-ios-swiftui-smoke.sh: line 120: 21226 Terminated: 15
+  validation/backends/with-ios-simulator.sh: line 29: 4430 Terminated: 15
+  Exception in thread Thread-1 (stream_output):
+  Traceback (most recent call last):
+    File ".../validation/backends/gate.py", line 89, in stream_output
+      while chunk := read_chunk(64 * 1024):
+  ValueError: I/O operation on closed file
+  ##[error]Process completed with exit code 1.
+
+The Terminated: 15 lines are the real cause, two hundred lines above. The
+traceback is the timeout path closing the pipe under a thread still blocked
+in read(). The VERDICT was never wrong: execute() already returned
+"timed-out" and the gate still failed. This is an attribution defect only.
+
+After the guard, a child that outlives its timeout:
+
+  execute returned: timed-out exit: None
+  captured output: starting
+
+HONEST LIMIT. The CI race did not reproduce on this machine: a timed-out
+child returns "timed-out" with and without the guard locally, so the check
+above proves the timeout path still reports correctly, NOT that it
+reproduces the traceback. The guard is correct by construction, since a
+closed pipe means there is nothing left to stream, rather than proven
+against the failure it was written for. Recorded as unproven rather than
+presented as fixed.
