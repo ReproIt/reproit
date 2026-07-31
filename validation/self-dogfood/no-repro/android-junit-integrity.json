@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "android-junit-integrity",
+  "detail": "sdk/reproit-android/run_host_test.sh downloaded junit and hamcrest with `curl -sL` and guarded the fetch with `[ -f ]`. curl writes a file whether or not it got the jar, and `[ -f ]` accepts a truncated one, so a corrupt download was cached and reused. In CI the jars arrived corrupt and kotlinc reported `unresolved reference 'junit'` against BehaviorVectorsTest.kt, a file that was correct and was blamed only for being the first to import junit. A supply failure was therefore reported as a source failure, which is the same misattribution class as a criu hang reading as a product regression. Both digests are now pinned and verified after download, cross-checked against Maven Central's published .sha1 rather than a single local fetch, and a mismatch fails with a message that names the supply failure explicitly. A corrupt cache is discarded and refetched, so the cache repairs itself. This also closes an integrity hole: an unverified curl into a world-writable /tmp path allowed the build to compile against a substituted jar. No product code changes. The proof is STRUCTURAL rather than a rerun of the host test, because the corruption was a CI-side transient: run_host_test.sh downloads the jars successfully on this machine, so it exits 0 at the parent commit and cannot serve as the affected-side proof. The sixth case in test_gate_environment_independence.py asserts instead that every jar URL in the script is digest verified and that a pinned digest is actually COMPARED rather than merely present, which fails against the parent's unverified curl and passes here.",
+  "test": "validation/self-dogfood/test_gate_environment_independence.py",
+  "command": [
+    "python3",
+    "validation/self-dogfood/test_gate_environment_independence.py"
+  ],
+  "timeoutSeconds": 120,
+  "affectedExitCode": 1,
+  "affectedEvidence": [
+    {
+      "path": "validation/self-dogfood/evidence/android-junit-integrity.log",
+      "sha256": "sha256:79b13abb2ac3f7228463326bd9d315e31b4f1bcb8277fe46e72cc5283aecd871"
+    }
+  ]
+}

@@ -37,6 +37,7 @@ RN_BUNDLE = ROOT / "runners/rn/runner.mjs"
 PY_CONFTEST = ROOT / "sdk/reproit-backend-py/tests/conftest.py"
 WORKFLOW = ROOT / ".github/workflows/native-gates.yml"
 CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
+ANDROID_HOST_TEST = ROOT / "sdk/reproit-android/run_host_test.sh"
 AMBIENT_CODE_IDENTITY = ("REPROIT_COMMIT", "GITHUB_SHA")
 
 # A static ESM import of webdriverio, e.g. `import{remote as Yt}from"webdriverio"`.
@@ -152,6 +153,33 @@ class GateEnvironmentIndependenceTests(unittest.TestCase):
             )
 
 
+    def test_downloaded_build_dependencies_are_digest_verified(self) -> None:
+        # Fifth instance, and the one that blamed an innocent file. The Android
+        # host test fetched junit with `curl -sL` and guarded it with `[ -f ]`.
+        # curl writes a file whether or not it got the jar and `[ -f ]` accepts
+        # a truncated one, so a corrupt download was cached and kotlinc reported
+        # `unresolved reference 'junit'` against the newest test file, which was
+        # correct and was blamed only for being the first to import junit.
+        # A gate must state WHICH artifact it needs, not accept whatever arrives.
+        script = ANDROID_HOST_TEST.read_text(encoding="utf-8", errors="replace")
+        for url in re.findall(r"https://\S+\.jar", script):
+            self.assertIn(
+                "sha256",
+                script.lower(),
+                f"{ANDROID_HOST_TEST.name} downloads {url} without verifying it, "
+                "so a truncated or substituted jar is cached and its failure is "
+                "reported as a compile error in the test sources",
+            )
+        # The digest must be COMPARED, not merely mentioned. A pinned constant
+        # nobody checks is the same shape as the earlier guard that matched its
+        # own explanatory comment instead of the code.
+        self.assertRegex(
+            script,
+            r"\$\{?\w*(SHA256|sha256)\w*\}?\"?\s*\]|=\s*\"\$want\"|!=\s*\"\$want\"",
+            f"{ANDROID_HOST_TEST.name} pins digests but never compares one",
+        )
+
+
 def _python_sdk_invocations(workflow: str) -> list[tuple[str, str]]:
     """Yield (enclosing step text, command) for `python3 sdk/.../*.py` lines."""
     found = []
@@ -189,8 +217,8 @@ def main() -> int:
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(GateEnvironmentIndependenceTests)
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     # Case accounting: an empty or short run is the failure this file exists for.
-    if result.testsRun != 5:
-        print(f"expected 5 cases, ran {result.testsRun}", file=sys.stderr)
+    if result.testsRun != 6:
+        print(f"expected 6 cases, ran {result.testsRun}", file=sys.stderr)
         return 1
     return 0 if result.wasSuccessful() else 1
 

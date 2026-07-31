@@ -1,0 +1,46 @@
+The Android host test downloaded JUnit with no verification.
+
+CI run on 132c145, job android-sdk:
+
+  WARN: Error while reading zip file: /tmp/junit-4.13.2.jar:
+        java.lang.IndexOutOfBoundsException
+  WARN: Error while reading zip file: /tmp/hamcrest-core-1.3.jar: ...
+  BehaviorVectorsTest.kt:4:12: error: unresolved reference 'junit'
+
+The jars arrived corrupt. run_host_test.sh fetched them with "curl -sL", which
+writes a file whether or not it got the jar, and guarded the fetch with
+"[ -f ]", which accepts a truncated one. kotlinc then reported "unresolved
+reference" against a test file that was CORRECT. A supply failure was reported
+as a source failure, and the newest test file took the blame purely for being
+the first to import junit.
+
+Fixed by pinning both digests and verifying after download. The values were
+cross-checked against Maven Central's own published .sha1 rather than trusting
+a single local download:
+
+  junit-4.13.2.jar      sha256 8e495b634469d64fb8acfa3495a065cbacc8a0fff55ce1e31007be4c16dc57d3
+  hamcrest-core-1.3.jar sha256 66fdef91e9739348df7a096aa384a5685f4e875584cce89386a7a47251c4d8e9
+  upstream .sha1 8ac9e16d933b6fb43bc7f576336b8f4d7eb5ba12 == locally computed sha1
+
+Controls, measured as real exit codes rather than through a pipeline, because
+reading an exit code through "| head" reports head's status and not the
+script's, which is a mistake made twice in this same session:
+
+  expected digest deliberately wrong -> exit 1, and the message names the supply
+     failure and says explicitly that it is not a compile error in the sources
+  restored                           -> exit 0, OK (79 tests)
+  a truncated cached jar             -> detected and re-downloaded, then the
+     suite passed, so the cache repairs itself rather than failing
+
+This also closes an integrity hole: an unverified curl into a world-writable
+/tmp path let the build compile against a substituted jar.
+
+AFFECTED-SIDE PROOF. The corruption was a CI-side transient: the jars
+download fine on this machine, so run_host_test.sh exits 0 at the parent
+and cannot itself be the affected-side test. The proof is structural, and
+asserts both that every jar URL is digest verified AND that a pinned digest
+is actually compared rather than merely present, because a constant nobody
+checks is the same shape as the guard that matched its own comment.
+
+  parent version (unverified curl) -> FAILED (failures=1)
+  this version                     -> OK (6 cases)

@@ -18,10 +18,51 @@ OUT=$(mktemp -d)
 
 JUNIT_JAR=${JUNIT_JAR:-/tmp/junit-4.13.2.jar}
 HAMCREST_JAR=${HAMCREST_JAR:-/tmp/hamcrest-core-1.3.jar}
-[ -f "$JUNIT_JAR" ] || curl -sL -o "$JUNIT_JAR" \
-  https://repo1.maven.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar
-[ -f "$HAMCREST_JAR" ] || curl -sL -o "$HAMCREST_JAR" \
-  https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar
+JUNIT_SHA256=8e495b634469d64fb8acfa3495a065cbacc8a0fff55ce1e31007be4c16dc57d3
+HAMCREST_SHA256=66fdef91e9739348df7a096aa384a5685f4e875584cce89386a7a47251c4d8e9
+
+# Fetch and VERIFY. `curl -sL` writes a file whether or not it got the jar, and
+# `[ -f ]` then accepts a truncated or half-written one, so a bad download
+# surfaced as `unresolved reference 'junit'` from kotlinc: a supply problem
+# reported as a source problem. That is what happened in CI, where the jars
+# arrived corrupt and the visible error blamed a test file that was correct.
+# A digest also means this script cannot silently compile against a substituted
+# jar, which an unverified curl into a world-writable /tmp path allows.
+fetch_verified() {
+  jar=$1
+  url=$2
+  want=$3
+  if [ -f "$jar" ] && [ "$(digest_of "$jar")" = "$want" ]; then
+    return 0
+  fi
+  rm -f "$jar"
+  curl -fsSL -o "$jar" "$url" || {
+    echo "FAIL could not download $url (network, not a source defect)" >&2
+    exit 1
+  }
+  got=$(digest_of "$jar")
+  [ "$got" = "$want" ] || {
+    echo "FAIL $jar digest mismatch: expected $want, got $got." >&2
+    echo "     The download is corrupt or substituted. This is a supply" >&2
+    echo "     failure, not a compile error in the test sources." >&2
+    rm -f "$jar"
+    exit 1
+  }
+}
+
+digest_of() {
+  if command -v sha256sum > /dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+fetch_verified "$JUNIT_JAR" \
+  https://repo1.maven.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar "$JUNIT_SHA256"
+fetch_verified "$HAMCREST_JAR" \
+  https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar \
+  "$HAMCREST_SHA256"
 
 SRC="$HERE/src/main/kotlin/com/reproit/android"
 TST="$HERE/src/test/kotlin/com/reproit/android"
