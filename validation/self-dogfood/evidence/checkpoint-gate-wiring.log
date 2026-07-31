@@ -62,3 +62,31 @@ Gate run:
   native gate result: /private/tmp/gate-out/process-checkpoint.json
 
 Exit status of gate.py: 0
+
+FOLLOW-UP, measured on a GitHub hosted runner 2026-07-31.
+
+Wiring this gate into linux-containers made it run on ubuntu-latest for the
+first time, and it found an environment limit the local runs could not:
+
+  PASS captured a long running failure into a process capsule
+  PASS replay from zero reproduces the failure with the config deleted
+  Error: criu could not checkpoint the replaying process ... neither can one
+  whose files live on a mount criu cannot resolve
+  FAIL could not anchor the replaying process
+
+criu 3.17.1 installs and the capsule captures and replays, but criu cannot
+resolve the mounts of a container nested inside a hosted runner, so DUMP
+fails. The same shape was hit independently while fixing the deferred
+capsule defects (Can't lookup mount=30 for fd=0 path=/dev/null).
+
+This left three options, and the first two are both bad:
+  1. leave the gate unwired, which is how the criu 4.1.1 drift survived;
+  2. wire it fully and accept a permanently red job, which trains everyone
+     to ignore the workflow;
+  3. run the half CI can prove and say plainly which half it did not.
+
+Option 3: REPROIT_CHECKPOINT_SCOPE=replay-only stops after case 2, asserts
+exactly 2 cases ran, and prints NOT EVALUATED for anchoring, restore and the
+three refusals. It is registered as a SEPARATE gate id, process-capsule-longrun,
+so a green subset can never be read as a green process-checkpoint. The full
+gate stays 7/7 and is marked manual, to be run where criu can dump.

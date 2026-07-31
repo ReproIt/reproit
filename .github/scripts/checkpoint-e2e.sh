@@ -61,6 +61,7 @@ set -euo pipefail
 cargo build -p reproit --manifest-path /repo/Cargo.toml \
   --target-dir /tmp/reproit-target
 
+export REPROIT_CHECKPOINT_SCOPE="${REPROIT_CHECKPOINT_SCOPE:-full}"
 export REPROIT_ROOT=/repo
 export REPROIT_BINARY=/tmp/reproit-target/debug/reproit
 exec bash /repo/validation/process-checkpoint/run.sh
@@ -68,6 +69,7 @@ EOF
 
 docker build -t "$IMAGE" "$WORK"
 docker run --rm --privileged \
+  -e REPROIT_CHECKPOINT_SCOPE="${REPROIT_CHECKPOINT_SCOPE:-full}" \
   -v "$ROOT:/repo:ro$VOLUME_LABEL" \
   -v "$WORK:/gate:ro$VOLUME_LABEL" \
   "$IMAGE" bash /gate/inner.sh

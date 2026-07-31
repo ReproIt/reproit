@@ -104,6 +104,25 @@ if [ "$ZERO_VERDICT" != "reproduced" ]; then
 fi
 pass "replay from zero reproduces the failure with the config deleted"
 
+# Scope gate. Cases 1 and 2 need only the shim; everything after needs criu to
+# DUMP, and criu cannot resolve the mounts inside a container on a GitHub hosted
+# runner ("Can't lookup mount=N for fd=0 path=/dev/null"). That is an
+# environment limit, not a product limit, and it is why this harness went
+# unwired for so long: the only options looked like "permanently red" or "not
+# run at all". This third option runs the half that CI can actually prove and
+# says plainly that it did NOT evaluate anchoring, so a green
+# process-capsule-longrun is never mistaken for a green process-checkpoint.
+if [[ "${REPROIT_CHECKPOINT_SCOPE:-full}" == "replay-only" ]]; then
+  if [[ "$CASES" -ne 2 ]]; then
+    echo "FAIL harness accounting: $CASES of 2 cases ran before the scope gate" >&2
+    exit 1
+  fi
+  echo "process-capsule-longrun: a long running failure captures and replays from zero"
+  echo "  NOT EVALUATED in this scope: anchoring, restore, and the three refusals."
+  echo "  Run without REPROIT_CHECKPOINT_SCOPE on a host where criu can dump."
+  exit 0
+fi
+
 # 3. Take an anchor of the replaying process.
 if ! "$BINARY" --json internal process-anchor --capsule capsule.json \
     --exec "./subject $ITERATIONS $CONFIG" --image "$WORK/img" --after-lines "$ANCHOR_AT" \

@@ -508,16 +508,47 @@
       ],
       "tier": "release",
       "timeoutSeconds": 2400,
-      "resetStrategy": "fresh privileged bookworm container, reproit rebuilt against that image",
+      "resetStrategy": "fresh privileged bookworm container, reproit rebuilt against that image; criu cannot dump inside a GitHub hosted runner's container",
       "cleanupStrategy": "ephemeral container plus outer temporary directory cleanup",
       "requiredOutput": [
         "the anchor skips the head, the tail resumes, and every outcome it cannot observe fails closed"
       ],
       "automation": {
+        "mode": "manual",
+        "workflow": ".github/workflows/native-gates.yml",
+        "job": "run by hand where criu can dump; see MEASUREMENT.md"
+      }
+    },
+    "process-capsule-longrun": {
+      "platforms": [
+        "linux"
+      ],
+      "backend": "process-capsule",
+      "command": [
+        "bash",
+        ".github/scripts/checkpoint-e2e.sh"
+      ],
+      "fixture": "validation/process-checkpoint/subject.c, a long running writer",
+      "targetOs": "linux-container",
+      "architectures": [
+        "x86_64"
+      ],
+      "tier": "release",
+      "timeoutSeconds": 2400,
+      "resetStrategy": "fresh privileged bookworm container, reproit rebuilt against that image; criu cannot dump inside a GitHub hosted runner's container",
+      "cleanupStrategy": "ephemeral container plus outer temporary directory cleanup",
+      "requiredOutput": [
+        "process-capsule-longrun: a long running failure captures and replays from zero"
+      ],
+      "automation": {
         "mode": "required-ci",
         "workflow": ".github/workflows/native-gates.yml",
         "job": "linux-containers"
-      }
+      },
+      "environment": {
+        "REPROIT_CHECKPOINT_SCOPE": "replay-only"
+      },
+      "coverageNote": "capture and replay of a long running subject ONLY. Anchoring, restore and the three refusals are NOT evaluated here, because criu cannot resolve container mounts on a hosted runner."
     }
   },
   "platforms": {
