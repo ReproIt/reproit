@@ -35,6 +35,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 RN_BUNDLE = ROOT / "runners/rn/runner.mjs"
 PY_CONFTEST = ROOT / "sdk/reproit-backend-py/tests/conftest.py"
+WORKFLOW = ROOT / ".github/workflows/native-gates.yml"
 AMBIENT_CODE_IDENTITY = ("REPROIT_COMMIT", "GITHUB_SHA")
 
 # A static ESM import of webdriverio, e.g. `import{remote as Yt}from"webdriverio"`.
@@ -80,13 +81,66 @@ class GateEnvironmentIndependenceTests(unittest.TestCase):
             )
         self.assertIn("delenv", conftest, "the conftest names the variables but never clears them")
 
+    def test_self_hosted_jobs_are_opt_in_so_a_push_can_conclude(self) -> None:
+        # The third instance of this class, and the worst, because it produced no
+        # red at all. `windows-uia` required [self-hosted, reproit-windows-bridge]
+        # but ran on every push, and no self-hosted runner is registered, so the
+        # job sat queued and native-backend-gates never reached a conclusion: 12
+        # consecutive runs were still "queued" hours later. A gate that can never
+        # report is indistinguishable from one that is merely slow, so nobody
+        # learns it is dead. Any job pinned to a runner that is only online on
+        # demand must be workflow_dispatch-gated.
+        for job, body in _jobs(WORKFLOW.read_text(encoding="utf-8", errors="replace")):
+            if "self-hosted" not in body:
+                continue
+            condition = _condition(body)
+            self.assertIsNotNone(
+                condition,
+                f"job {job} needs a self-hosted runner but has no `if:`, so every "
+                "push queues forever and the workflow never concludes",
+            )
+            self.assertIn(
+                "workflow_dispatch",
+                condition,
+                f"job {job} needs a self-hosted runner but its condition "
+                f"({condition!r}) still lets a push schedule it",
+            )
+            self.assertNotIn(
+                "!=",
+                condition,
+                f"job {job} uses `event_name != 'workflow_dispatch'`, which runs "
+                "it on exactly the events that have no runner and skips it on the "
+                "one that does; this is the inverted form that caused the outage",
+            )
+
+
+def _jobs(text: str) -> list[tuple[str, str]]:
+    """Split the `jobs:` mapping into (name, body) at two-space indentation."""
+    jobs, name, lines = [], None, []
+    for line in text.splitlines():
+        header = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+        if header:
+            if name is not None:
+                jobs.append((name, "\n".join(lines)))
+            name, lines = header.group(1), []
+        elif name is not None:
+            lines.append(line)
+    if name is not None:
+        jobs.append((name, "\n".join(lines)))
+    return jobs
+
+
+def _condition(body: str) -> str | None:
+    match = re.search(r"^\s{4}if:\s*(.+)$", body, re.MULTILINE)
+    return match.group(1).strip() if match else None
+
 
 def main() -> int:
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(GateEnvironmentIndependenceTests)
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     # Case accounting: an empty or short run is the failure this file exists for.
-    if result.testsRun != 3:
-        print(f"expected 3 cases, ran {result.testsRun}", file=sys.stderr)
+    if result.testsRun != 4:
+        print(f"expected 4 cases, ran {result.testsRun}", file=sys.stderr)
         return 1
     return 0 if result.wasSuccessful() else 1
 

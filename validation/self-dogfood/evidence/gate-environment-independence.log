@@ -56,3 +56,38 @@ policy gate evaluates it:
   Ran 3 tests
   FAILED (failures=3)
   affected rc=1
+
+3. Workflow "native-backend-gates", job "windows-uia": never ran at all.
+
+  The first two cases above were RED. This one produced no signal of any
+  kind, which is why it survived far longer. windows-uia is pinned to
+  [self-hosted, macOS, ARM64, reproit-windows-bridge] and its condition was
+  `github.event_name != 'workflow_dispatch' || inputs.run_windows_uia`, so
+  it ran on every push and was SKIPPED on the one event that can opt in.
+  Its own declared dispatch default is false, so the condition inverted the
+  author's stated intent.
+
+  Registered self-hosted runners for this repository:
+    total_count = 0
+
+  So the job could never be scheduled, and a GitHub run stays queued until
+  every job concludes. Observed on 2026-07-31, most recent 12 runs:
+
+    11f819e  queued    2026-07-31T15:08:16Z
+    31bc358  queued    2026-07-31T15:04:52Z
+    d293b95  queued    2026-07-31T14:24:15Z
+    94c13cb  queued    2026-07-31T14:12:16Z
+    1d57250  queued    2026-07-31T14:11:04Z
+    6695474  queued    2026-07-31T13:43:36Z
+    96c7007  queued    2026-07-31T12:18:38Z
+    d7e996a  queued    2026-07-31T12:04:46Z
+    5648d90  queued    2026-07-31T11:49:49Z
+    655a95e  queued    2026-07-31T11:17:47Z
+    efe1254  queued    2026-07-31T10:55:35Z
+    6229e44  queued    2026-07-31T10:18:05Z
+
+  Twelve consecutive runs, hours apart, none of which ever reported red or
+  green. This is the same failure class as the vacuous acceptance harnesses
+  check-harness-integrity.py exists for: a gate that cannot report is
+  indistinguishable from one that is merely slow, so it reads as fine.
+  Fixed by matching macos-ax, which was already correctly opt-in.

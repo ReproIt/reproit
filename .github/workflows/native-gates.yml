@@ -213,7 +213,12 @@ jobs:
           if-no-files-found: error
 
   windows-uia:
-    if: github.event_name != 'workflow_dispatch' || inputs.run_windows_uia
+    # Opt-in, like macos-ax, because the bridge is a self-hosted runner that is
+    # only online on demand. This used to run on every push, where it could
+    # never be scheduled, so native-backend-gates never reached a conclusion at
+    # all: 12 consecutive runs sat queued rather than reporting red or green.
+    # A gate nobody can ever see the result of is worse than one that is off.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_windows_uia
     runs-on: [self-hosted, macOS, ARM64, reproit-windows-bridge]
     environment: native-windows-uia
     timeout-minutes: 60
