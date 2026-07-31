@@ -29,6 +29,18 @@ import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
+// The canonical signature model is SHARED, not copied. This runner carried a
+// duplicate of shared/signature.mjs that differed only in an import alias and
+// two blank lines, and the parity gate did not cover web until this change, so
+// a drift between the copies could not have been caught here. esbuild inlines
+// this for the bundled web target, so the shipped runner stays self contained.
+import {
+  signatureOf,
+  descriptorOf,
+  valueClass,
+  fnv1a,
+  loadValueNodes,
+} from '../shared/signature.mjs';
 import {
   gridPoints,
   changedFraction,

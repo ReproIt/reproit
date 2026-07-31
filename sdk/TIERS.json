@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "comment": [
+    "The single place an SDK's tier is declared. CI derives its gating from",
+    "this file, and docs/sdk-tiers.md states the promise each tier carries.",
+    "Change a tier here and nowhere else.",
+    "",
+    "core: gated in CI on every push. A defect here blocks a release. The",
+    "  parity promise is real: the behavior vectors run, the SDK's own suite",
+    "  runs, and for backend SDKs the hermetic acceptance runs.",
+    "community: must pass the behavior vectors, does not block a release. A",
+    "  regression is reported, not merged-blocking.",
+    "unmaintained: shipped, not gated, no promise. Listed so the cost is",
+    "  visible rather than forgotten."
+  ],
+  "tiers": {
+    "core": [
+      "reproit-backend-node",
+      "reproit-backend-rs",
+      "reproit-backend-py",
+      "reproit-backend-go"
+    ],
+    "community": [
+      "reproit-backend-java",
+      "reproit-backend-dotnet",
+      "reproit-backend-rb",
+      "reproit-backend-php",
+      "reproit-android",
+      "reproit-ios",
+      "reproit-react-native"
+    ],
+    "unmaintained": [
+      "reproit-linux",
+      "reproit-windows",
+      "reproit-tauri",
+      "reproit-tui-go",
+      "reproit-tui-py",
+      "reproit-tui-rs",
+      "reproit-tui-ts",
+      "reproit-recorder-node",
+      "reproit_flutter"
+    ]
+  }
+}

@@ -17,60 +17,36 @@ mod tests {
         assert!(parse_locales("  , ,").is_empty());
     }
 
-    // CROSS-REPO DRIFT GUARD. `crates/reproit/oracle-registry.json` is the machine-
-    // readable contract of every oracle category the CLI can stamp onto a finding
-    // (the `oracle` field, set by OracleFilter::apply). reproit-cloud pins this
-    // file to know which ids it must handle. This test keeps the JSON in lockstep
-    // with `Oracle::ALL` (the code source of truth): if someone adds or removes an
-    // oracle without updating the JSON, CLI CI fails HERE, so the contract can
-    // never silently drift from the code.
+    // CROSS-REPO CONTRACT. `crates/reproit/oracle-registry.json` is the
+    // machine-readable contract of every oracle category the CLI can stamp onto
+    // a finding (the `oracle` field, set by OracleFilter::apply), and
+    // reproit-cloud pins this file to know which ids it must handle.
     //
-    // The enforcement that the CLOUD keeps up is INTENTIONALLY not here (the CLI is
-    // never blocked by the cloud lagging). It lives cloud-side as a P0 CI test that
-    // consumes this same file, e.g.:
-    //   const cli =
-    // JSON.parse(fs.readFileSync("<vendored>/oracle-registry.json")).oracles;
-    //   const handled = Object.keys(ORACLE_DISPLAY);           // cloud's own
-    // registry   const missing = cli.filter(id => !handled.includes(id));
-    //   assert(missing.length === 0, `P0: cloud does not handle oracle(s):
-    // ${missing}`); plus a RUNTIME rule that an unrecognized `oracle` id
-    // renders generically and is never dropped -- so a newer CLI in a
-    // customer's CI never breaks ingestion, it only trips the cloud's own drift
-    // alarm to add first-class handling.
-    #[test]
-    fn oracle_registry_matches_all() {
-        const REGISTRY: &str = include_str!("../../oracle-registry.json");
-        let doc: Value =
-            serde_json::from_str(REGISTRY).expect("oracle-registry.json must be valid JSON");
-        let listed: BTreeSet<String> = doc["oracles"]
-            .as_array()
-            .expect("oracle-registry.json must have an `oracles` array")
-            .iter()
-            .map(|v| v.as_str().expect("each oracle id is a string").to_string())
-            .collect();
-        let actual: BTreeSet<String> = ORACLES.iter().map(|m| m.id.to_string()).collect();
-        assert_eq!(
-            listed, actual,
-            "oracle-registry.json is out of sync with Oracle::ALL. Update the JSON to match, then \
-             add cloud-side handling for any new id (a P0 on reproit-cloud)."
-        );
-    }
-
+    // A test used to assert that the JSON and the Rust enum agreed. That test is
+    // gone because build.rs now GENERATES the enum and the ORACLES table from
+    // this file, so the two cannot disagree: there is one copy of the data.
+    //
+    // The enforcement that the CLOUD keeps up is INTENTIONALLY not here (the CLI
+    // is never blocked by the cloud lagging). It lives cloud-side as a P0 CI
+    // test consuming this same file (ingest/impact.rs
+    // known_oracles_cover_the_cli_registry), plus a RUNTIME rule that an
+    // unrecognized `oracle` id renders generically and is never dropped, so a
+    // newer CLI in a customer's CI never breaks ingestion and only trips the
+    // cloud's own drift alarm to add first-class handling.
+    //
+    // The tests below are the ones generation does NOT make redundant: they
+    // assert policies WITHIN the registry (a default must also be an
+    // authoritative exact replay; every id needs exactly one severity and one
+    // confidence tier; no invariant or kind token may resolve to two rows).
     #[test]
     fn stable_registry_and_code_only_contain_authoritative_exact_replay_oracles() {
         const REGISTRY: &str = include_str!("../../oracle-registry.json");
         let doc: Value = serde_json::from_str(REGISTRY).unwrap();
-        let registered: BTreeSet<&str> = doc["stable_defaults"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|value| value.as_str().unwrap())
-            .collect();
+        // `stable_defaults` now GENERATES OracleFilter::stable_set, so comparing
+        // them would assert that data equals itself. What still needs asserting
+        // is the registry-internal policy below: nothing may be a default
+        // unless it also carries an authoritative exact replay branch.
         let code = OracleFilter::stable_set();
-        assert_eq!(
-            registered, code,
-            "stable defaults drifted from the registry"
-        );
 
         // This is deliberately an allowlist, not an optimistic property on the
         // enum. Adding a default therefore requires a code review that adds its
@@ -90,7 +66,10 @@ mod tests {
     // classify become order-dependent.
     #[test]
     fn oracle_table_has_one_unambiguous_row_per_variant() {
-        assert_eq!(ORACLES.len(), 60, "row count tracks the Oracle enum");
+        // A generated table cannot disagree with the registry, but a mass
+        // deletion in the registry would silently shrink the product
+        // surface, so the count stays a deliberate ratchet.
+        assert_eq!(ORACLES.len(), 60, "row count tracks oracle-registry.json");
         let mut ids = BTreeSet::new();
         let mut invariants = BTreeSet::new();
         let mut kinds = BTreeSet::new();

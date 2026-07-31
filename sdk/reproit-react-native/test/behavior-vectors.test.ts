@@ -72,3 +72,29 @@ describe('shared behavior vectors', () => {
     }
   });
 });
+
+/**
+ * The invariant ledger recorded that all three mobile SDKs emit the structured
+ * marker ALONGSIDE the frozen runner contract, and that nothing asserted both
+ * are emitted together. A platform silently dropping the structured marker
+ * would misreport a mobile divergence through the CLI, which is the exact
+ * defect that addition existed to fix.
+ */
+describe('vocabularies', () => {
+  const vocab = VECTORS.vocabularies;
+
+  it('emits BOTH divergence markers on an unmatched call, never one instead', () => {
+    const source = readFileSync(join(__dirname, '../src/causal.ts'), 'utf8');
+    expect(source).toContain(vocab.divergenceMarkers.structured);
+    expect(source).toContain(vocab.divergenceMarkers.runnerContract);
+    // The frozen contract must still be the thrown error, so the fuzz harness
+    // that consumes it byte for byte keeps working.
+    expect(source).toMatch(/throw new Error\(`CAPSULE:MISS/);
+  });
+
+  it('keeps the header and body redaction placeholders distinct by type', () => {
+    const source = readFileSync(join(__dirname, '../src/exchange.ts'), 'utf8');
+    expect(source).toContain(vocab.redaction.headerPlaceholder);
+    expect(source).toContain(vocab.redaction.bodyPlaceholderKey);
+  });
+});

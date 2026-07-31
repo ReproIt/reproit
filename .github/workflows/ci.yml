@@ -278,6 +278,52 @@ jobs:
           python3 -m pip install --disable-pip-version-check build
           python3 -m build sdk/reproit-linux
 
+  # The four backend SDKs the product's thesis depends on. Before this job
+  # they had ONE shared conformance test in CI and no suite of their own,
+  # while eight UI SDKs each had a dedicated job: the gating was inverted from
+  # the thesis and nothing said so. sdk/TIERS.json declares the tier and
+  # sdk/check-tiers.py fails if a core SDK is not named here, so the parity
+  # promise has a mechanism rather than a claim.
+  sdk-backend-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Install Rust (stable + clippy)
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: SDK tier declaration matches reality
+        run: python3 sdk/check-tiers.py
+      - name: node (reproit-backend-node)
+        working-directory: sdk/reproit-backend-node
+        run: node --test test/trace.test.js test/capture.test.js test/instrument.test.js test/replay.test.js test/behavior-vectors.test.js
+      - name: go (reproit-backend-go)
+        working-directory: sdk/reproit-backend-go
+        run: |
+          go vet ./...
+          go test ./...
+      - name: python (reproit-backend-py)
+        working-directory: sdk/reproit-backend-py
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv run --group test -m pytest tests/test_trace.py tests/test_capture.py tests/test_instrument.py tests/test_replay.py tests/test_behavior_vectors.py
+      # The instrument feature carries the whole hermetic capture and replay
+      # path and was never compiled by the workspace jobs, which build default
+      # features only. A feature that CI never builds is a feature nothing
+      # gates.
+      - name: rust (reproit-backend-rs, all features)
+        run: |
+          cargo clippy -p reproit-backend --features axum,actix,instrument --all-targets -- -D warnings
+          cargo test -p reproit-backend --features instrument
+
   react-native-sdk:
     runs-on: ubuntu-latest
     defaults:

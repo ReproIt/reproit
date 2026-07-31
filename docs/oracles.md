@@ -344,6 +344,24 @@ ReproIt never fabricates a signal a platform does not expose. Important limits i
 
 The top-level CLI and Cloud category registry is
 [`crates/reproit/oracle-registry.json`](../crates/reproit/oracle-registry.json). Backend and A2UI
-finding subtypes retain their exact subtype inside the saved contract evidence. Registry drift is
-tested so Cloud must handle every category and must preserve unclassified future categories
-rather than dropping them.
+finding subtypes retain their exact subtype inside the saved contract evidence. Cloud must handle
+every category and must preserve unclassified future categories rather than dropping them.
+
+The registry is the single source of truth on both sides. The CLI's `Oracle` enum and its
+`ORACLES` metadata table are generated from it at build time by `crates/reproit/build.rs`, and
+Cloud derives its severity ranking from the vendored copy, so neither side can drift from the
+contract by mirroring it in hand written code.
+
+### Adding an oracle
+
+1. Add the id to `oracles`, a `classification` entry (`invariants`, `kinds`, the `doc` prose that
+   becomes the Rust doc comment, and a `variant` override only when the kebab-to-Pascal name is
+   wrong), one `severity` class, and one `confidence` tier. If it is a default, add it to both
+   `stable_defaults` and `authoritative_exact_replay`, which the tests require to agree.
+2. Bump the row-count ratchet in `oracle_table_has_one_unambiguous_row_per_variant`. It exists so
+   a mass deletion cannot silently shrink the product surface, and it is the only guard that does.
+3. Add the table row in `skills/reproit/references/oracles.md`, which `skills_document_every_oracle`
+   requires.
+4. Write the behavior: the detector or check that emits it, and its replay branch.
+
+No enum edit, no `as_str`, no `parse`, and no classification arm: those are generated.

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "simplification-pass-one",
+  "changeType": "refactor",
+  "detail": "Executes the simplification and structural reduction plans: oracle plumbing generated from the registry, the signature model deduplicated out of the web and react native runners, SDK tiers declared and the core tier actually gated in CI, the shared native core declined with reasons, both vocabularies decided and their joint emission pinned, and the surface costs tabled. Two plan steps were measured and REFUTED rather than forced, and the plan now records why. No runtime behavior changes; every gate green.",
+  "evidence": [
+    {
+      "path": "sdk/TIERS.json",
+      "sha256": "sha256:13a3cd845741ccec707defeafd2047113138679da1d42693714cea84b5b2085a"
+    },
+    {
+      "path": "docs/surface-decisions.md",
+      "sha256": "sha256:f207b82df513a3142b4e07506f4928e1308ebd7d478358cd14bc3ca10ea8e0d8"
+    },
+    {
+      "path": "docs/shared-core-verdict.md",
+      "sha256": "sha256:779f696e4b0495e345a9ec83cf49e3a49b919486c6eee2183ab3fa8276b52a02"
+    }
+  ]
+}

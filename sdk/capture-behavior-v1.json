@@ -691,5 +691,20 @@
     "rule": "A written capture file is UTF-8 with NO byte order mark. dotnet used File.WriteAllText with Encoding.UTF8, which prepends one, and the CLI's JSON sniff rejected the file.",
     "byteOrderMark": "forbidden",
     "firstByteMustBe": "0x7B"
+  },
+  "vocabularies": {
+    "rule": "Two vocabularies exist on purpose and must not be converged. Redaction: a HEADER value is a string, so a redacted header is the string <reproit:secret>; a BODY value is typed JSON, so a redacted body value is the object {$reproit:{redacted,type,length}} whose type and length the replay matcher wildcards on. Converging would either force a header to carry a JSON encoded placeholder the matcher must parse, or strip a body value of the metadata the matcher uses. Divergence: CAPSULE:MISS is the frozen runner contract the fuzz harness consumes byte for byte, and REPROIT:DIVERGENCE is the structured marker the CLI's verdict path parses. Mobile emits BOTH, never one instead of the other, so a mobile capsule replayed through check can report Diverged without breaking the harness.",
+    "redaction": {
+      "headerPlaceholder": "<reproit:secret>",
+      "bodyPlaceholderKey": "$reproit",
+      "headerPlaceholderIsAString": true,
+      "bodyPlaceholderIsAnObject": true
+    },
+    "divergenceMarkers": {
+      "structured": "REPROIT:DIVERGENCE ",
+      "runnerContract": "CAPSULE:MISS",
+      "mobileEmitsBoth": true,
+      "note": "The invariant ledger recorded that nothing asserted both markers are emitted together. A platform silently dropping the structured marker would misreport a mobile divergence, which is the exact defect that addition existed to fix."
+    }
   }
 }

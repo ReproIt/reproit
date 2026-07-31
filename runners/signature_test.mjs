@@ -27,6 +27,13 @@ async function importRunner(name) {
 const { signatureOf: electronSig, descriptorOf: electronDesc } =
   await importRunner('./electron.mjs');
 const { signatureOf: tauriSig, descriptorOf: tauriDesc } = await importRunner('./tauri.mjs');
+// web and react-native carried their own copies of the signature model for a
+// long time, and this gate only ever covered electron and tauri, so a drift
+// between the copies and shared/signature.mjs could not have been caught here.
+// They are covered now, which is what makes deduplicating those copies a
+// verifiable change rather than a hopeful one.
+const { signatureOf: webSig, descriptorOf: webDesc } = await importRunner('./web/runner.mjs');
+const { signatureOf: rnSig, descriptorOf: rnDesc } = await importRunner('./rn/runner.mjs');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // signature_vectors.json lives at the repo root; runners/ is one level down.
@@ -72,6 +79,8 @@ function main() {
   const results = [
     runOne('electron.mjs', electronSig, electronDesc, vectors),
     runOne('tauri.mjs', tauriSig, tauriDesc, vectors),
+    runOne('web/runner.mjs', webSig, webDesc, vectors),
+    runOne('rn/runner.mjs', rnSig, rnDesc, vectors),
   ];
 
   let allPass = true;
@@ -93,7 +102,9 @@ function main() {
     console.error('\nParity gate FAILED.');
     process.exit(1);
   }
-  console.log(`\nAll ${vectors.length} vectors pass for both runners.`);
+  console.log(
+    `\nAll ${vectors.length} vectors pass for all ${results.length} runners.`,
+  );
 }
 
 main();

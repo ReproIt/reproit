@@ -125,6 +125,30 @@ fn capture_env() -> BTreeMap<String, String> {
         .filter(|(name, _)| !env_is_secret(name))
         .collect()
 }
+/// The determinism envelope, in the SAME shape the backend SDKs emit as their
+/// `determinism-envelope` checkpoint. One envelope contract across every
+/// capture kind is what lets a single reader pin a replay's clock, timezone
+/// and seed without asking which capture produced it. `imageDigest` is
+/// carried only when the environment states one, because a field a capture
+/// cannot know must be ABSENT rather than guessed.
+fn determinism_envelope(seed: &str) -> Value {
+    let mut envelope = serde_json::Map::new();
+    envelope.insert(
+        "observedAtMs".into(),
+        json!(chrono::Utc::now().timestamp_millis()),
+    );
+    envelope.insert("tz".into(), json!(std::env::var("TZ").unwrap_or_default()));
+    envelope.insert("os".into(), json!(std::env::consts::OS));
+    envelope.insert("arch".into(), json!(std::env::consts::ARCH));
+    envelope.insert("replaySeed".into(), json!(seed));
+    if let Ok(digest) = std::env::var("REPROIT_IMAGE_DIGEST") {
+        if !digest.is_empty() {
+            envelope.insert("imageDigest".into(), json!(digest));
+        }
+    }
+    Value::Object(envelope)
+}
+
 /// A capsule holds a bounded log; a program that reads without limit is
 /// truncated with the count stated rather than silently trimmed.
 const MAX_ENTRIES: usize = 8192;
@@ -441,13 +465,7 @@ pub fn capture(ctx: &Ctx, out: &Path, command: &[String]) -> Result<ExitCode> {
         cwd: std::env::current_dir()?.display().to_string(),
         executable_sha256: digest_of(Path::new(program)),
         env,
-        envelope: json!({
-            "observedAtMs": chrono::Utc::now().timestamp_millis(),
-            "tz": std::env::var("TZ").unwrap_or_default(),
-            "os": std::env::consts::OS,
-            "arch": std::env::consts::ARCH,
-            "replaySeed": seed,
-        }),
+        envelope: determinism_envelope(&seed),
         // A declared assertion or panic is a stronger identity than the
         // signal: every failed assert dies with SIGABRT, so the signal alone
         // cannot tell two of them apart.
@@ -863,6 +881,49 @@ mod tests {
             "app: src/main.c:52: run: Assertion `n < 9' failed. at 0x55aa9001".to_string(),
         ]);
         assert_ne!(first, third);
+    }
+
+    /// One determinism envelope contract across every capture kind. The
+    /// backend SDKs emit these keys as their `determinism-envelope`
+    /// checkpoint, and a process capsule must carry the same ones so a single
+    /// reader can pin a replay's clock, timezone and seed without asking
+    /// which capture produced it.
+    #[test]
+    fn the_envelope_matches_the_shape_every_capture_kind_emits() {
+        let envelope = determinism_envelope("c0ffee00c0ffee00");
+        for key in ["observedAtMs", "tz", "os", "arch", "replaySeed"] {
+            assert!(
+                envelope.get(key).is_some(),
+                "the shared envelope must carry {key}"
+            );
+        }
+        assert_eq!(
+            envelope.get("replaySeed").and_then(Value::as_str),
+            Some("c0ffee00c0ffee00")
+        );
+    }
+
+    /// A field the capture cannot know is ABSENT, never guessed. The SDKs
+    /// carry imageDigest only when the environment states one, and a process
+    /// capsule follows the same rule, so a reader can trust that a present
+    /// field was observed.
+    #[test]
+    fn an_unknowable_envelope_field_is_absent_rather_than_invented() {
+        // The test process may or may not have the variable set, so assert
+        // the RULE rather than one environment's answer.
+        let envelope = determinism_envelope("seed");
+        match std::env::var("REPROIT_IMAGE_DIGEST") {
+            Ok(digest) if !digest.is_empty() => {
+                assert_eq!(
+                    envelope.get("imageDigest").and_then(Value::as_str),
+                    Some(digest.as_str())
+                );
+            }
+            _ => assert!(
+                envelope.get("imageDigest").is_none(),
+                "an unstated image digest must not appear at all"
+            ),
+        }
     }
 
     #[test]

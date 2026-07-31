@@ -116,6 +116,11 @@ windows = { version = "0.62.2", features = [
 # installed in CI/release for the Linux build; the shipped binary dynamically
 # links libatspi.so.0, present wherever AT-SPI is drivable.
 
+[build-dependencies]
+# The Oracle enum and its metadata table are generated from
+# oracle-registry.json, so the build script parses it.
+serde_json = { workspace = true }
+
 [dev-dependencies]
 # Property-based testing.
 hegeltest = "0.28.0"
