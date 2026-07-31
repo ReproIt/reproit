@@ -7,7 +7,7 @@ use super::*;
 /// the replay was unauthenticated, a 429, a 5xx, or a setup step that would not
 /// run). Inconclusive fails closed everywhere it is consumed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ReplayVerdict {
+pub(crate) enum ReplayVerdict {
     Reproduced,
     Fixed,
     Inconclusive,

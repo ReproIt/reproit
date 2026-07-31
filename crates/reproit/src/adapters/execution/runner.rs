@@ -20,7 +20,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 
 mod automatic;
 mod catalog;
-mod model;
+pub(crate) mod model;
 mod process;
 pub(crate) use automatic::{
     compile_package_automatically, AutomaticCompilation, CompilationBlocker,
@@ -106,8 +106,7 @@ pub(crate) async fn execute(root: &Path, package: &ReproductionPackage) -> Resul
         .unwrap();
 
     let mut provider_runs = Vec::new();
-    let mut exact_observation_seen = false;
-    let mut clean_observation_seen = false;
+    let mut seen: Vec<ProviderVerdict> = Vec::new();
     let mut different_failure_seen = false;
     let mut infrastructure_failure_seen = false;
 
@@ -144,16 +143,18 @@ pub(crate) async fn execute(root: &Path, package: &ReproductionPackage) -> Resul
                         observation_matched: false,
                         error: Some(format!("{error:#}")),
                     });
+                    seen.push(ProviderVerdict::InfrastructureFailed);
                     infrastructure_failure_seen = true;
                     phase_failed = true;
                     break;
                 }
             };
             provider_runs.push(run);
+            seen.push(verdict);
             match verdict {
-                ProviderVerdict::SetupPassed => {}
-                ProviderVerdict::Reproduced => exact_observation_seen = true,
-                ProviderVerdict::NotReproduced => clean_observation_seen = true,
+                ProviderVerdict::SetupPassed
+                | ProviderVerdict::Reproduced
+                | ProviderVerdict::NotReproduced => {}
                 ProviderVerdict::DifferentFailure => {
                     different_failure_seen = true;
                     phase_failed = true;
@@ -198,17 +199,7 @@ pub(crate) async fn execute(root: &Path, package: &ReproductionPackage) -> Resul
         infrastructure_failure_seen || different_failure_seen
     );
 
-    let verdict = if infrastructure_failure_seen {
-        ExecutionVerdict::InfrastructureFailed
-    } else if different_failure_seen {
-        ExecutionVerdict::DifferentFailure
-    } else if exact_observation_seen {
-        ExecutionVerdict::Reproduced
-    } else if clean_observation_seen {
-        ExecutionVerdict::NotReproduced
-    } else {
-        ExecutionVerdict::Incomplete
-    };
+    let verdict = fold_provider_verdicts(&seen);
     Ok(PlanRun {
         plan_id: plan.id.clone(),
         occurrence_id: plan.occurrence_id.clone(),
@@ -216,6 +207,28 @@ pub(crate) async fn execute(root: &Path, package: &ReproductionPackage) -> Resul
         phases: state.records().to_vec(),
         provider_runs,
     })
+}
+
+/// Fold the per-provider verdicts of one plan into the single `ExecutionVerdict`
+/// the rest of the CLI reasons about.
+///
+/// The precedence is severity, not order: anything that means "this run is not
+/// evidence about the bug" outranks anything that is. Infrastructure failure
+/// first (we never even got to observe), then a DIFFERENT failure (we observed,
+/// but not this bug), then a reproduction, then a clean run. A plan where no
+/// provider observed anything at all stays `Incomplete`, which fails closed.
+pub(crate) fn fold_provider_verdicts(seen: &[ProviderVerdict]) -> ExecutionVerdict {
+    if seen.contains(&ProviderVerdict::InfrastructureFailed) {
+        ExecutionVerdict::InfrastructureFailed
+    } else if seen.contains(&ProviderVerdict::DifferentFailure) {
+        ExecutionVerdict::DifferentFailure
+    } else if seen.contains(&ProviderVerdict::Reproduced) {
+        ExecutionVerdict::Reproduced
+    } else if seen.contains(&ProviderVerdict::NotReproduced) {
+        ExecutionVerdict::NotReproduced
+    } else {
+        ExecutionVerdict::Incomplete
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

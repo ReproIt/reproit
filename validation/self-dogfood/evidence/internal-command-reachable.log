@@ -1,0 +1,60 @@
+The AT-SPI scenario gate at the parent (d293b95), reproduced locally in the
+same ubuntu:24.04 + Xvfb + session-bus container CI builds, before the fix:
+
+  bash .github/scripts/atspi-scenario-e2e.sh
+
+  === actor a (claimed) rc=2 ===
+  === actor b (env role) rc=2 ===
+  === observed ===
+  {"served": [], "acked": []}
+  FAIL wire: served order == script :: served=[]
+  FAIL wire: acked order == script :: acked=[]
+  FAIL roles: a claimed
+  FAIL roles: b env-pinned
+  FAIL attribution: a taps
+  FAIL attribution: b tap
+  FAIL attribution: b types
+  PASS attribution: no cross-talk
+  FAIL type: echo asserted on b
+  FAIL isolation: a count=2
+  FAIL isolation: b count=1
+  FAIL isolation: b text absent on a
+  PASS clean: no FUZZ:MISS
+  PASS clean: no assert failures
+  PASS clean: no crash marker
+  FAIL done: a
+  FAIL done: b
+  FAIL observe: a states
+  FAIL observe: b states
+  atspi-scenario-e2e: 15 assertion(s) failed
+
+rc=2 is clap refusing `reproit __atspi`: the command moved under the `internal`
+multiplex in d957df5 and the top-level spelling stopped existing. Neither actor
+process ever started, which is why all four surviving PASS lines are of the form
+"this bad marker is ABSENT" and every failure is of the form "this marker is
+PRESENT". A process that produces no output satisfies the first kind for free.
+
+Both actors, both instances, and the full interleaving after the fix, same
+container, same script:
+
+  atspi-scenario-e2e: all assertions passed   (19/19)
+
+The other two harnesses carrying the same dead spelling, also gates:
+
+  validation/backends/run-tui.sh:15          -> gate tui-pty
+  examples/qt-fixture/qt-atspi-e2e.sh:144,161,171 -> gate linux-atspi-toolkits
+
+Both pass after the fix: "Tui backend passed native curses PTY runtime" and
+"wxWidgets AT-SPI runtime passed".
+
+The regression test run at the parent with only itself overlaid, which is how
+the policy gate evaluates it:
+
+  python3 validation/self-dogfood/test_check_internal_invocations.py
+  internal invocations: harnesses naming an unreachable command
+    .github/scripts/atspi-scenario-e2e.sh:337: invokes `reproit __atspi` ...
+    validation/backends/run-tui.sh:15: invokes `reproit __tui` ...
+    examples/qt-fixture/qt-atspi-e2e.sh:144: invokes `reproit __atspi` ...
+    examples/qt-fixture/qt-atspi-e2e.sh:161: invokes `reproit __atspi` ...
+    examples/qt-fixture/qt-atspi-e2e.sh:171: invokes `reproit __atspi` ...
+  affected rc=1

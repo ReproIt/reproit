@@ -19,11 +19,20 @@ use super::*;
 /// its own bucket keeps the two commands' answers consistent instead of leaving
 /// `verify` blocked on a claim the project has disowned.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum ArtifactVerdict {
+pub(crate) enum ArtifactVerdict {
     Reproduced,
     Fixed,
     Inconclusive,
     Retracted(String),
+}
+
+impl ArtifactVerdict {
+    /// Whether this verdict stops a release. Only a proven `Fixed` and an
+    /// explicitly withdrawn claim let a run through: `Reproduced` is a live bug
+    /// and `Inconclusive` could not evaluate, and both fail closed.
+    pub(crate) fn blocks(&self) -> bool {
+        matches!(self, Self::Reproduced | Self::Inconclusive)
+    }
 }
 
 /// Whether the project still asserts the contract a recorded finding was proven

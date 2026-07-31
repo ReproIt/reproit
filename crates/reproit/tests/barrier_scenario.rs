@@ -1,7 +1,7 @@
 //! End-to-end multi-actor barrier: the TUI backend's scenario client speaks
 //! the conductor protocol (`GET /claim` + `GET /next` + `POST /done`) through
 //! the real binary. A tiny in-test conductor serves an interleaved two-actor
-//! script; two `reproit __tui` processes (driving a platform-native inert
+//! script; two `reproit internal __tui` processes (driving a platform-native inert
 //! process and blank screen) must each pull exactly their own actions, in the
 //! global order, and ack every step. This pins the wire
 //! contract every backend's runner implements (web/electron/tauri/flutter/
@@ -111,7 +111,7 @@ fn start_conductor(script: Vec<(usize, &'static str)>, n: usize) -> (u16, Arc<Mu
     (port, observed)
 }
 
-/// Spawn one `reproit __tui` scenario actor against the conductor. `label` is
+/// Spawn one `reproit internal __tui` scenario actor against the conductor. `label` is
 /// the per-process device env (None exercises the `/claim` path).
 fn spawn_actor(port: u16, label: Option<&str>) -> std::process::Child {
     #[cfg(windows)]
@@ -138,7 +138,7 @@ fn spawn_actor(port: u16, label: Option<&str>) -> std::process::Child {
             cmd.env_remove("REPROIT_DEVICE");
         }
     }
-    cmd.spawn().expect("spawn reproit __tui actor")
+    cmd.spawn().expect("spawn reproit internal __tui actor")
 }
 
 struct ActorOutput {

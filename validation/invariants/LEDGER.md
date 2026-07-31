@@ -32,6 +32,7 @@ because a run that could not conclude was once reported as clean.
 | hermetic-four-verdicts | Reproduced, fixed, reproduced-again, and diverged are all distinguishable from a real re-execution, and a verdict line is asserted alongside the exit code | `validation/backend/hermetic-e2e/run.sh` | script | The exit-code-only check: an unresolvable capture also exits 1, so a resolution error read as a reproduction |
 | drift-quarantines | A guard whose code drifted is quarantined and reported, never silently red or silently green | `validation/backend/gate-quarantine-e2e/run.sh` | script | Phase 4 of the capsule plan; drift is not a regression and must not gate merges |
 | refresh-needs-confirmation | An unconfirmed guard refresh leaves the capture byte-identical; only explicit confirmation rewrites it | `validation/backend/refresh-e2e/run.sh` | script | Drifted guards previously had no path forward but re-capture, so the diff-then-confirm flow was added |
+| verdict-lattice | All eight verdict vocabularies map onto one canonical axis, every translation between them preserves the axis, and only a proven fix or a withdrawn claim exits zero | `crates/reproit/src/workflows/verdict_lattice.rs` | cargo | Gap 6: eight vocabularies with translations at six points and no test of the translations; each mapping table is an exhaustive match, so adding a variant anywhere fails to compile until its meaning is stated |
 
 ## Capture and replay contract
 
@@ -62,6 +63,7 @@ because a run that could not conclude was once reported as clean.
 | policy-survives-force-push | An unreachable base sha gates the head commit alone instead of erroring on an unevaluable range | `validation/self-dogfood/test_check_fix_policy.py` | python | CI failed on a force-pushed range whose before-sha was orphaned |
 | no-dead-check-flags | No workflow or self-dogfood runner passes a flag `check` no longer accepts | `validation/self-dogfood/test_check_flag_callers.py` | python | The vocabulary purge deleted flags four callers still passed, so guard replay exited 2 with a usage error |
 | harness-case-accounting | An acceptance script asserts how many cases actually ran, so an early exit cannot look like a pass | `validation/self-dogfood/check-harness-integrity.py` | python | Four separate instances in one day of a harness that stopped early and looked exactly like one that passed |
+| internal-command-reachable | Every harness invokes an internal command as `reproit internal __name`, the only spelling the CLI accepts | `validation/self-dogfood/test_check_internal_invocations.py` | python | The vocabulary purge moved `__atspi`/`__tui` under `internal` and re-pointed the Rust tests but not three shell harnesses; clap exited 2 before the runner started, and the two AT-SPI gates plus tui-pty were red for 17 commits |
 | required-guards-replay | Every required guard replays and holds, and a skipped guard fails loudly rather than passing | `validation/self-dogfood/run-required-guards.py` | python | The corpus gate; a guard that does not run is not a guard |
 | ci-enforcement-contract | The CI workflow and the guard runner keep their agreed shape, and drift between them is caught | `validation/self-dogfood/ci-enforcement.mjs` | node | The required-corpus dispatch contract |
 
@@ -140,13 +142,23 @@ would cost.
    asserted in several SDK suites independently, with no single source of
    truth. Same origin, same fix, same plan step.
 
-6. `ReplayVerdict`, `ArtifactVerdict`, `HermeticVerdict`, `ReproVerdict`,
-   `ProviderVerdict`, `ExecutionVerdict`, `RunVerdict` and `Outcome` are eight
-   verdict vocabularies. No test asserts how they map onto one another, so a
-   translation error between two of them would be invisible until it produced a
-   wrong verdict in the field. `plan-structural-reduction.md` step B proposes
-   converging them; until then the mapping is undefended.
+6. CLOSED 2026-07-31 by `crates/reproit/src/workflows/verdict_lattice.rs`
+   (`verdict-lattice` above). The eight vocabularies still exist, deliberately:
+   each names a distinction its layer needs and a flattening would lose. What
+   was missing was the statement of how they relate, and that is now one file.
+   Every vocabulary maps onto one canonical axis (reproduced, certified, flaky,
+   not-about-this-bug, unevaluable, withdrawn), each mapping is an exhaustive
+   `match` so a new variant cannot be added silently, and the real translation
+   functions are asserted against the axis rather than restated. Five negative
+   controls were run and each failed exactly the assertion it should:
+   `blocks()` letting `Inconclusive` through, an unevaluable re-check retracting
+   a live bug, a reproduction outranking an infrastructure failure in the
+   provider fold, `Diverged` exiting zero, and `check`'s exit-code 3 read as
+   clean across the process hop.
 
 Closing gaps 1 through 3 is cheap and should happen before any refactor that
-touches verdict handling. Gaps 4 and 5 are the conformance-vector work already
-planned. Gap 6 is a design decision, not a test.
+touches verdict handling; the lattice already defends 1 and 2 structurally (a
+`Diverged` collapsed into `Inconclusive` no longer compiles, and every
+"could not evaluate" state is asserted to fail closed in all eight
+vocabularies), leaving their per-path behavioral proof as the remaining work.
+Gaps 4 and 5 are the conformance-vector work already planned.

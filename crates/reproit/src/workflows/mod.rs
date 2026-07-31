@@ -52,6 +52,8 @@ mod reset;
 mod route_access;
 mod scan_command;
 mod tui_safety;
+#[cfg(test)]
+mod verdict_lattice;
 
 use crate::adapters::scoped_env::ScopedEnv;
 use crate::adapters::{config, crash_reporter as crashreporter, project_scaffold, update};

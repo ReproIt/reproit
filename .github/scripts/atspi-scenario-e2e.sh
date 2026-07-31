@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Linux AT-SPI multi-actor scenario RUNTIME e2e. Validates the conductor client
-# in runners/linux-atspi.py (run_scenario_actor + the /claim | /next | /done
-# barrier protocol) with a REAL two-actor run: two runner processes, each
+# in crates/reproit/src/adapters/atspi/ (run_scenario_actor + the
+# /claim | /next | /done barrier protocol, reached as `reproit internal
+# __atspi`) with a REAL two-actor run: two runner processes, each
 # spawning and pid-binding its OWN instance of a small GTK4 fixture, pull an
 # interleaved script from a stub conductor speaking the exact modes/barrier.rs
 # wire protocol (the same stub pattern as runners/rn/scenario.test.mjs), all
@@ -23,9 +24,12 @@
 # modes/barrier.rs conductor (the stub mirrors its wire contract), and the
 # bus-vanish crash oracle (the fixture never dies here).
 #
-# Deliberately NOT wired into ci.yml: it needs docker-in-runner (image build +
-# a privileged-ish container per run), a cost decision taken separately. Run
-# locally or in a manual workflow: bash .github/scripts/atspi-scenario-e2e.sh
+# NOT in ci.yml, but it IS required CI: native-gates.yml runs it through
+# `validation/backends/gate.py linux-atspi-gtk`, which names this script in
+# validation/backends/evidence.json (tier release, mode required-ci). It is out
+# of ci.yml only because it needs docker-in-runner (image build + a
+# privileged-ish container per run). Run it directly the same way CI does:
+# bash .github/scripts/atspi-scenario-e2e.sh
 #
 # Needs: docker.
 set -euo pipefail
@@ -334,7 +338,7 @@ export REPROIT_SCENARIO_BARRIER="http://127.0.0.1:$PORT"
 cargo build -p reproit --manifest-path /repo/Cargo.toml --target-dir /tmp/reproit-target
 
 # One actor env-pinned to role b (env wins over /claim), one claiming role a.
-RUNNER="/tmp/reproit-target/debug/reproit __atspi"
+RUNNER="/tmp/reproit-target/debug/reproit internal __atspi"
 REPROIT_DEVICE=b timeout 180 $RUNNER > b.log 2> b.err &
 B_PID=$!
 REPROIT_DEVICE= timeout 180 $RUNNER > a.log 2> a.err &

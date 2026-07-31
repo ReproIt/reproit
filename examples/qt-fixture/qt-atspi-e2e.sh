@@ -141,7 +141,7 @@ export REPROIT_FUZZ_CONFIG="$FUZZ"
 cargo build -p reproit --manifest-path /repo/Cargo.toml --target-dir /tmp/reproit-target || {
     echo "reproit Linux build failed" >&2; exit 1;
 }
-timeout 180 /tmp/reproit-target/debug/reproit __atspi > run.log 2> run.err || true
+timeout 180 /tmp/reproit-target/debug/reproit internal __atspi > run.log 2> run.err || true
 
 echo "=== run.log ==="
 cat run.log
@@ -158,7 +158,7 @@ g++ -std=c++17 -fPIC qml-main.cpp \
     echo "Qt Quick/QML build failed" >&2; exit 1;
 }
 export REPROIT_TARGET=/work/qml-fixture
-timeout 180 /tmp/reproit-target/debug/reproit __atspi > qml.log 2> qml.err || true
+timeout 180 /tmp/reproit-target/debug/reproit internal __atspi > qml.log 2> qml.err || true
 echo "=== qml.log ==="
 cat qml.log
 echo "=== qml.err (tail) ==="
@@ -168,7 +168,7 @@ echo "Qt Quick/QML AT-SPI runtime passed"
 
 g++ -std=c++17 wx-main.cpp $(wx-config --cxxflags --libs) -o wx-fixture
 export REPROIT_TARGET=/work/wx-fixture
-timeout 180 /tmp/reproit-target/debug/reproit __atspi > wx.log 2> wx.err || true
+timeout 180 /tmp/reproit-target/debug/reproit internal __atspi > wx.log 2> wx.err || true
 echo "=== wx.log ==="
 cat wx.log
 grep -q '^EXPLORE:STATE ' wx.log

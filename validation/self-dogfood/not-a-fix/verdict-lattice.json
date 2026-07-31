@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "verdict-lattice",
+  "changeType": "refactor",
+  "detail": "Closes ledger gap 6: the CLI's eight verdict vocabularies had translations at six points and no test of any of them. This adds one canonical axis, pins every vocabulary and every translation against it, and routes the duplicated block/pass decisions through single named functions. No runtime product behavior changes: the five negative controls recorded in LEDGER.md each broke exactly one lattice assertion and nothing else.",
+  "evidence": [
+    {
+      "path": "crates/reproit/src/workflows/verdict_lattice.rs",
+      "sha256": "sha256:a7f703dd5ab0d802e6fb3a1877e5a4d39940bb57b0fbb22ac35dd7a4438a759a"
+    }
+  ]
+}

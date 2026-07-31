@@ -517,7 +517,7 @@ pub struct App {
     pub executable: Option<String>,
     /// Override where the per-backend runner scripts live (macos-ax.swift,
     /// electron.mjs, ...). The Windows (UIA) and Linux (AT-SPI) desktop runners
-    /// are in-process Rust subcommands (`reproit __uia` / `__atspi`) and need
+    /// are in-process Rust subcommands (`reproit internal __uia` / `__atspi`) and need
     /// no script here. Default: REPROIT_RUNNERS env, else a `runners/` dir
     /// beside the config.
     pub runner_dir: Option<String>,

@@ -23,7 +23,7 @@ use crate::domain::repro;
 
 mod lifecycle;
 mod presentation;
-mod reproduction;
+pub(crate) mod reproduction;
 mod setup;
 mod transport;
 

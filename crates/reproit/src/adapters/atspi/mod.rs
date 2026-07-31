@@ -1,6 +1,6 @@
-//! Linux desktop runner (AT-SPI2 backend), dispatched as `reproit __atspi` by
+//! Linux desktop runner (AT-SPI2 backend), dispatched as `reproit internal __atspi` by
 //! drive.rs. The Linux twin of the macOS `swift macos-ax.swift` and the Windows
-//! `reproit __uia` runners: it drives ANY native Linux app (GTK, Qt, and any
+//! `reproit internal __uia` runners: it drives ANY native Linux app (GTK, Qt, and any
 //! toolkit that publishes to AT-SPI) through the accessibility tree and prints
 //! the framework-agnostic marker protocol every backend emits.
 //!

@@ -1,7 +1,7 @@
 //! reproit-tui: production telemetry SDK for Rust terminal-UI apps.
 //!
 //! Drop this into a real TUI app (ratatui, crossterm-direct, or any renderer)
-//! and it reports the SAME canonical TUI screen signature the `reproit __tui`
+//! and it reports the SAME canonical TUI screen signature the `reproit internal __tui`
 //! runner computes, so a production crash reported here carries a state
 //! signature the runner can replay locally. Each distinct screen is a state;
 //! each screen change is a coverage edge; a panic ships the path that led to

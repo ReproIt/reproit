@@ -159,7 +159,7 @@ pub(super) struct CommandResult {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum ProviderVerdict {
+pub(crate) enum ProviderVerdict {
     SetupPassed,
     Reproduced,
     NotReproduced,

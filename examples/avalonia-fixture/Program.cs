@@ -5,7 +5,7 @@ namespace AvaloniaFixture;
 
 // Minimal Avalonia desktop entry point. Drives the classic desktop lifetime so
 // a real top-level Win32 window is created and published to UI Automation, which
-// is exactly what the production `reproit __uia` backend walks.
+// is exactly what the production `reproit internal __uia` backend walks.
 internal static class Program
 {
     [STAThread]

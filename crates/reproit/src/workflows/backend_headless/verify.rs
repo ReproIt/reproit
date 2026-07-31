@@ -64,24 +64,21 @@ pub async fn run(
             .unwrap_or("operation")
             .to_string();
         let entry = json!({ "id": id, "operation": operation });
-        let (passed, message) = match &outcome.verdict {
+        // One source for pass/fail: the verdict itself. The arms only choose
+        // which bucket the entry lands in and how it reads.
+        let passed = !outcome.verdict.blocks();
+        let message = match &outcome.verdict {
             ArtifactVerdict::Fixed => {
                 held.push(entry);
-                (
-                    true,
-                    format!("{id} held (no longer reproduces) on {operation}"),
-                )
+                format!("{id} held (no longer reproduces) on {operation}")
             }
             ArtifactVerdict::Reproduced => {
                 reproducing.push(entry);
-                (false, format!("{id} still reproduces on {operation}"))
+                format!("{id} still reproduces on {operation}")
             }
             ArtifactVerdict::Inconclusive => {
                 inconclusive.push(entry);
-                (
-                    false,
-                    format!("{id} inconclusive on {operation} (could not evaluate)"),
-                )
+                format!("{id} inconclusive on {operation} (could not evaluate)")
             }
             // Passing, but never counted as held: nothing was proven about the
             // implementation, the claim was withdrawn.
@@ -90,7 +87,7 @@ pub async fn run(
                 entry["reason"] = Value::String(reason.clone());
                 entry["path"] = Value::String(artifact_path.to_string_lossy().into_owned());
                 retracted.push(entry);
-                (true, format!("{id} retracted on {operation}: {reason}"))
+                format!("{id} retracted on {operation}: {reason}")
             }
         };
         cases.push(junit::Case {

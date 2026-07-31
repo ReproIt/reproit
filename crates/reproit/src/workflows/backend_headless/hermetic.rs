@@ -54,12 +54,16 @@ impl HermeticVerdict {
     /// check's CI exit contract: reproduced is the regression stop; diverged
     /// and inconclusive both fail closed as "go re-record / go look", never
     /// as pass.
-    fn exit(self) -> ExitCode {
+    pub(crate) fn exit_code(self) -> u8 {
         match self {
-            HermeticVerdict::Fixed => ExitCode::SUCCESS,
-            HermeticVerdict::Reproduced => Exit::Regression.code(),
-            HermeticVerdict::Diverged | HermeticVerdict::Inconclusive => ExitCode::from(3),
+            HermeticVerdict::Fixed => Exit::Clean as u8,
+            HermeticVerdict::Reproduced => Exit::Regression as u8,
+            HermeticVerdict::Diverged | HermeticVerdict::Inconclusive => Exit::Stale as u8,
         }
+    }
+
+    fn exit(self) -> ExitCode {
+        ExitCode::from(self.exit_code())
     }
 }
 

@@ -20,6 +20,9 @@ dist/
 .reproit/private-providers/
 .reproit/repros/*/plan-runs/
 *.log
+# Retained no-repro evidence is the record a policy declaration cites, so it is
+# tracked on purpose; without this every such log needs `git add -f`.
+!validation/self-dogfood/evidence/*.log
 .DS_Store
 .forbidden-terms
 .training/

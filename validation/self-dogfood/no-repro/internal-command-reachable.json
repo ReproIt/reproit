@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "internal-command-reachable",
+  "detail": "The minimal CLI vocabulary (d957df5) moved every internal command under one `internal` multiplex and re-pointed the Rust tests and docs, but missed three shell harnesses that still spelled it `reproit __atspi` / `reproit __tui`. Clap exited 2 before the runner started, so three required gates (linux-atspi-gtk, linux-atspi-toolkits, tui-pty) were red for 17 commits: every failing assertion was of the form 'this marker is PRESENT' and the four that passed were of the form 'this bad marker is ABSENT', which a process that never ran satisfies for free. The defect lives in CI harness wiring, so no runtime guard can hold it; the bounded regression test scans every harness for an internal command not preceded by `internal`, failing on the parent (it cites all five sites) and passing on the fix.",
+  "test": "validation/self-dogfood/test_check_internal_invocations.py",
+  "command": [
+    "python3",
+    "validation/self-dogfood/test_check_internal_invocations.py"
+  ],
+  "timeoutSeconds": 60,
+  "affectedExitCode": 1,
+  "affectedEvidence": [
+    {
+      "path": "validation/self-dogfood/evidence/internal-command-reachable.log",
+      "sha256": "sha256:1a80e268e24bb5ded21a1d98630f83453794698cbc45223dd22ddb0a544cca17"
+    }
+  ]
+}

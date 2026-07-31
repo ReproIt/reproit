@@ -37,7 +37,7 @@ pub fn synthesize_web(url: &str, web_runner_dir: &Path, root: PathBuf) -> Result
 }
 
 /// Zero-config TUI run: synthesize a `platform: tui` config that drives the
-/// given terminal executable in a PTY (the built-in `reproit __tui` runner).
+/// given terminal executable in a PTY (the built-in `reproit internal __tui` runner).
 /// The analogue of [`synthesize_web`] for `reproit scan <executable>` (e.g.
 /// `lazygit`, `htop`). `executable` is the command line run via `sh -c`, so
 /// args and PATH resolution work. Persisted to `.reproit/reproit.yaml` so a

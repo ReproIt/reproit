@@ -310,7 +310,7 @@ async fn run_execution_plan(
     Ok(exit_with(Exit::from(outcome)))
 }
 
-fn aggregate_plan_runs(runs: &[execution::PlanRun]) -> repro::Outcome {
+pub(crate) fn aggregate_plan_runs(runs: &[execution::PlanRun]) -> repro::Outcome {
     let reproduced = runs
         .iter()
         .filter(|run| run.verdict == ExecutionVerdict::Reproduced)

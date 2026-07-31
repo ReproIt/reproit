@@ -1,7 +1,7 @@
 //! Canonical TUI screen signature.
 //!
 //! This crate is the single source of truth for the terminal-UI (TUI) state
-//! signature. The `reproit __tui` runner
+//! signature. The `reproit internal __tui` runner
 //! (crates/reproit/src/backends/tui/mod.rs) and every production TUI SDK
 //! (Rust/Go/TS/Python) compute the SAME value, so a production crash reported
 //! by an SDK carries a signature the runner can replay locally. The Rust runner

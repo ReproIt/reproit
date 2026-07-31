@@ -144,20 +144,18 @@ pub(super) async fn replay_artifact(
         expected_oracle,
     )
     .await?;
-    let verdict = match verdict {
-        ReplayVerdict::Fixed => ArtifactVerdict::Fixed,
-        ReplayVerdict::Inconclusive => ArtifactVerdict::Inconclusive,
-        // It still reproduces against the contract it was recorded under. If
-        // that contract has since been edited, re-check against what the project
-        // asserts now: the same response can stop being a violation because the
-        // claim moved rather than because the server did.
-        ReplayVerdict::Reproduced => match status {
-            ContractStatus::Changed(claim) => {
-                let mut step = artifact.failing.clone();
-                step.contract = claim.contract;
-                step.policy = claim.policy;
-                let current_endpoint = replay_endpoint(&step);
-                let recheck = replay_sequence(
+    // It still reproduces against the contract it was recorded under. If that
+    // contract has since been edited, re-check against what the project asserts
+    // now: the same response can stop being a violation because the claim moved
+    // rather than because the server did.
+    let recheck = match (verdict, status) {
+        (ReplayVerdict::Reproduced, ContractStatus::Changed(claim)) => {
+            let mut step = artifact.failing.clone();
+            step.contract = claim.contract;
+            step.policy = claim.policy;
+            let current_endpoint = replay_endpoint(&step);
+            Some(
+                replay_sequence(
                     &client,
                     &artifact.setup,
                     &current_endpoint,
@@ -166,23 +164,40 @@ pub(super) async fn replay_artifact(
                     artifact.reset_url.as_deref(),
                     expected_oracle,
                 )
-                .await?;
-                // Only an evaluable non-reproduction retracts. A re-check that
-                // could not be evaluated leaves the blocking verdict standing,
-                // so a flaky or unreachable run can never retract a live bug.
-                if recheck == ReplayVerdict::Fixed {
-                    ArtifactVerdict::Retracted(retraction::changed_reason(&operation))
-                } else {
-                    ArtifactVerdict::Reproduced
-                }
-            }
-            _ => ArtifactVerdict::Reproduced,
-        },
+                .await?,
+            )
+        }
+        _ => None,
     };
+    let verdict = artifact_verdict(verdict, recheck, &operation);
     Ok(ReplayOutcome {
         verdict,
         finding: artifact.finding,
     })
+}
+
+/// Translate a replay verdict into the artifact verdict the guard surfaces.
+///
+/// `recheck` is the verdict of a second replay under the contract as the project
+/// asserts it TODAY, and is present only when the first replay reproduced and the
+/// contract has since changed. Only an evaluable non-reproduction there retracts:
+/// a re-check that could not be evaluated leaves the blocking verdict standing,
+/// so a flaky or unreachable run can never retract a live bug.
+pub(crate) fn artifact_verdict(
+    replay: ReplayVerdict,
+    recheck: Option<ReplayVerdict>,
+    operation: &str,
+) -> ArtifactVerdict {
+    match replay {
+        ReplayVerdict::Fixed => ArtifactVerdict::Fixed,
+        ReplayVerdict::Inconclusive => ArtifactVerdict::Inconclusive,
+        ReplayVerdict::Reproduced => match recheck {
+            Some(ReplayVerdict::Fixed) => {
+                ArtifactVerdict::Retracted(retraction::changed_reason(operation))
+            }
+            _ => ArtifactVerdict::Reproduced,
+        },
+    }
 }
 
 pub async fn try_replay(ctx: &Ctx, id: &str) -> Result<Option<ExitCode>> {
@@ -223,16 +238,11 @@ pub async fn try_replay(ctx: &Ctx, id: &str) -> Result<Option<ExitCode>> {
     // so a replay that could not evaluate never reports success. Retracted does
     // not block: the claim was withdrawn by an explicit schema edit, and holding
     // the finding open would leave no way to close it but deleting it by hand.
-    Ok(Some(
-        if matches!(
-            outcome.verdict,
-            ArtifactVerdict::Fixed | ArtifactVerdict::Retracted(_)
-        ) {
-            ExitCode::SUCCESS
-        } else {
-            Exit::Regression.code()
-        },
-    ))
+    Ok(Some(if outcome.verdict.blocks() {
+        Exit::Regression.code()
+    } else {
+        ExitCode::SUCCESS
+    }))
 }
 
 /// Rewrite a recorded absolute URL onto the current target's origin, keeping

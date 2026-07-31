@@ -905,7 +905,7 @@ mod transport;
 #[cfg(test)]
 use transport::evaluate_invocation;
 use transport::{build_identity_pool, identity_count, install_identity_pool, invoke};
-mod replay;
+pub(crate) mod replay;
 #[cfg(test)]
 use replay::apply_request_bindings;
 use replay::{append_sequence_events, has_fingerprint, replay_sequence, ReplayVerdict};
@@ -919,9 +919,9 @@ mod accept;
 mod chaining;
 pub use accept::run as backend_accept;
 mod reset;
-mod retraction;
+pub(crate) mod retraction;
 use retraction::{ArtifactVerdict, ContractStatus, CurrentContracts};
-mod replay_command;
+pub(crate) mod replay_command;
 pub use replay_command::{replay_kept_guards, try_replay};
 mod verify;
 pub use verify::run as backend_verify;
@@ -929,7 +929,7 @@ mod capture_replay;
 pub use capture_replay::{capture_has_exchanges, check_capture, is_capture_file, replay_capture};
 mod refresh;
 pub use refresh::refresh_capture_guard;
-mod hermetic;
+pub(crate) mod hermetic;
 mod rerecord;
 pub use hermetic::{
     check_capture_exec, keep_capture_guard, try_replay_hermetic_guard, HermeticVerdict,
