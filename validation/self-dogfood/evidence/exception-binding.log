@@ -1,0 +1,31 @@
+The self-dogfood policy's exception declaration was bound to nothing.
+
+Every other kind is tied to the change that cites it:
+  guard:      the guard must be `required` in that commit's tree
+  no-repro:   the test is executed and must FAIL at the parent
+  not-a-fix:  the record must change with the declaration
+
+exception: only checked that a record with that id existed somewhere in
+history, so any commit could satisfy the gate by citing an unrelated
+record. That is a declaration which is syntactically valid and
+semantically false, which is the exact thing this gate exists to refuse.
+
+Found by committing one: while landing the dogfood-policy toolchain fix,
+the trailer first cited exception:environment-unreachable:rn-jest-react-
+native-resolution, an unrelated record from an earlier push. The gate
+accepted it. It was amended before pushing.
+
+A real historical instance also exists on main:
+
+  $ check-fix-policy.py --base 63c00cc --head 5dc6c42
+  exit 0            (before this change)
+  exit 1            (after)
+  self-dogfood fix policy: 5dc6c424db9f: exception record
+  validation/self-dogfood/exceptions/hidden-runs-contract.json is not
+  touched by this range, so the declaration is not bound to this change.
+
+A legitimate range, where the record is written alongside its citation,
+still passes:
+
+  $ check-fix-policy.py --base 5648d90 --head d7e996a
+  exit 0

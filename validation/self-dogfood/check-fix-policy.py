@@ -339,7 +339,13 @@ def validate_evidence(
     return paths
 
 
-def validate_exception(repo: Path, ref: str, code: str, identifier: str) -> None:
+def validate_exception(
+    repo: Path,
+    ref: str,
+    code: str,
+    identifier: str,
+    range_files: set[str] | None = None,
+) -> None:
     if code not in BLOCKER_CODES:
         raise PolicyError(
             f"exception code {code!r} is not one of {sorted(BLOCKER_CODES)}"
@@ -348,6 +354,21 @@ def validate_exception(repo: Path, ref: str, code: str, identifier: str) -> None
         raise PolicyError(f"exception id {identifier!r} is not a safe slug")
     path = EXCEPTIONS / f"{identifier}.json"
     record = load_record(repo, ref, path, "exception")
+    # An exception is the only declaration kind with nothing tying it to the
+    # change that cites it: a guard must be required in that tree, a no-repro
+    # test is executed and must fail at the parent, and a not-a-fix record must
+    # change with its declaration. Without this check a commit can satisfy the
+    # gate by pointing at any exception record that already exists, which is a
+    # syntactically valid and semantically false declaration. Requiring the
+    # record to be touched somewhere in the reviewed range keeps a legitimate
+    # follow-up in the same push able to cite it, while refusing a citation of
+    # an unrelated record from history.
+    if range_files is not None and path.as_posix() not in range_files:
+        raise PolicyError(
+            f"{ref[:12]}: exception record {path} is not touched by this "
+            "range, so the declaration is not bound to this change. Write the "
+            "record with the commit that cites it, or cite a different kind."
+        )
     if record.get("schemaVersion") != 1:
         raise PolicyError(f"{path}: schemaVersion must equal 1")
     if record.get("id") != identifier:
@@ -521,6 +542,7 @@ def validate_declaration(
     declaration: str,
     files: list[str],
     execute_no_repro: bool,
+    range_files: set[str] | None = None,
 ) -> dict[str, str]:
     kind, _, rest = declaration.partition(":")
     if kind == "guard":
@@ -534,7 +556,7 @@ def validate_declaration(
         return {"kind": "guard", "guard": rest}
     if kind == "exception":
         code, _, identifier = rest.partition(":")
-        validate_exception(repo, commit, code, identifier)
+        validate_exception(repo, commit, code, identifier, range_files)
         return {"kind": "exception", "code": code, "id": identifier}
     if kind == "no-repro":
         return validate_no_repro(
@@ -596,6 +618,12 @@ def review(
     listed = commits(repo, base, head)
     results = []
     retired: set[str] = set()
+    # Every file touched anywhere in the reviewed range, so a follow-up commit
+    # may cite an exception record written by an earlier commit in the same
+    # push while a citation of unrelated history still fails.
+    range_files: set[str] = set()
+    for commit in listed:
+        range_files.update(changed_files(repo, commit))
     for commit in listed:
         message = git(repo, "show", "--no-patch", "--format=%B", commit)
         retired.update(RETIRE.findall(message))
@@ -619,6 +647,7 @@ def review(
                     found[0],
                     files,
                     execute_no_repro=execute_no_repro,
+                    range_files=range_files,
                 ),
             }
         )

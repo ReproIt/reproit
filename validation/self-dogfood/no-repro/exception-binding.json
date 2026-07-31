@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "exception-binding",
+  "detail": "The policy's exception declaration was the only kind not bound to the change citing it, so a commit could satisfy the gate by naming any record already in history. The defect is in the gate script itself with no runtime dependency, so its own unit suite is the stable reproduction authority: the new test builds a repository where a later range cites a record written by an earlier one and asserts the refusal, and it fails on the parent where no such check exists.",
+  "test": "validation/self-dogfood/test_check_fix_policy.py",
+  "command": [
+    "python3",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "validation/self-dogfood",
+    "-p",
+    "test_check_fix_policy.py"
+  ],
+  "timeoutSeconds": 120,
+  "affectedExitCode": 1,
+  "affectedEvidence": [
+    { "path": "validation/self-dogfood/evidence/exception-binding.log", "sha256": "sha256:5dd1f2d1686dab3e46b32683980e248daefa624be602119af6e266006d8bbc05" }
+  ]
+}

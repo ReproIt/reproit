@@ -242,6 +242,36 @@ class FixPolicyTests(unittest.TestCase):
         report = MODULE.review(self.repo, "HEAD~1", "HEAD")
         self.assertEqual(report["declared"][0]["declaration"]["id"], "vendor-sdk")
 
+    def test_an_exception_record_must_be_touched_by_the_range_that_cites_it(
+        self,
+    ) -> None:
+        """An exception was the only declaration kind bound to nothing.
+
+        A guard must be required in that tree, a no-repro test is executed and
+        must fail at the parent, and a not-a-fix record must change with its
+        declaration. An exception could cite any record already in history, so
+        a commit could satisfy the gate with a declaration that is
+        syntactically valid and semantically false.
+        """
+        self.write_exception("vendor-sdk", "unsupported-capability")
+        self.write("crates/reproit/src/lib.rs", "fn main() {}\n")
+        self.commit(
+            "First\n\nReproit-Dogfood: exception:unsupported-capability:vendor-sdk\n"
+        )
+        # A later, separate range citing that record touches nothing that binds
+        # the declaration to this change, so it must be refused.
+        self.write("crates/reproit/src/later.rs", "fn later() {}\n")
+        self.commit(
+            "Later\n\nReproit-Dogfood: exception:unsupported-capability:vendor-sdk\n"
+        )
+        with self.assertRaisesRegex(MODULE.PolicyError, "not touched by this range"):
+            MODULE.review(self.repo, "HEAD~1", "HEAD")
+
+        # Reviewing both commits together still passes, so a follow-up in the
+        # same push may cite a record its sibling wrote.
+        report = MODULE.review(self.repo, "HEAD~2", "HEAD")
+        self.assertEqual(len(report["declared"]), 2)
+
     def test_an_untyped_exception_code_is_rejected(self) -> None:
         self.write_exception("vendor-sdk", "made-up")
         self.write("crates/reproit/src/lib.rs", "fn main() {}\n")
