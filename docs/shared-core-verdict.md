@@ -43,25 +43,25 @@ a `URLProtocol`, a module prepend) whatever the core is written in.
 3. **PHP effectively cannot consume it.** A native core needs FFI or an
    extension, and the SDK deliberately stays stdlib only.
 4. **Mobile multiplies the build matrix.** Android and iOS would each need per
-   architecture builds of the core, adding release surface to SDKs that are
-   community tier, not core tier.
+   architecture builds of the core, adding release surface to two SDKs that
+   already carry the full support promise.
 5. **The saving is in the wrong place.** Under 5 percent of production code, in
    exchange for a build and distribution problem in every language at once.
 
 ## What to do instead, and it is already done
 
 Extend the vectors when a new behavior needs pinning, which costs one JSON edit
-plus a small hookup per SDK, and gate the core tier in CI so a regression is
-caught on the push that causes it (`sdk/TIERS.json`, `docs/sdk-tiers.md`, the
-`sdk-backend-core` job).
+plus a small hookup per SDK, and gate every SDK in CI so a regression is caught
+on the push that causes it (`sdk/INVENTORY.json`, `docs/sdk-support.md`, the
+`sdk-backend-reference` and `sdk-backend-ports` jobs).
 
 ## When to revisit
 
 - if the vectors stop being sufficient, meaning a defect class lands that they
   structurally cannot express
 - if the SDK count grows well past eleven, changing the arithmetic
-- if the core tier shrinks to languages that can all consume a native library
-  cheaply, which today would mean dropping PHP, Ruby, and mobile from the
-  promise
+- if the set of shipped SDKs shrinks to languages that can all consume a native
+  library cheaply, which today would mean dropping PHP, Ruby, and mobile
+  entirely, not demoting them: there is no tier to demote into
 
 None of those hold now.

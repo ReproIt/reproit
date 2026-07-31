@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "sdk-tiers-abolished",
+  "changeType": "tooling",
+  "detail": "Founder decision: there is no SDK support tiering. If an SDK is in ReproIt it is fully supported, which is the same promise the site copy already makes and must never hedge. sdk/TIERS.json and sdk/check-tiers.py are deleted rather than relabeled, so no vestigial tier field survives; sdk/INVENTORY.json plus sdk/check-inventory.py replace them with a plain inventory that asserts every SDK directory has a declared, blocking gate in ci.yml, refuses a gate string that does not name the SDK's own directory or cargo package, and refuses continue-on-error: true anywhere in the workflow because a job that reports and lets the build pass is a support tier spelled in YAML. Seven SDKs had no mention in ci.yml at all (backend-java, backend-dotnet, backend-rb, backend-php, tauri, recorder-node, and tui-rs, the last gated only by accident of workspace membership) and now have jobs; four more ran only part of their suite (linux 4 of 7 files, tui-py 2 of 5, tui-ts 2 of 4, flutter without its six example fixture suites), plus backend-node and backend-py skipping their e2e file and android compiling 9 of its 10 JUnit classes, and all of those now run. Every suite was executed the way CI invokes it before being declared gated; all pass. Two real defects surfaced from gating rather than from relabeling: the Ruby SDK's suite is not process-shareable because replay_test.rb sets REPROIT_REPLAY at load time and never unsets it, so CI runs one ruby process per file and the wart is documented instead of hidden; and the Tauri plugin's committed generated permission surface had drifted from permissions/default.toml because no job ever compiled that separate cargo workspace, so the crate is now clippy-gated on linux and a git diff --exit-code over permissions/ keeps the artifacts honest. check-behavior-coverage.py also stops counting src/ and test/ as not-applicable SDKs, which had inflated that count from one to three. No runtime behavior changes.",
+  "evidence": [
+    {
+      "path": "sdk/INVENTORY.json",
+      "sha256": "sha256:b729d968889c71c95f24ffcc40c56292744b7e7e3b69131e519278962b50969f"
+    },
+    {
+      "path": "docs/sdk-support.md",
+      "sha256": "sha256:a3dc3c899d2a26afdf164119afcadbeb17e7a553dc632b5eaa6a64eb844d0371"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "sha256:1463a9ce60378e7afdbd436eb912a790b6a19e4cc0d3fd9234d4e4acd1c5c1d8"
+    }
+  ]
+}

@@ -32,9 +32,9 @@ from pathlib import Path
 SDK_DIR = Path(__file__).resolve().parent
 VECTORS = SDK_DIR / "capture-behavior-v1.json"
 
-# Directories under sdk/ that are not SDKs. Kept identical to check-tiers.py's
-# list on purpose: two checkers disagreeing about what an SDK is would be a
-# third way to lose one.
+# Directories under sdk/ that are not SDKs. Kept identical to
+# check-inventory.py's list on purpose: two checkers disagreeing about what an
+# SDK is would be a third way to lose one.
 NOT_AN_SDK = {"src", "test", "node_modules"}
 
 # The token a test file must contain to count as executing a group. A group
@@ -50,7 +50,23 @@ def main() -> int:
     roles = coverage["roles"]
     sdks = coverage["sdks"]
     not_applicable = coverage["notApplicable"]
+    # `notApplicable` used to also carry src/ and test/, which are not SDKs at
+    # all, so the summary line read "3 accounted for as not applicable" when the
+    # true number of SDKs the vectors are meaningless for was one. Two claims
+    # that different deserve two fields.
+    not_an_sdk = coverage["notAnSdk"]
     problems: list[str] = []
+
+    for name in sorted(set(not_an_sdk) - NOT_AN_SDK):
+        problems.append(
+            f"{name}: listed under notAnSdk but this checker treats it as an "
+            "SDK directory, so it would still need to execute the vectors"
+        )
+    for name in sorted(set(not_applicable) & NOT_AN_SDK):
+        problems.append(
+            f"{name}: is not an SDK, so notApplicable is the wrong field for "
+            "it; that is how the not-applicable count came to overstate itself"
+        )
 
     for group in (g for role in roles.values() for g in role["requiredGroups"]):
         node = document
@@ -65,7 +81,7 @@ def main() -> int:
         for path in SDK_DIR.iterdir()
         if path.is_dir() and not path.name.startswith(".")
     }
-    listed = set(sdks) | set(not_applicable)
+    listed = set(sdks) | set(not_applicable) | set(not_an_sdk)
     for name in sorted(found - listed - NOT_AN_SDK):
         problems.append(
             f"{name} exists under sdk/ and the coverage table does not mention it. "
@@ -110,7 +126,8 @@ def main() -> int:
     summary = ", ".join(f"{count} {role}" for role, count in sorted(counts.items()))
     print(
         f"behavior vector coverage: {len(sdks)} SDKs execute the vectors "
-        f"({summary}); {len(not_applicable)} accounted for as not applicable"
+        f"({summary}); {len(not_applicable)} SDK accounted for as not "
+        f"applicable, {len(not_an_sdk)} directories are not SDKs"
     )
     return 0
 
