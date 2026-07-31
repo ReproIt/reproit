@@ -403,6 +403,13 @@ jobs:
       # shared process leaves every later file replaying against a spent
       # capture: 2 failures and 4 errors, none of them real. Splitting is
       # honest about the SDK's process-global state instead of hiding it.
+      # e2e_test.rb's own header states it needs webrick and rack; nothing
+      # installed them, so it died on `cannot load such file -- rack` the first
+      # time every ruby file was gated. Versions are pinned rather than floating
+      # for the same reason the junit jars are digest-verified: a gate should
+      # state what it needs, not accept whatever the registry serves that day.
+      - name: Install the ruby SDK's declared test dependencies
+        run: gem install --no-document webrick -v 1.9.1 rack -v 3.2.6
       - name: ruby (reproit-backend-rb)
         run: |
           ruby sdk/reproit-backend-rb/test/trace_test.rb
