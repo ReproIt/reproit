@@ -41,6 +41,11 @@ import {
   fnv1a,
   loadValueNodes,
 } from '../shared/signature.mjs';
+// The in-page DOM predicates and the selector resolver are SHARED with the
+// Electron and Tauri runners. `role:<role>#<idx>` is an identity, so the walk
+// that assigns the index and the walk that resolves it must be the same code,
+// on every DOM runner. See shared/dom-walk.mjs for why there is one copy.
+import { detectContentBugs, resolveStructuralTarget } from '../shared/dom-walk.mjs';
 import {
   gridPoints,
   changedFraction,
@@ -559,160 +564,6 @@ function churnedAnchors(sel) {
   return churned;
 }
 
-// CONTENT-BUG oracle (deterministic, DOM/label-based). A rendered label that is
-// clearly broken CONTENT: a literal artifact a stringify/template bug leaks to the
-// screen, matched on STRUCTURE (a literal token), never a pixel or timing read, so
-// the same DOM yields the same finding byte-for-byte on every run and on replay.
-// Only two GROUND-TRUTH artifacts fire, both impossible to render as legitimate
-// copy:
-//   - [object Object]   : an object coerced to a string label (the canonical bug)
-//   - {{ ... }} / ${ }  : an unrendered template placeholder (the binding never ran)
-// The bare words `undefined`/`null`/`NaN` are NOT matched: they occur in real copy
-// ("undefined behavior", a "Null Island" map pin, a "NaN" glossary entry) and in
-// code samples, so keying on them false-positived on legitimate content. We fire
-// only when the template binding itself or the object-coercion literal survived
-// into the DOM -- neither has a benign rendered form.
-// We scan only the OWN text of keyed, visible elements (id/testid/name), so the
-// finding is addressed by a stable, locale-invariant key (never the text itself),
-// and a parent's text is not double-counted against every descendant. Text inside
-// a CODE context (<code>/<pre>/<script>/<style>/<textarea>/[contenteditable]) is
-// SKIPPED: those legitimately display template/markup syntax (docs, code samples),
-// so a `{{ user.name }}` shown as documentation is not a leaked binding.
-// Empty/whitespace labels are NOT flagged here (that is an a11y/semantics concern,
-// handled elsewhere); this oracle is strictly about VISIBLE broken content. Clean
-// apps render neither token, so the control stays silent (no marker, no finding).
-function detectContentBugs(injectedValues) {
-  // Fuzzer provenance: a value reproit's own fuzzer TYPED into the app this run,
-  // reflected back into a label, is not the app's broken content -- it is our probe
-  // echoed (the XSS/template-injection probe `"><img src=x onerror=alert(1)>{{7*7}}`
-  // reflected into a <strong> was a false positive). Mirror brokenAssetScan: skip a
-  // label whose text contains, or is contained by, a non-trivial injected value.
-  const injected = (Array.isArray(injectedValues) ? injectedValues : [])
-    .map((v) => String(v == null ? '' : v).toLowerCase())
-    .filter((v) => v.length > 0);
-  const fromFuzzInjection = (text) => {
-    const n = String(text || '').toLowerCase();
-    if (!n) return false;
-    // Direct: the whole label is fuzzer-provenanced (either containment direction).
-    if (injected.some((v) => n.indexOf(v) !== -1 || (v.length >= 3 && v.indexOf(n) !== -1)))
-      return true;
-    // Fragmented: when the browser PARSES a reflected probe (e.g.
-    // `"><img src=x onerror=alert(1)>{{7*7}}`), the `<img>` markup is stripped from
-    // the visible text, leaving a fragment that is not a contiguous substring of the
-    // raw injected value. So also check the specific ARTIFACT tokens that trigger a
-    // finding -- a `{{...}}`/`${...}` binding, or the object-coercion literal -- for
-    // fuzzer provenance (the probe that produced them was typed by us).
-    const arts = [];
-    const tm = n.match(/\{\{[^}]*\}\}/g);
-    if (tm) arts.push(...tm);
-    const dm = n.match(/\$\{[^}]*\}/g);
-    if (dm) arts.push(...dm);
-    if (n.indexOf('[object object]') !== -1) arts.push('[object object]');
-    return arts.some((a) => injected.some((v) => v.indexOf(a) !== -1));
-  };
-  const visible = (el) => {
-    const r = el.getBoundingClientRect();
-    if (r.width === 0 || r.height === 0) return false;
-    const st = getComputedStyle(el);
-    return st.visibility !== 'hidden' && st.display !== 'none';
-  };
-  // A CODE context legitimately shows template/markup syntax as literal text
-  // (documentation, a code sample, an editable field), so its text is never a
-  // leaked binding. True if the element or any ancestor is a code container or is
-  // contenteditable.
-  const CODE_TAGS = new Set(['code', 'pre', 'script', 'style', 'textarea']);
-  const inCodeContext = (el) => {
-    if (el.isContentEditable) return true;
-    for (let n = el; n && n !== document.body; n = n.parentElement) {
-      if (CODE_TAGS.has(n.tagName.toLowerCase())) return true;
-    }
-    return false;
-  };
-  const keyOf = (el) => {
-    const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
-    if (tid) return 'testid:' + tid;
-    const id = (el.getAttribute('id') || '').trim();
-    if (id) return 'id:' + id;
-    const name = (el.getAttribute('name') || '').trim();
-    if (name) return 'name:' + name;
-    return null;
-  };
-  // The OWN (non-descendant) trimmed text of an element: only text directly under
-  // it, so a container's text isn't attributed to it via its children.
-  const ownText = (el) => {
-    let t = '';
-    for (const c of el.childNodes) if (c.nodeType === 3) t += c.textContent;
-    return t.replace(/\s+/g, ' ').trim();
-  };
-  // The artifact classifiers. Each returns a stable reason tag or null. Order is
-  // fixed and the first match wins, so a label can only carry one reason.
-  // Shared PROSE GUARD: a real leaked artifact IS the label (a bare token, or a
-  // short field-name prefix like "Price: X"). Documentation PROSE that merely
-  // MENTIONS the token -- "The rendered result will be [object Object] because...",
-  // "As with transitions... the double {{ }} syntax" -- has natural-language words
-  // around it. Fire only when, with the artifact(s) removed, the remainder is a
-  // SHORT label with no sentence structure. This kills the docs-site FP for BOTH
-  // the object-coercion literal AND the template-brace token (every templating
-  // framework's docs shows `{{ }}` in prose).
-  const dominates = (stripped) => stripped.length <= 24 && !/[.!?]/.test(stripped);
-  const reasonOf = (text) => {
-    if (!text) return null;
-    if (text.includes('[object Object]')) {
-      const s = text
-        .replace(/\[object Object\]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (dominates(s)) return 'object-object';
-      // else prose mention -- fall through to the template check below.
-    }
-    // An unrendered template placeholder: a `{{ expr }}` or `${ expr }` survived
-    // into the DOM (the binding engine never evaluated it), gated by the prose guard.
-    if (/\{\{[^}]*\}\}/.test(text) || /\$\{[^}]*\}/.test(text)) {
-      const s = text
-        .replace(/\{\{[^}]*\}\}/g, ' ')
-        .replace(/\$\{[^}]*\}/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (dominates(s)) return 'unrendered-template';
-    }
-    return null;
-  };
-  const out = [];
-  const seen = new Set();
-  const all = document.body ? document.body.querySelectorAll('*') : [];
-  // Document-order index per tag, so an UNKEYED element still gets a stable,
-  // distinct positional key (`tag:<tag>#<idx>`) -- a plain `<span>[object
-  // Object]</span>` with no id/testid was silently skipped before, missing a
-  // whole common class of broken-render artifacts. Same grammar as the overflow
-  // oracle's tag fallback; the index keeps two unkeyed artifacts from colliding.
-  const tagIdx = {};
-  for (const el of all) {
-    if (!visible(el)) continue;
-    if (inCodeContext(el)) continue;
-    const tag = el.tagName.toLowerCase();
-    const n = tagIdx[tag] || 0;
-    tagIdx[tag] = n + 1;
-    const key = keyOf(el) || 'tag:' + tag + '#' + n;
-    const text = ownText(el);
-    const reason = reasonOf(text);
-    if (!reason) continue;
-    // Reflected fuzzer probe, not the app's own content -> not a bug.
-    if (fromFuzzInjection(text)) continue;
-    const dedup = key + '|' + reason;
-    if (seen.has(dedup)) continue;
-    seen.add(dedup);
-    // Clip the offending text so the marker stays bounded; the reason+key are the
-    // stable identity, the text is human detail.
-    out.push({ key, reason, text: text.slice(0, 80) });
-  }
-  // Stable order: by key then reason, so the marker is byte-identical run to run.
-  out.sort((a, b) =>
-    a.key < b.key ? -1 : a.key > b.key ? 1 : a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0,
-  );
-  return out;
-}
-
-// JANK / HANG watchdog (deterministic, recorded-trace based). The wall-clock
 // DURATION of a synchronous handler flakes near any threshold, so we do NOT
 // sample it: we key off the browser's own Long Tasks trace. A `longtask`
 // PerformanceObserver entry is emitted for any task that blocks the main thread

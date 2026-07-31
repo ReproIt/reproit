@@ -170,9 +170,8 @@ const GROUNDTRUTH_JS = `
     if (['a', 'button', 'select'].includes(tag)) return true;
     if (tag === 'input' || tag === 'textarea') return true;
     if (role === 'textfield') return true;
-    if (
-      ['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role)
-    ) return true;
+    if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role))
+      return true;
     if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
     return false;
   };
@@ -392,104 +391,13 @@ async function emitGroundtruth(browser, sig) {
 
 // PARITY: keep in sync with runners/web/runner.mjs (overflow oracle).
 //
-// CONTENT-BUG oracle (deterministic, DOM/label-based). The literal artifacts a
-// stringify/template bug leaks to the screen: [object Object], whole-word
-// undefined/null/NaN, an unrendered {{...}}/${...} placeholder. Scans only the
-// OWN text of keyed, visible elements so the finding is addressed by a stable,
-// locale-invariant key (never the text). Pure substring/structure test, no pixel
-// or timing read, so the same DOM yields the same finding on every run/replay.
-// Identical to the web runner; runs in-webview via browser.execute.
-const DETECT_CONTENTBUG_JS = `
-  // Fuzzer provenance (mirrors the web tier): a reflected fuzzer probe is not the
-  // app's own broken content. arguments[0] is the injected-values array passed by
-  // browser.execute(DETECT_CONTENTBUG_JS, [...INJECTED_VALUES]).
-  const injected = (Array.isArray(arguments[0]) ? arguments[0] : [])
-    .map((v) => String(v == null ? '' : v).toLowerCase())
-    .filter((v) => v.length > 0);
-  const fromFuzzInjection = (text) => {
-    const n = String(text || '').toLowerCase();
-    if (!n) return false;
-    if (injected.some(
-      (v) => n.indexOf(v) !== -1 || (v.length >= 3 && v.indexOf(n) !== -1),
-    )) return true;
-    // Fragmented reflection: the browser parsed markup out of the probe, so the
-    // visible text is a fragment; check the specific artifact tokens for provenance.
-    const arts = [];
-    const tm = n.match(/\\{\\{[^}]*\\}\\}/g); if (tm) arts.push(...tm);
-    const dm = n.match(/\\$\\{[^}]*\\}/g); if (dm) arts.push(...dm);
-    if (n.indexOf('[object object]') !== -1) arts.push('[object object]');
-    return arts.some((a) => injected.some((v) => v.indexOf(a) !== -1));
-  };
-  const visible = (el) => {
-    const r = el.getBoundingClientRect();
-    if (r.width === 0 || r.height === 0) return false;
-    const st = getComputedStyle(el);
-    return st.visibility !== 'hidden' && st.display !== 'none';
-  };
-  const CODE_TAGS = new Set(['code', 'pre', 'script', 'style', 'textarea']);
-  const inCodeContext = (el) => {
-    if (el.isContentEditable) return true;
-    for (let n = el; n && n !== document.body; n = n.parentElement) {
-      if (CODE_TAGS.has(n.tagName.toLowerCase())) return true;
-    }
-    return false;
-  };
-  const keyOf = (el) => {
-    const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
-    if (tid) return 'testid:' + tid;
-    const id = (el.getAttribute('id') || '').trim();
-    if (id) return 'id:' + id;
-    const name = (el.getAttribute('name') || '').trim();
-    if (name) return 'name:' + name;
-    return null;
-  };
-  const ownText = (el) => {
-    let t = '';
-    for (const c of el.childNodes) if (c.nodeType === 3) t += c.textContent;
-    return t.replace(/\\s+/g, ' ').trim();
-  };
-  // Prose guard for BOTH artifact kinds: fire only when the artifact IS the label,
-  // never when docs prose merely mentions "[object Object]" or the "{{ }}" syntax.
-  const dominates = (s) => s.length <= 24 && !/[.!?]/.test(s);
-  const reasonOf = (text) => {
-    if (!text) return null;
-    if (text.includes('[object Object]')) {
-      const s = text.replace(/\\[object Object\\]/g, ' ').replace(/\\s+/g, ' ').trim();
-      if (dominates(s)) return 'object-object';
-    }
-    if (/\\{\\{[^}]*\\}\\}/.test(text) || /\\$\\{[^}]*\\}/.test(text)) {
-      const s = text
-        .replace(/\\{\\{[^}]*\\}\\}/g, ' ')
-        .replace(/\\$\\{[^}]*\\}/g, ' ')
-        .replace(/\\s+/g, ' ')
-        .trim();
-      if (dominates(s)) return 'unrendered-template';
-    }
-    return null;
-  };
-  const out = [];
-  const seen = new Set();
-  const all = document.body ? document.body.querySelectorAll('*') : [];
-  for (const el of all) {
-    if (!visible(el)) continue;
-    if (inCodeContext(el)) continue;
-    const key = keyOf(el);
-    if (!key) continue;
-    const text = ownText(el);
-    const reason = reasonOf(text);
-    if (!reason) continue;
-    if (fromFuzzInjection(text)) continue;
-    const dedup = key + '|' + reason;
-    if (seen.has(dedup)) continue;
-    seen.add(dedup);
-    out.push({ key, reason, text: text.slice(0, 80) });
-  }
-  out.sort((a, b) => (
-    a.key < b.key ? -1 : a.key > b.key ? 1 :
-      (a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0)
-  ));
-  return out;
-`;
+// CONTENT-BUG oracle, run in-webview via browser.execute. The body is the
+// SHARED detectContentBugs (shared/dom-walk.mjs) rendered as an execute()
+// source string; arguments[0] is the injected-values array. The copy this file
+// carried skipped every element with no id/testid/name, so a bare
+// `<span>[object Object]</span>` produced NO finding while content-bug was
+// declared supported here -- an absent finding reading exactly like a clean run.
+const DETECT_CONTENTBUG_JS = DETECT_CONTENT_BUGS_SRC;
 
 // PARITY: keep in sync with runners/web/runner.mjs (jank/hang watchdog).
 //

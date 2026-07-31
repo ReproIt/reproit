@@ -674,10 +674,62 @@ async function emitGroundtruth(page, cdp, sig) {
 }
 
 // STRUCTURAL tap: resolve a locale-invariant selector and click it. Returns
-// true on success. Mirrors runners/web/runner.mjs's tap(). No visible text is
-// ever used to locate the element.
+// true on success. Byte-identical to runners/web/runner.mjs's tap(): the SAME
+// shared resolver decides identity and the SAME real pointer activation drives
+// it, because the Electron renderer is Chromium behind the same Playwright API.
+// No visible text is ever used to locate the element.
 //   key:testid:<v> -> [data-testid="v"] (or data-test-id)
 //   key:id:<v>     -> #<v>
 //   key:name:<v>   -> [name="v"]
 //   role:<role>#<idx> -> the idx-th visible tappable of that role, document order
 async function tap(page, sel) {
+  const handle = await page.evaluateHandle(resolveStructuralTarget, sel).catch(() => null);
+  const target = handle ? handle.asElement() : null;
+  if (!target) {
+    if (handle) await handle.dispose().catch(() => {});
+    return false;
+  }
+  const point = await page
+    .evaluate((el) => {
+      // Stash the clicked element for the post-tap oracle probes (the
+      // duplicate-submit eligibility check and the focus-loss guards read it
+      // in-page). A window ref only, never a DOM mutation, so the signature/
+      // content/mutation oracles are untouched.
+      try {
+        window.__reproitLastTap = el;
+        // Record whether the browser's own pointer activation focused the target,
+        // observed on the real click rather than manufactured. The runner used to
+        // call el.focus() here: focusLossCheck ignores that flag, so it bought
+        // nothing, while it parked focus on the tapped control and thereby
+        // manufactured the `pre === tapped` precondition for the NEXT action --
+        // exactly the false positive the guard was written to kill.
+        if (window.__reproitFocusProbe) {
+          window.__reproitTapFocused = false;
+          el.addEventListener(
+            'click',
+            () => {
+              window.__reproitTapFocused = document.activeElement === el;
+            },
+            { capture: true, once: true },
+          );
+        }
+      } catch (_) {}
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return null;
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    }, target)
+    .catch(() => null);
+  await target.dispose().catch(() => {});
+  if (!point) return false;
+  try {
+    // A REAL pointer activation through the driver, never el.click(). el.click()
+    // dispatches an untrusted event straight at the node, so it skips hit-testing
+    // and "succeeds" on a control an overlay completely covers; the runner then
+    // reports an action a user could not have performed, and every oracle after
+    // the tap judges a state no user can reach.
+    await page.mouse.click(point.x, point.y, { delay: 10 });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}

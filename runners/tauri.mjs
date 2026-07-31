@@ -1,21 +1,21 @@
-import{mkdirSync as K,writeFileSync as se}from"node:fs";import{join as W}from"node:path";import{signatureOf as ce,descriptorOf as le,valueClass as Oe,fnv1a as _e,loadValueNodes as Re}from"./shared/signature.mjs";import{loadFuzz as Ae,rng as Ce,INJECTED_VALUES as Z,expandEnv as Te}from"./shared/fuzz.mjs";import{execFileSync as Ne,spawn as ue}from"node:child_process";import{platform as Q}from"node:os";import{CHOICE_ANOMALY_IN_PAGE_SRC as Ie,CHOICE_OUTLIER_RATIO as Le,CHOICE_MIN_MAGNITUDE as Pe,CHOICE_ROLES as Fe}from"./web/choice-oracle.mjs";import{occlusionScan as de,confirmOcclusions as Je,securityScan as De,focusLossArm as Ue,focusLossCheck as Me,blankScreenScan as fe,brokenAssetScan as We,zoomTappableKeys as He,zoomReflowScan as Be,scrollRoundTripScan as je}from"./web/hygiene-oracles.mjs";import{layoutOverflowScan as he,confirmLayoutOverflow as qe}from"./web/overflow-oracle.mjs";import{zeroContrastScan as Ye}from"./web/zero-contrast-oracle.mjs";import{inspectPlatformStep as ze}from"./inspect-control.mjs";const Ge=`
-  var __reproitChoiceFn = ${Ie};
+import{mkdirSync as j,writeFileSync as se}from"node:fs";import{join as W}from"node:path";import{signatureOf as ce,descriptorOf as le,valueClass as xe,fnv1a as Re,loadValueNodes as Te}from"./shared/signature.mjs";import{loadFuzz as Ae,rng as Ne,INJECTED_VALUES as Z,expandEnv as Ce}from"./shared/fuzz.mjs";import{RESOLVE_STRUCTURAL_TARGET_SRC as ue,DETECT_CONTENT_BUGS_SRC as Ie}from"./shared/dom-walk.mjs";import{execFileSync as Le,spawn as de}from"node:child_process";import{platform as Q}from"node:os";import{CHOICE_ANOMALY_IN_PAGE_SRC as Pe,CHOICE_OUTLIER_RATIO as Fe,CHOICE_MIN_MAGNITUDE as Je,CHOICE_ROLES as De}from"./web/choice-oracle.mjs";import{occlusionScan as fe,confirmOcclusions as Ue,securityScan as Me,focusLossArm as We,focusLossCheck as He,blankScreenScan as he,brokenAssetScan as Be,zoomTappableKeys as Ye,zoomReflowScan as Ge,scrollRoundTripScan as Xe}from"./web/hygiene-oracles.mjs";import{layoutOverflowScan as ge,confirmLayoutOverflow as qe}from"./web/overflow-oracle.mjs";import{zeroContrastScan as Ve}from"./web/zero-contrast-oracle.mjs";import{inspectPlatformStep as $e}from"./inspect-control.mjs";const ze=`
+  var __reproitChoiceFn = ${Pe};
   var __reproitDone = arguments[arguments.length - 1];
   __reproitChoiceFn({
     settleMs: 600,
-    ratio: ${Le},
-    minMag: ${Pe},
-    choiceRoles: ${JSON.stringify(Fe)},
+    ratio: ${Fe},
+    minMag: ${Je},
+    choiceRoles: ${JSON.stringify(De)},
   }).then(function (findings) { __reproitDone(findings || []); })
     .catch(function () { __reproitDone([]); });
-`,$e=`
-  var __srtFn = ${je.toString()};
+`,Ke=`
+  var __srtFn = ${Xe.toString()};
   var __srtDone = arguments[arguments.length - 1];
   Promise.resolve(__srtFn()).then(function (items) { __srtDone(items || []); })
     .catch(function () { __srtDone([]); });
-`,H=process.env.REPROIT_APP,Xe=process.env.REPROIT_WEBDRIVER_URL||"http://127.0.0.1:4444",B=process.env.REPROIT_VIDEO_DIR||void 0,j=process.env.REPROIT_PROBE==="1",Ve=36,Yt=40,Ke=8;function o(t){process.stdout.write(t+`
-`)}async function ge(t,r){const i=process.env.REPROIT_SHOTS_DIR;if(i)try{K(i,{recursive:!0});const e=await t.takeScreenshot();se(W(i,r+".png"),Buffer.from(e,"base64"))}catch{}o("SHOOT:"+r)}import{snapshotJs as Ze}from"./tauri-snapshot.mjs";async function Qe(t,r){const i=await t.execute(Ze(r||[]));i.sig=ce(i.anchor,i.tree);const e=le(i.anchor,i.tree),s=e.indexOf(`
-V:`);return i.vsection=s>=0?e.slice(s+3):"",i.structuralSig=s>=0?_e(e.slice(0,s)):i.sig,i.content=i.sig+"|"+i.textNodes.map(a=>a[0]+"="+a[1]).join(";"),i}async function et(t){try{await t.executeAsync(r=>{const i=()=>new Promise(e=>requestAnimationFrame(()=>requestAnimationFrame(e)));(async()=>{await new Promise(e=>{let s=null,a=null;const l=()=>{if(a&&clearTimeout(a),p&&clearTimeout(p),s)try{s.disconnect()}catch{}e()},g=()=>{a&&clearTimeout(a),a=setTimeout(l,400)},p=setTimeout(l,1800);try{s=new MutationObserver(g),s.observe(document.documentElement,{subtree:!0,childList:!0,attributes:!0,characterData:!0})}catch{}g()});try{const e=(document.getAnimations?document.getAnimations():[]).filter(s=>s.playState==="running");await Promise.race([Promise.allSettled(e.map(s=>s.finished)),new Promise(s=>setTimeout(s,800))])}catch{}await i(),r()})()})}catch{}}async function tt(t){try{return await t.execute(()=>{const r=(document.title||"").toLowerCase(),i=(document.body&&document.body.innerText||"").toLowerCase(),e=s=>s.test(r)||s.test(i);return document.querySelector('#challenge-running, #cf-challenge-running, #challenge-form, .cf-turnstile, [id^="cf-chl"], script[src*="challenge-platform"], iframe[src*="challenges.cloudflare.com"]')?{vendor:"Cloudflare",marker:"challenge-platform"}:e(/just a moment/)||e(/checking your browser before/)||e(/performing (a )?security verification/)||e(/enable javascript and cookies to continue/)?{vendor:"Cloudflare",marker:"interstitial"}:e(/attention required/)&&e(/cloudflare/)?{vendor:"Cloudflare",marker:"attention-required"}:document.querySelector('#px-captcha, .px-block, [class*="perimeterx"]')?{vendor:"PerimeterX",marker:"px-captcha"}:/ray id:/.test(i)&&i.length<1200?{vendor:"Cloudflare",marker:"ray-id-block"}:null})}catch{return null}}const nt=`
+`,H=process.env.REPROIT_APP,je=process.env.REPROIT_WEBDRIVER_URL||"http://127.0.0.1:4444",B=process.env.REPROIT_VIDEO_DIR||void 0,Y=process.env.REPROIT_PROBE==="1",Ze=36,$t=40,Qe=8;function o(t){process.stdout.write(t+`
+`)}async function me(t,r){const i=process.env.REPROIT_SHOTS_DIR;if(i)try{j(i,{recursive:!0});const e=await t.takeScreenshot();se(W(i,r+".png"),Buffer.from(e,"base64"))}catch{}o("SHOOT:"+r)}import{snapshotJs as et}from"./tauri-snapshot.mjs";async function tt(t,r){const i=await t.execute(et(r||[]));i.sig=ce(i.anchor,i.tree);const e=le(i.anchor,i.tree),s=e.indexOf(`
+V:`);return i.vsection=s>=0?e.slice(s+3):"",i.structuralSig=s>=0?Re(e.slice(0,s)):i.sig,i.content=i.sig+"|"+i.textNodes.map(a=>a[0]+"="+a[1]).join(";"),i}async function nt(t){try{await t.executeAsync(r=>{const i=()=>new Promise(e=>requestAnimationFrame(()=>requestAnimationFrame(e)));(async()=>{await new Promise(e=>{let s=null,a=null;const l=()=>{if(a&&clearTimeout(a),p&&clearTimeout(p),s)try{s.disconnect()}catch{}e()},g=()=>{a&&clearTimeout(a),a=setTimeout(l,400)},p=setTimeout(l,1800);try{s=new MutationObserver(g),s.observe(document.documentElement,{subtree:!0,childList:!0,attributes:!0,characterData:!0})}catch{}g()});try{const e=(document.getAnimations?document.getAnimations():[]).filter(s=>s.playState==="running");await Promise.race([Promise.allSettled(e.map(s=>s.finished)),new Promise(s=>setTimeout(s,800))])}catch{}await i(),r()})()})}catch{}}async function it(t){try{return await t.execute(()=>{const r=(document.title||"").toLowerCase(),i=(document.body&&document.body.innerText||"").toLowerCase(),e=s=>s.test(r)||s.test(i);return document.querySelector('#challenge-running, #cf-challenge-running, #challenge-form, .cf-turnstile, [id^="cf-chl"], script[src*="challenge-platform"], iframe[src*="challenges.cloudflare.com"]')?{vendor:"Cloudflare",marker:"challenge-platform"}:e(/just a moment/)||e(/checking your browser before/)||e(/performing (a )?security verification/)||e(/enable javascript and cookies to continue/)?{vendor:"Cloudflare",marker:"interstitial"}:e(/attention required/)&&e(/cloudflare/)?{vendor:"Cloudflare",marker:"attention-required"}:document.querySelector('#px-captcha, .px-block, [class*="perimeterx"]')?{vendor:"PerimeterX",marker:"px-captcha"}:/ray id:/.test(i)&&i.length<1200?{vendor:"Cloudflare",marker:"ray-id-block"}:null})}catch{return null}}const rt=`
   const ROLES = {
     screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
     icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
@@ -59,9 +59,8 @@ V:`);return i.vsection=s>=0?e.slice(s+3):"",i.structuralSig=s>=0?_e(e.slice(0,s)
     if (['a', 'button', 'select'].includes(tag)) return true;
     if (tag === 'input' || tag === 'textarea') return true;
     if (role === 'textfield') return true;
-    if (
-      ['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role)
-    ) return true;
+    if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role))
+      return true;
     if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
     return false;
   };
@@ -252,97 +251,7 @@ V:`);return i.vsection=s>=0?e.slice(s+3):"",i.structuralSig=s>=0?_e(e.slice(0,s)
   // Focus trap detection needs a real Tab traversal, which the webview can't do
   // from script; report false (a missing/false focusTrap is the safe default).
   return { elements: out, focusTrap: false };
-`;async function it(t,r){let i;try{i=await t.execute(nt)}catch{return}i&&o("EXPLORE:GROUNDTRUTH "+JSON.stringify({sig:r,focusTrap:!!i.focusTrap,elements:i.elements||[]}))}const rt=`
-  // Fuzzer provenance (mirrors the web tier): a reflected fuzzer probe is not the
-  // app's own broken content. arguments[0] is the injected-values array passed by
-  // browser.execute(DETECT_CONTENTBUG_JS, [...INJECTED_VALUES]).
-  const injected = (Array.isArray(arguments[0]) ? arguments[0] : [])
-    .map((v) => String(v == null ? '' : v).toLowerCase())
-    .filter((v) => v.length > 0);
-  const fromFuzzInjection = (text) => {
-    const n = String(text || '').toLowerCase();
-    if (!n) return false;
-    if (injected.some(
-      (v) => n.indexOf(v) !== -1 || (v.length >= 3 && v.indexOf(n) !== -1),
-    )) return true;
-    // Fragmented reflection: the browser parsed markup out of the probe, so the
-    // visible text is a fragment; check the specific artifact tokens for provenance.
-    const arts = [];
-    const tm = n.match(/\\{\\{[^}]*\\}\\}/g); if (tm) arts.push(...tm);
-    const dm = n.match(/\\$\\{[^}]*\\}/g); if (dm) arts.push(...dm);
-    if (n.indexOf('[object object]') !== -1) arts.push('[object object]');
-    return arts.some((a) => injected.some((v) => v.indexOf(a) !== -1));
-  };
-  const visible = (el) => {
-    const r = el.getBoundingClientRect();
-    if (r.width === 0 || r.height === 0) return false;
-    const st = getComputedStyle(el);
-    return st.visibility !== 'hidden' && st.display !== 'none';
-  };
-  const CODE_TAGS = new Set(['code', 'pre', 'script', 'style', 'textarea']);
-  const inCodeContext = (el) => {
-    if (el.isContentEditable) return true;
-    for (let n = el; n && n !== document.body; n = n.parentElement) {
-      if (CODE_TAGS.has(n.tagName.toLowerCase())) return true;
-    }
-    return false;
-  };
-  const keyOf = (el) => {
-    const tid = (el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '').trim();
-    if (tid) return 'testid:' + tid;
-    const id = (el.getAttribute('id') || '').trim();
-    if (id) return 'id:' + id;
-    const name = (el.getAttribute('name') || '').trim();
-    if (name) return 'name:' + name;
-    return null;
-  };
-  const ownText = (el) => {
-    let t = '';
-    for (const c of el.childNodes) if (c.nodeType === 3) t += c.textContent;
-    return t.replace(/\\s+/g, ' ').trim();
-  };
-  // Prose guard for BOTH artifact kinds: fire only when the artifact IS the label,
-  // never when docs prose merely mentions "[object Object]" or the "{{ }}" syntax.
-  const dominates = (s) => s.length <= 24 && !/[.!?]/.test(s);
-  const reasonOf = (text) => {
-    if (!text) return null;
-    if (text.includes('[object Object]')) {
-      const s = text.replace(/\\[object Object\\]/g, ' ').replace(/\\s+/g, ' ').trim();
-      if (dominates(s)) return 'object-object';
-    }
-    if (/\\{\\{[^}]*\\}\\}/.test(text) || /\\$\\{[^}]*\\}/.test(text)) {
-      const s = text
-        .replace(/\\{\\{[^}]*\\}\\}/g, ' ')
-        .replace(/\\$\\{[^}]*\\}/g, ' ')
-        .replace(/\\s+/g, ' ')
-        .trim();
-      if (dominates(s)) return 'unrendered-template';
-    }
-    return null;
-  };
-  const out = [];
-  const seen = new Set();
-  const all = document.body ? document.body.querySelectorAll('*') : [];
-  for (const el of all) {
-    if (!visible(el)) continue;
-    if (inCodeContext(el)) continue;
-    const key = keyOf(el);
-    if (!key) continue;
-    const text = ownText(el);
-    const reason = reasonOf(text);
-    if (!reason) continue;
-    if (fromFuzzInjection(text)) continue;
-    const dedup = key + '|' + reason;
-    if (seen.has(dedup)) continue;
-    seen.add(dedup);
-    out.push({ key, reason, text: text.slice(0, 80) });
-  }
-  out.sort((a, b) => (
-    a.key < b.key ? -1 : a.key > b.key ? 1 :
-      (a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0)
-  ));
-  return out;
-`,q=200,Y=2e3,at=`
+`;async function at(t,r){let i;try{i=await t.execute(rt)}catch{return}i&&o("EXPLORE:GROUNDTRUTH "+JSON.stringify({sig:r,focusTrap:!!i.focusTrap,elements:i.elements||[]}))}const ot=Ie,G=200,X=2e3,st=`
   try {
     if (!window.__reproitLongTaskHooked) {
       window.__reproitLongTaskHooked = true;
@@ -354,11 +263,11 @@ V:`);return i.vsection=s>=0?e.slice(s+3):"",i.structuralSig=s>=0?_e(e.slice(0,s)
     }
   } catch (_) { /* no Long Tasks API: jank/hang silent on this webview */ }
   return true;
-`,ot="try { window.__reproitLongTasks = []; } catch (_) {} return true;",st=`
+`,ct="try { window.__reproitLongTasks = []; } catch (_) {} return true;",lt=`
   const t = window.__reproitLongTasks || [];
   window.__reproitLongTasks = [];
   return t;
-`;async function me(t){try{await t.execute(at)}catch{}}async function ct(t){let r=[];try{r=await t.execute(st)}catch{return null}if(!r||!r.length)return null;const i=Math.max(...r);return i>=Y?{kind:"hang",bucket:Y,count:r.length}:i>=q?{kind:"jank",bucket:q,count:r.length}:null}const pe=100,lt=2,ut=350;function be(t){if(!t||!t.length)return null;let r=0;for(const a of t)a>=Y&&r++;if(r>0)return{kind:"hang",bucket:Y,count:r};let i=0,e=0;const s=t.length;for(;e<s;){if(t[e]<pe){e++;continue}let a=e,l=0,g=0;for(;a<s&&t[a]>=pe;)l+=t[a],t[a]>g&&(g=t[a]),a++;const p=a-e,S=g>=ut,E=p>=lt&&l>=q;(S||E)&&i++,e=a}return i>0?{kind:"jank",bucket:q,count:i}:null}const dt=`
+`;async function pe(t){try{await t.execute(st)}catch{}}async function ut(t){let r=[];try{r=await t.execute(lt)}catch{return null}if(!r||!r.length)return null;const i=Math.max(...r);return i>=X?{kind:"hang",bucket:X,count:r.length}:i>=G?{kind:"jank",bucket:G,count:r.length}:null}const we=100,dt=2,ft=350;function be(t){if(!t||!t.length)return null;let r=0;for(const a of t)a>=X&&r++;if(r>0)return{kind:"hang",bucket:X,count:r};let i=0,e=0;const s=t.length;for(;e<s;){if(t[e]<we){e++;continue}let a=e,l=0,g=0;for(;a<s&&t[a]>=we;)l+=t[a],t[a]>g&&(g=t[a]),a++;const p=a-e,S=g>=ft,O=p>=dt&&l>=G;(S||O)&&i++,e=a}return i>0?{kind:"jank",bucket:G,count:i}:null}const ht=`
   try {
     if (!window.__reproitFrameHooked) {
       window.__reproitFrameHooked = true;
@@ -377,19 +286,19 @@ V:`);return i.vsection=s>=0?e.slice(s+3):"",i.structuralSig=s>=0?_e(e.slice(0,s)
     }
   } catch (_) { /* no rAF: cross-engine jank/hang silent (never a false positive) */ }
   return true;
-`,ft="try { window.__reproitFrameIntervals = []; } catch (_) {} return true;",ht=`
+`,gt="try { window.__reproitFrameIntervals = []; } catch (_) {} return true;",mt=`
   const t = window.__reproitFrameIntervals || [];
   window.__reproitFrameIntervals = [];
   return t;
-`;async function we(t){try{await t.execute(dt)}catch{}}async function gt(t){let r=[];try{r=await t.execute(ht)}catch{return null}return be(r)}async function mt(t){const r=await ct(t);return r||gt(t)}const pt=`
+`;async function ye(t){try{await t.execute(ht)}catch{}}async function pt(t){let r=[];try{r=await t.execute(mt)}catch{return null}return be(r)}async function wt(t){const r=await ut(t);return r||pt(t)}const bt=`
   try {
     if (performance.memory && typeof performance.memory.usedJSHeapSize === 'number') {
       return performance.memory.usedJSHeapSize;
     }
   } catch (_) {}
   return null;
-`;function N(t,r){try{const i=Ne(t,r,{encoding:"utf8",stdio:["ignore","pipe","ignore"],timeout:5e3});return i==null?null:String(i)}catch{return null}}function ye(t){if(!t)return null;if(Q()==="win32"){const s=t.split(/[\\/]/).pop()||t,a=N("tasklist",["/FI","IMAGENAME eq "+s,"/FO","CSV","/NH"]);if(a==null)return null;const l=[];for(const g of a.split(/\r?\n/)){const p=g.match(/^"[^"]*","(\d+)"/);p&&l.push(parseInt(p[1],10))}return l.length!==1||!Number.isFinite(l[0])||l[0]<=0?null:l[0]}const i=N("ps",["-axww","-o","pid=,comm="]);if(i==null)return null;const e=[];for(const s of i.split(`
-`)){const a=s.match(/^\s*(\d+)\s+(.*)$/);a&&a[2].trim()===t&&e.push(parseInt(a[1],10))}return e.length!==1||!Number.isFinite(e[0])||e[0]<=0?null:e[0]}function bt(t){if(!(t>0))return null;if(Q()==="win32"){const e=N("tasklist",["/FI","PID eq "+t,"/FO","CSV","/NH"]);if(e==null)return null;const s=e.match(/"([\d.,]+)\s*K"/);if(!s)return null;const a=parseInt(s[1].replace(/[.,]/g,""),10);return!Number.isFinite(a)||a<=0?null:a*1024}const r=N("ps",["-o","rss=","-p",String(t)]);if(r==null)return null;const i=parseInt(r.trim(),10);return!Number.isFinite(i)||i<=0?null:i*1024}async function ee(t,r,i){if(i&&(i.tried||(i.tried=!0,i.pid=ye(H)),i.pid>0)){const s=bt(i.pid);if(s!=null){o("MEMORY:SAMPLE "+JSON.stringify({t_ms:r,heap_used:s}));return}}let e=null;try{e=await t.execute(pt)}catch{e=null}e!=null&&o("MEMORY:SAMPLE "+JSON.stringify({t_ms:r,heap_used:e}))}const wt=`
+`;function C(t,r){try{const i=Le(t,r,{encoding:"utf8",stdio:["ignore","pipe","ignore"],timeout:5e3});return i==null?null:String(i)}catch{return null}}function ve(t){if(!t)return null;if(Q()==="win32"){const s=t.split(/[\\/]/).pop()||t,a=C("tasklist",["/FI","IMAGENAME eq "+s,"/FO","CSV","/NH"]);if(a==null)return null;const l=[];for(const g of a.split(/\r?\n/)){const p=g.match(/^"[^"]*","(\d+)"/);p&&l.push(parseInt(p[1],10))}return l.length!==1||!Number.isFinite(l[0])||l[0]<=0?null:l[0]}const i=C("ps",["-axww","-o","pid=,comm="]);if(i==null)return null;const e=[];for(const s of i.split(`
+`)){const a=s.match(/^\s*(\d+)\s+(.*)$/);a&&a[2].trim()===t&&e.push(parseInt(a[1],10))}return e.length!==1||!Number.isFinite(e[0])||e[0]<=0?null:e[0]}function yt(t){if(!(t>0))return null;if(Q()==="win32"){const e=C("tasklist",["/FI","PID eq "+t,"/FO","CSV","/NH"]);if(e==null)return null;const s=e.match(/"([\d.,]+)\s*K"/);if(!s)return null;const a=parseInt(s[1].replace(/[.,]/g,""),10);return!Number.isFinite(a)||a<=0?null:a*1024}const r=C("ps",["-o","rss=","-p",String(t)]);if(r==null)return null;const i=parseInt(r.trim(),10);return!Number.isFinite(i)||i<=0?null:i*1024}async function ee(t,r,i){if(i&&(i.tried||(i.tried=!0,i.pid=ve(H)),i.pid>0)){const s=yt(i.pid);if(s!=null){o("MEMORY:SAMPLE "+JSON.stringify({t_ms:r,heap_used:s}));return}}let e=null;try{e=await t.execute(bt)}catch{e=null}e!=null&&o("MEMORY:SAMPLE "+JSON.stringify({t_ms:r,heap_used:e}))}const vt=`
   if (!window.__reproit_hooked) {
     window.__reproit_hooked = true;
     window.__reproit_errors = [];
@@ -421,225 +330,35 @@ V:`);return i.vsection=s>=0?e.slice(s+3):"",i.structuralSig=s>=0?_e(e.slice(0,s)
     // the reliable single source (same as the web runner's page.on('pageerror')).
   }
   return true;
-`;async function z(t){try{await t.execute(wt)}catch{}}function yt(t){o("EXCEPTION CAUGHT BY TAURI WEBVIEW"),o("The following error was thrown:"),o(String(t&&t.message?t.message:t));const r=t&&t.stack?String(t.stack):"";for(const i of r.split(`
-`).slice(0,8))i&&o(i);o("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550")}async function G(t){let r=[];try{r=await t.execute(()=>{const i=window.__reproit_errors||[];return window.__reproit_errors=[],i})}catch{return}if(Array.isArray(r))for(const i of r)yt(i)}const vt=`
-  const s = arguments[0];
-  const visible = (el) => {
-    const r = el.getBoundingClientRect();
-    if (r.width === 0 || r.height === 0) return false;
-    const st = getComputedStyle(el);
-    return st.visibility !== 'hidden' && st.display !== 'none';
-  };
-  const cssEscape = (v) => (
-    window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\\\]/g, '\\\\$&')
-  );
-
-  const doClick = (el) => {
-    // Stash the clicked element for the post-tap oracle probes (the focus-loss
-    // guards read it in-page). A window ref only, never a DOM mutation, so the
-    // signature/content/mutation oracles are untouched.
-    try {
-      window.__reproitLastTap = el;
-      // FOCUS-LOSS probe: a real user click gives the control keyboard focus
-      // before activating it; el.click() alone does not. When the walk armed
-      // the probe pre-tap (focusLossArm), focus first (no scroll, so the
-      // viewport-dependent snapshot is untouched) so the oracle can observe
-      // whether the app's re-render then drops focus back to <body>.
-      if (window.__reproitFocusProbe) {
-        try { el.focus({ preventScroll: true }); } catch (_) {}
-        window.__reproitTapFocused = document.activeElement === el;
-      }
-    } catch (_) {}
-    el.click();
-    return true;
-  };
-
-  if (s.startsWith('key:')) {
-    const body = s.slice(4);
-    const ci = body.indexOf(':');
-    if (ci < 0) return false;
-    const kind = body.slice(0, ci);
-    const val = body.slice(ci + 1);
-    let el = null;
-    if (kind === 'testid') {
-      el = document.querySelector('[data-testid="' + cssEscape(val) + '"]')
-        || document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
-    } else if (kind === 'id') {
-      el = document.getElementById(val);
-    } else if (kind === 'name') {
-      el = document.querySelector('[name="' + cssEscape(val) + '"]');
+`;async function q(t){try{await t.execute(vt)}catch{}}function St(t){o("EXCEPTION CAUGHT BY TAURI WEBVIEW"),o("The following error was thrown:"),o(String(t&&t.message?t.message:t));const r=t&&t.stack?String(t.stack):"";for(const i of r.split(`
+`).slice(0,8))i&&o(i);o("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550")}async function V(t){let r=[];try{r=await t.execute(()=>{const i=window.__reproit_errors||[];return window.__reproit_errors=[],i})}catch{return}if(Array.isArray(r))for(const i of r)St(i)}const Et=`
+  const resolveStructuralTarget = ${ue};
+  const el = resolveStructuralTarget(arguments[0]);
+  if (!el) return false;
+  // Stash the clicked element for the post-tap oracle probes (the focus-loss
+  // guards read it in-page). A window ref only, never a DOM mutation, so the
+  // signature/content/mutation oracles are untouched.
+  try {
+    window.__reproitLastTap = el;
+    // UNCHANGED, deliberately. The web and Electron runners now OBSERVE focus on
+    // the real click instead of calling el.focus() first (the synthetic focus is
+    // ignored by focusLossCheck, so it bought nothing, while it parked focus on
+    // the control and manufactured the \`pre === tapped\` precondition for the
+    // NEXT action). The same correction belongs here, but it changes what this
+    // runner reports and can only be proven against tauri-driver plus the
+    // platform webdriver, which this change had no way to drive. Left alone and
+    // stated rather than changed on reasoning alone.
+    if (window.__reproitFocusProbe) {
+      try { el.focus({ preventScroll: true }); } catch (_) {}
+      window.__reproitTapFocused = document.activeElement === el;
     }
-    if (!el) return false;
-    return doClick(el);
-  }
-
-  if (s.startsWith('role:')) {
-    const hash = s.indexOf('#');
-    if (hash < 0) return false;
-    const role = s.slice('role:'.length, hash);
-    const idx = parseInt(s.slice(hash + 1), 10);
-    if (!(idx >= 0)) return false;
-    const ROLES = {
-      screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
-      icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
-      slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
-    };
-    const roleOf = (el) => {
-      const tag = el.tagName.toLowerCase();
-      const ariaRole = (el.getAttribute('role') || '').toLowerCase();
-      if (ariaRole) {
-        if (
-          ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox'
-        ) return 'textfield';
-        if (ariaRole === 'heading') return 'header';
-        if (ariaRole === 'img') return 'image';
-        if (ariaRole === 'switch') return 'switch';
-        if (ariaRole === 'link') return 'link';
-        if (ariaRole === 'button') return 'button';
-        if (ROLES[ariaRole]) return ariaRole;
-      }
-      if (tag === 'input') {
-        const t = (el.getAttribute('type') || 'text').toLowerCase();
-        if (t === 'checkbox') return 'checkbox';
-        if (t === 'radio') return 'radio';
-        if (t === 'range') return 'slider';
-        if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
-        return 'textfield';
-      }
-      if (tag === 'textarea' || tag === 'select') return 'textfield';
-      if (tag === 'a') return 'link';
-      if (tag === 'button') return 'button';
-      if (tag === 'img' || tag === 'svg') return 'image';
-      if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
-      if (tag === 'ul' || tag === 'ol') return 'list';
-      if (tag === 'li') return 'listitem';
-      if (tag === 'dialog') return 'dialog';
-      if (tag === 'nav' || tag === 'menu') return 'menu';
-      return 'node';
-    };
-    const interactive = (el, r) => {
-      const tag = el.tagName.toLowerCase();
-      if (['a', 'button', 'select'].includes(tag)) return true;
-      if (tag === 'input') {
-        const t = (el.getAttribute('type') || 'text').toLowerCase();
-        return !['text', 'password', 'email', 'number', 'search'].includes(t);
-      }
-      if (
-        ['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(r)
-      ) return true;
-      if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
-      return false;
-    };
-    let seen = -1, target = null;
-    const walk = (el) => {
-      if (target) return;
-      if (!visible(el)) { for (const c of el.children) walk(c); return; }
-      const r = roleOf(el);
-      if (interactive(el, r) && r === role) { seen++; if (seen === idx) { target = el; return; } }
-      for (const c of el.children) walk(c);
-    };
-    const root = document.body || document.documentElement;
-    if (root) walk(root);
-    if (!target) return false;
-    return doClick(target);
-  }
-
-  return false;
-`;async function ve(t,r){try{return!!await t.execute(vt,r)}catch{return!1}}const St=`
-  const s = arguments[0];
+  } catch (_) {}
+  el.click();
+  return true;
+`;async function Se(t,r){try{return!!await t.execute(Et,r)}catch{return!1}}const _t=`
   const done = arguments[arguments.length - 1];
-  const visible = (el) => {
-    const r = el.getBoundingClientRect();
-    if (r.width === 0 || r.height === 0) return false;
-    const st = getComputedStyle(el);
-    return st.visibility !== 'hidden' && st.display !== 'none';
-  };
-  const cssEscape = (v) => (
-    window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\\\]/g, '\\\\$&')
-  );
-  let el = null;
-  if (s.startsWith('key:')) {
-    const body = s.slice(4);
-    const ci = body.indexOf(':');
-    const kind = ci >= 0 ? body.slice(0, ci) : '';
-    const val = ci >= 0 ? body.slice(ci + 1) : body;
-    if (kind === 'testid') {
-      el = document.querySelector('[data-testid="' + cssEscape(val) + '"]')
-        || document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
-    } else if (kind === 'id') {
-      el = document.getElementById(val);
-    } else if (kind === 'name') {
-      el = document.querySelector('[name="' + cssEscape(val) + '"]');
-    }
-  } else if (s.startsWith('role:')) {
-    const hash = s.indexOf('#');
-    if (hash >= 0) {
-      const role = s.slice('role:'.length, hash);
-      const idx = parseInt(s.slice(hash + 1), 10);
-      const ROLES = {
-        screen: 1, header: 1, text: 1, button: 1, link: 1, textfield: 1, image: 1,
-        icon: 1, list: 1, listitem: 1, tab: 1, switch: 1, checkbox: 1, radio: 1,
-        slider: 1, menu: 1, menuitem: 1, dialog: 1, group: 1, node: 1,
-      };
-      const roleOf = (n) => {
-        const tag = n.tagName.toLowerCase();
-        const ariaRole = (n.getAttribute('role') || '').toLowerCase();
-        if (ariaRole) {
-          if (
-            ariaRole === 'textbox' || ariaRole === 'searchbox' ||
-            ariaRole === 'combobox'
-          ) return 'textfield';
-          if (ariaRole === 'heading') return 'header';
-          if (ariaRole === 'img') return 'image';
-          if (ariaRole === 'switch') return 'switch';
-          if (ariaRole === 'link') return 'link';
-          if (ariaRole === 'button') return 'button';
-          if (ROLES[ariaRole]) return ariaRole;
-        }
-        if (tag === 'input') {
-          const t = (n.getAttribute('type') || 'text').toLowerCase();
-          if (t === 'checkbox') return 'checkbox';
-          if (t === 'radio') return 'radio';
-          if (t === 'range') return 'slider';
-          if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
-          return 'textfield';
-        }
-        if (tag === 'textarea' || tag === 'select') return 'textfield';
-        if (tag === 'a') return 'link';
-        if (tag === 'button') return 'button';
-        if (tag === 'img' || tag === 'svg') return 'image';
-        if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
-        if (tag === 'ul' || tag === 'ol') return 'list';
-        if (tag === 'li') return 'listitem';
-        if (tag === 'dialog') return 'dialog';
-        if (tag === 'nav' || tag === 'menu') return 'menu';
-        return 'node';
-      };
-      const interactive = (n, r) => {
-        const tag = n.tagName.toLowerCase();
-        if (['a', 'button', 'select'].includes(tag)) return true;
-        if (tag === 'input') {
-          const t = (n.getAttribute('type') || 'text').toLowerCase();
-          return !['text', 'password', 'email', 'number', 'search'].includes(t);
-        }
-        if (
-          ['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(r)
-        ) return true;
-        if (n.hasAttribute('onclick') || n.tabIndex >= 0) return true;
-        return false;
-      };
-      let seen = -1;
-      const walk = (n) => {
-        if (el) return;
-        if (!visible(n)) { for (const c of n.children) walk(c); return; }
-        const r = roleOf(n);
-        if (interactive(n, r) && r === role) { seen++; if (seen === idx) { el = n; return; } }
-        for (const c of n.children) walk(c);
-      };
-      const root = document.body || document.documentElement;
-      if (root && idx >= 0) walk(root);
-    }
-  }
+  const resolveStructuralTarget = ${ue};
+  const el = resolveStructuralTarget(arguments[0]);
   if (!el) { done(null); return; }
   // Scroll INSTANTLY (not smooth): a smooth animation is still moving when we
   // measure, so the rect would diverge from the settled frame the video holds.
@@ -666,8 +385,8 @@ V:`);return i.vsection=s>=0?e.slice(s+3):"",i.structuralSig=s>=0?_e(e.slice(0,s)
     setTimeout(tick, 50);
   };
   setTimeout(tick, 50);
-`;async function kt(t,r){try{return await t.executeAsync(St,r)}catch{return null}}function xt(t,r){try{K(W(r,".."),{recursive:!0})}catch{}const i=Q();try{if(i==="linux"){const e=process.env.DISPLAY||":0";let s=(N("xdotool",["search","--pid",String(t),"--onlyvisible"])||"").trim().split(/\s+/).filter(Boolean).pop();if(!s)return null;const a=N("xdotool",["getwindowgeometry","--shell",s])||"",l={};for(const E of a.split(`
-`)){const I=E.match(/^(\w+)=(-?\d+)/);I&&(l[I[1]]=parseInt(I[2],10))}if(!(l.WIDTH>0&&l.HEIGHT>0))return null;const g=l.WIDTH-l.WIDTH%2,p=l.HEIGHT-l.HEIGHT%2;return ue("ffmpeg",["-hide_banner","-loglevel","error","-y","-f","x11grab","-framerate","15","-video_size",`${g}x${p}`,"-i",`${e}+${l.X||0},${l.Y||0}`,"-c:v","libx264","-pix_fmt","yuv420p",r],{stdio:["pipe","ignore","ignore"]})}if(i==="win32"){const s=(N("tasklist",["/FI","PID eq "+t,"/FO","CSV","/NH","/V"])||"").match(/^"[^"]*","\d+","[^"]*","[^"]*","[^"]*","([^"]*)"/),a=s&&s[1]&&s[1]!=="N/A"?s[1]:null;return a?ue("ffmpeg",["-hide_banner","-loglevel","error","-y","-f","gdigrab","-framerate","15","-i","title="+a,"-c:v","libx264","-pix_fmt","yuv420p",r],{stdio:["pipe","ignore","ignore"]}):null}if(i==="darwin")return null}catch{}return null}async function Et(t){!t||t.exitCode!==null||await new Promise(r=>{let i=!1;const e=()=>{i||(i=!0,r())};t.once("exit",e);try{t.stdin&&t.stdin.writable&&t.stdin.write("q")}catch{}try{t.kill("SIGINT")}catch{}setTimeout(e,4e3)})}const Ot=`
+`;async function Ot(t,r){try{return await t.executeAsync(_t,r)}catch{return null}}function kt(t,r){try{j(W(r,".."),{recursive:!0})}catch{}const i=Q();try{if(i==="linux"){const e=process.env.DISPLAY||":0";let s=(C("xdotool",["search","--pid",String(t),"--onlyvisible"])||"").trim().split(/\s+/).filter(Boolean).pop();if(!s)return null;const a=C("xdotool",["getwindowgeometry","--shell",s])||"",l={};for(const O of a.split(`
+`)){const I=O.match(/^(\w+)=(-?\d+)/);I&&(l[I[1]]=parseInt(I[2],10))}if(!(l.WIDTH>0&&l.HEIGHT>0))return null;const g=l.WIDTH-l.WIDTH%2,p=l.HEIGHT-l.HEIGHT%2;return de("ffmpeg",["-hide_banner","-loglevel","error","-y","-f","x11grab","-framerate","15","-video_size",`${g}x${p}`,"-i",`${e}+${l.X||0},${l.Y||0}`,"-c:v","libx264","-pix_fmt","yuv420p",r],{stdio:["pipe","ignore","ignore"]})}if(i==="win32"){const s=(C("tasklist",["/FI","PID eq "+t,"/FO","CSV","/NH","/V"])||"").match(/^"[^"]*","\d+","[^"]*","[^"]*","[^"]*","([^"]*)"/),a=s&&s[1]&&s[1]!=="N/A"?s[1]:null;return a?de("ffmpeg",["-hide_banner","-loglevel","error","-y","-f","gdigrab","-framerate","15","-i","title="+a,"-c:v","libx264","-pix_fmt","yuv420p",r],{stdio:["pipe","ignore","ignore"]}):null}if(i==="darwin")return null}catch{}return null}async function xt(t){!t||t.exitCode!==null||await new Promise(r=>{let i=!1;const e=()=>{i||(i=!0,r())};t.once("exit",e);try{t.stdin&&t.stdin.writable&&t.stdin.write("q")}catch{}try{t.kill("SIGINT")}catch{}setTimeout(e,4e3)})}const Rt=`
   const s = arguments[0];
   const value = arguments[1];
   const visible = (el) => {
@@ -747,7 +466,7 @@ V:`);return i.vsection=s>=0?e.slice(s+3):"",i.structuralSig=s>=0?_e(e.slice(0,s)
   el.dispatchEvent(new Event('input', { bubbles: true }));
   el.dispatchEvent(new Event('change', { bubbles: true }));
   return true;
-`,_t=`
+`,Tt=`
   const finder = arguments[0];
   const esc = (v) => (window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\\\]/g, '\\\\$&'));
   let sel = finder;
@@ -773,4 +492,4 @@ V:`);return i.vsection=s>=0?e.slice(s+3):"",i.structuralSig=s>=0?_e(e.slice(0,s)
   let n = 0;
   for (const el of els) if (visible(el)) n++;
   return n;
-`;async function Rt(t,r,i){if(o("FUZZ:ACT "+i+" "+r),r.startsWith("shoot:")){await ge(t,r.slice(6));return}if(r.startsWith("assert:")){const a=r.slice(7);if(a.startsWith("text=")){const l=a.slice(5);let g=!1;try{g=await t.execute("return !!(document.body && document.body.innerText.includes(arguments[0]))",l)}catch{}o("FUZZ:ASSERT "+(g?"pass":"fail")+" text="+JSON.stringify(l)+" actor="+i)}else if(a.startsWith("count:")){const l=a.slice(6),g=l.lastIndexOf("="),p=g>=0?l.slice(0,g):l,S=g>=0?parseInt(l.slice(g+1),10):0;let E=-1;try{E=await t.execute(_t,p)}catch{}o("FUZZ:ASSERT "+(E===S?"pass":"fail")+" count "+p+" want="+S+" got="+E+" actor="+i)}else o("FUZZ:ASSERT fail unsupported "+a+" actor="+i);await t.pause(300);return}if(r==="back"){await t.back().catch(()=>{}),await t.pause(400);return}if(r.startsWith("auth:")){o("JOURNEY[a] step: auth-restore unsupported on tauri runner; use login() for "+r),await t.pause(200);return}if(r.startsWith("type:")){const a=r.slice(5),l=a.lastIndexOf("="),g=l>=0?a.slice(0,l):a,p=Te(l>=0?a.slice(l+1):"");p!=null&&String(p).length>0&&Z.add(String(p));let S=!1;try{S=await t.execute(Ot,g,p)}catch{}S||o("FUZZ:MISS "+i+" "+r),await t.pause(900);return}const e=r.slice(4);await ve(t,e)||o("FUZZ:MISS "+i+" "+r),await t.pause(900)}async function At(t){const r=process.env.REPROIT_SCENARIO_BARRIER;let i=process.env.REPROIT_DEVICE;if(!i){try{i=(await(await fetch(r+"/claim")).text()).trim()}catch{i=""}(!i||i.startsWith("ERR"))&&(i="a")}o("JOURNEY claimed role="+i),await t.pause(1500),await z(t);const e=s=>new Promise(a=>setTimeout(a,s));for(let s=0;s<1e5;s++){let a="WAIT";try{a=(await(await fetch(r+"/next?device="+i)).text()).trim()}catch{await e(100);continue}if(a==="DONE")break;if(a==="WAIT"){await e(40);continue}const l=a.startsWith("ACT	")?a.slice(4):a;await Rt(t,l,i),await z(t),await G(t);try{await fetch(r+"/done?device="+i,{method:"POST"})}catch{}}await G(t),o("JOURNEY DONE"),o("All tests passed")}async function Ct(){H||(o("EXCEPTION CAUGHT BY REPROIT"),o("REPROIT_APP (executable path) required"),o("\u2550".repeat(8)),process.exit(0));const t=Ae(),{remote:r}=await import("webdriverio"),i=new URL(Xe),e=await r({hostname:i.hostname,port:Number(i.port||4444),path:i.pathname||"/",capabilities:{"tauri:options":{application:H}}});if(process.env.REPROIT_SCENARIO_BARRIER){o("JOURNEY[a] step: scenario actor="+(process.env.REPROIT_DEVICE||"a")),await At(e),await e.deleteSession();return}o("JOURNEY claimed role=a"),await e.pause(1500);try{await e.setTimeout({script:3e4})}catch{}await z(e),await me(e),await we(e);const s=await tt(e);if(s){const n=`target is behind a ${s.vendor} bot-challenge (${s.marker}); reproit could not reach the app.`;o("EXPLORE:UNSCANNABLE "+JSON.stringify({reason:"bot-wall",vendor:s.vendor,marker:s.marker,diagnostic:n})),o("JOURNEY[a] step: UNSCANNABLE - "+n),o("JOURNEY DONE"),o("All tests passed"),await e.deleteSession();return}const a=new Set,l=new Set,g=Ce(t.seed||0),p=Re();p.length&&o(`JOURNEY[a] step: value_nodes=${p.length}`);const S=new Map,E=new Set;function I(n){if(E.has(n.structuralSig))return n.structuralSig;if(n.vsection){let u=S.get(n.structuralSig);if(u||(u=new Set,S.set(n.structuralSig,u)),u.add(n.vsection),u.size>Ke)return E.add(n.structuralSig),o(`JOURNEY[a] step: value-cap hit (${n.structuralSig})`),n.structuralSig}return n.sig}const L=async()=>{await z(e),await me(e),await we(e),await G(e);const n=await Qe(e,p);if(n.sig=I(n),o("FUZZ:OBS "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},labels:n.labels.slice(0,24),elements:n.tappables.slice(0,24).map(u=>({role:u.role}))})),!a.has(n.sig)){a.add(n.sig),o("EXPLORE:STATE "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},labels:n.labels.slice(0,24),elements:n.tappables.slice(0,24).map(c=>{const O={sel:c.sel,role:c.role,label:c.label};return c.key||(O.nokey=!0),O})}));let u=null,d=null;try{u=await e.execute(he),await e.pause(120),d=await e.execute(he)}catch{}const h=qe(u,d);(h.checks.length||!h.complete)&&o("EXPLORE:OVERFLOW "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},...h})),await it(e,n.sig);let y=null;try{y=await e.execute(rt,[...Z])}catch{}y&&y.length&&o("EXPLORE:CONTENTBUG "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},items:y}));let R=null;try{const c=await e.execute(de);if(R=c,c&&c.length){await e.pause(300);const O=await e.execute(de);R=Je(c,O||[])}}catch{}R&&R.length&&o("EXPLORE:OCCLUSION "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},items:R}));let _=null;try{_=await e.execute(Ye)}catch{}_&&_.length&&o("EXPLORE:ZEROCONTRAST "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},items:_}));let C=null;try{C=await e.execute(De)}catch{}C&&C.length&&o("EXPLORE:SECURITY "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},items:C}));let b=null;try{b=await e.execute(fe)}catch{}if(b&&b.length){await et(e);try{b=await e.execute(fe)}catch{}}b&&b.length&&o("EXPLORE:BLANKSCREEN "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},items:b}));let m=null;try{m=await e.execute(()=>{const c=window.__reproit_invariants||[],O=[];for(let F=0;F<c.length;F++){const J=c[F];if(!J||typeof J.test!="function")continue;let T=!0,w="";try{const k=J.test();k&&typeof k=="object"?(T=!!k.ok,w=k.message?String(k.message):""):T=!!k}catch(k){T=!1,w=k&&k.message?String(k.message):String(k)}T||O.push({id:String(J.id),message:w})}return O})}catch{}m&&m.length&&o("EXPLORE:INVARIANT "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},items:m}));let x=null;try{x=await e.execute(We,[...Z])}catch{}if(x&&x.length&&o("EXPLORE:BROKENASSET "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},items:x})),!j){let c=[];try{c=await e.executeAsync($e)}catch{c=[]}c&&c.length&&o("EXPLORE:SCROLLROUNDTRIP "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},items:c}))}}return n};let f=await L(),A=0;const D=t.prefix||null,v=t.replay||null;let te=!1;const ne=D?D.length:0,Se=v?v.length:(t.budget||Ve)+ne,ie=new Set,U=new Set;async function re(n,u){let d=null;try{if(d=await e.getWindowSize(),!d||!(d.width>0&&d.height>0)){d=null;return}const h=await e.execute(He);await e.setWindowSize(Math.round(d.width/2),Math.round(d.height/2)),await e.pause(350);let y=null;try{y=await e.execute(Be,h)}catch{y=null}y&&y.length&&o("EXPLORE:ZOOMREFLOW "+JSON.stringify({sig:n,...u?{route:u}:{},items:y}))}catch{}finally{if(d)try{await e.setWindowSize(d.width,d.height),await e.pause(350)}catch{}}}!v&&!j&&f.anchor&&!U.has(f.anchor)&&(U.add(f.anchor),await re(f.sig,f.anchor));const ae=new Set,oe=new Set;async function ke(n){const u=n.structuralSig;let d=null;try{d=await e.getWindowSize(),!d||!(d.width>0&&d.height>0)?d=null:(await e.setWindowSize(d.height,d.width),await e.pause(350))}catch{}if(d)try{await e.setWindowSize(d.width,d.height),await e.pause(350)}catch{}const h=await L();return n.tappables&&n.tappables.length>0&&h.structuralSig!==u&&o("EXPLORE:ROTATION "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},expected:u,got:h.structuralSig})),h}async function xe(n){const u=n.structuralSig;try{await e.execute(()=>{try{Object.defineProperty(document,"visibilityState",{configurable:!0,get:()=>"hidden"})}catch{}try{Object.defineProperty(document,"hidden",{configurable:!0,get:()=>!0})}catch{}document.dispatchEvent(new Event("visibilitychange")),window.dispatchEvent(new Event("pagehide")),window.dispatchEvent(new Event("blur"))}),await e.pause(300),await e.execute(()=>{try{Object.defineProperty(document,"visibilityState",{configurable:!0,get:()=>"visible"})}catch{}try{Object.defineProperty(document,"hidden",{configurable:!0,get:()=>!1})}catch{}document.dispatchEvent(new Event("visibilitychange")),window.dispatchEvent(new Event("pageshow")),window.dispatchEvent(new Event("focus"))}),await e.pause(300)}catch{}const d=await L();return n.tappables&&n.tappables.length>0&&d.structuralSig!==u&&o("EXPLORE:BGRESTORE "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},expected:u,got:d.structuralSig})),d}const $=Date.now(),X={pid:null,tried:!1};v&&await ee(e,0,X);const P=t.clip&&typeof t.clip.sel=="string"?t.clip:null,V=!!(B&&v&&P),Ee=V?W(B,"clip.mov"):null;let M=null;if(V){const n=ye(H);n&&(M=xt(n,Ee)),M&&await e.pause(400)}for(let n=0;n<Se&&A<3;n++){if(v&&n>0&&await ee(e,Date.now()-$,X),!v&&!j&&(ae.has(f.sig)||(ae.add(f.sig),f=await ke(f)),oe.has(f.sig)||(oe.add(f.sig),f=await xe(f))),!v&&!ie.has(f.sig)){ie.add(f.sig);let m=[];try{m=await e.executeAsync(Ge)}catch{m=[]}let x=!1;for(const c of m||[])x=!0,o("EXPLORE:CHOICEBUG "+JSON.stringify({from:f.sig,role:c.role,outlier:c.outlier,magnitude:c.magnitude,siblingMedian:c.siblingMedian}));if(x){f=await L();continue}}let u;if(v)u=v[n];else if(D&&n<ne)u=D[n];else if(t.seed){const m=f.tappables.map(w=>w.sel).sort(),x=t.edgeWeights&&t.edgeWeights[f.sig]||{},c=m.map(w=>"tap:"+w).concat(["back"]),O=new Set(t.contractActions||[]),F=c.map(w=>(O.has(w)?4:1)/(1+(x[w]||0))),J=F.reduce((w,k)=>w+k,0);let T=g(1<<20)/(1<<20)*J;u=c[c.length-1];for(let w=0;w<c.length;w++)if(T-=F[w],T<=0){u=c[w];break}}else{u=null;for(const m of f.tappables)if(!l.has(f.sig+"|"+m.sel)){u="tap:"+m.sel;break}u=u||"back"}if(v&&!te&&process.env.REPROIT_INSPECT==="1"){const m=f.tappables.find(c=>`tap:${c.sel}`===u);te=await ze({action:u,step:n+1,total:v.length,target:m?.label||m?.sel||null})==="continue"}if(o("FUZZ:ACT "+u),u.startsWith("shoot:")){await ge(e,u.slice(6));continue}if(u==="back"){const m=f.sig,x=f.content;await e.back().catch(()=>{}),await e.pause(600);const c=await L();c.sig!==m?(o("EXPLORE:EDGE "+JSON.stringify({from:m,action:"back",to:c.sig})),A=0):c.content!==x?A=0:A++,f=c;continue}const d=u.slice(4);l.add(f.sig+"|"+d);const h=f.sig,y=f.content,R=f.anchor;try{await e.execute(ot)}catch{}try{await e.execute(ft)}catch{}try{await e.execute(Ue)}catch{}if(!await ve(e,d)){o("FUZZ:MISS "+u),A++;continue}await e.pause(700);const _=await mt(e);_&&o("EXPLORE:"+(_.kind==="hang"?"HANG":"JANK")+" "+JSON.stringify({from:h,action:"tap:"+d,bucket:_.bucket,count:_.count}));let C=!1;try{C=await e.execute(Me)}catch{}const b=await L();C&&(b.sig===h||b.anchor&&b.anchor===R)&&o("EXPLORE:FOCUSLOSS "+JSON.stringify({from:h,action:"tap:"+d})),b.sig!==h?(o("EXPLORE:EDGE "+JSON.stringify({from:h,action:"tap:"+d,to:b.sig})),A=0,!v&&!j&&b.anchor&&!U.has(b.anchor)&&(U.add(b.anchor),await re(b.sig,b.anchor))):b.content!==y&&(A=0),f=b}if(v&&await ee(e,Date.now()-$,X),await G(e),V){await e.pause(300);const n=M?await kt(e,P.sel):null;let u=!1;if(n){const d=Math.max(0,(Date.now()-$)/1e3-.2),h={videoW:n.videoW,videoH:n.videoH,boxes:[{x:n.x,y:n.y,w:n.w,h:n.h,tStart:d,tEnd:1e9,label:P.label||P.oracle||"finding",color:"red"}]};try{K(B,{recursive:!0}),se(W(B,"box-spec.json"),JSON.stringify(h)),u=!0}catch{u=!1}await e.pause(900)}await Et(M),o("FINDING:BOXED "+JSON.stringify({oracle:P.oracle||null,sel:P.sel,drew:u}))}o(`JOURNEY[a] step: explored ${a.size} states`),o("JOURNEY DONE"),o("All tests passed"),await e.deleteSession()}const Tt=process.argv[1]&&import.meta.url===new URL(`file://${process.argv[1]}`).href;Tt&&Ct().catch(t=>{o("EXCEPTION CAUGHT BY TAURI RUNNER"),o(String(t&&t.stack?t.stack:t)),o("Some tests failed"),process.exit(0)});export{be as classifyFrameIntervals,le as descriptorOf,ce as signatureOf,Oe as valueClass};
+`;async function At(t,r,i){if(o("FUZZ:ACT "+i+" "+r),r.startsWith("shoot:")){await me(t,r.slice(6));return}if(r.startsWith("assert:")){const a=r.slice(7);if(a.startsWith("text=")){const l=a.slice(5);let g=!1;try{g=await t.execute("return !!(document.body && document.body.innerText.includes(arguments[0]))",l)}catch{}o("FUZZ:ASSERT "+(g?"pass":"fail")+" text="+JSON.stringify(l)+" actor="+i)}else if(a.startsWith("count:")){const l=a.slice(6),g=l.lastIndexOf("="),p=g>=0?l.slice(0,g):l,S=g>=0?parseInt(l.slice(g+1),10):0;let O=-1;try{O=await t.execute(Tt,p)}catch{}o("FUZZ:ASSERT "+(O===S?"pass":"fail")+" count "+p+" want="+S+" got="+O+" actor="+i)}else o("FUZZ:ASSERT fail unsupported "+a+" actor="+i);await t.pause(300);return}if(r==="back"){await t.back().catch(()=>{}),await t.pause(400);return}if(r.startsWith("auth:")){o("JOURNEY[a] step: auth-restore unsupported on tauri runner; use login() for "+r),await t.pause(200);return}if(r.startsWith("type:")){const a=r.slice(5),l=a.lastIndexOf("="),g=l>=0?a.slice(0,l):a,p=Ce(l>=0?a.slice(l+1):"");p!=null&&String(p).length>0&&Z.add(String(p));let S=!1;try{S=await t.execute(Rt,g,p)}catch{}S||o("FUZZ:MISS "+i+" "+r),await t.pause(900);return}const e=r.slice(4);await Se(t,e)||o("FUZZ:MISS "+i+" "+r),await t.pause(900)}async function Nt(t){const r=process.env.REPROIT_SCENARIO_BARRIER;let i=process.env.REPROIT_DEVICE;if(!i){try{i=(await(await fetch(r+"/claim")).text()).trim()}catch{i=""}(!i||i.startsWith("ERR"))&&(i="a")}o("JOURNEY claimed role="+i),await t.pause(1500),await q(t);const e=s=>new Promise(a=>setTimeout(a,s));for(let s=0;s<1e5;s++){let a="WAIT";try{a=(await(await fetch(r+"/next?device="+i)).text()).trim()}catch{await e(100);continue}if(a==="DONE")break;if(a==="WAIT"){await e(40);continue}const l=a.startsWith("ACT	")?a.slice(4):a;await At(t,l,i),await q(t),await V(t);try{await fetch(r+"/done?device="+i,{method:"POST"})}catch{}}await V(t),o("JOURNEY DONE"),o("All tests passed")}async function Ct(){H||(o("EXCEPTION CAUGHT BY REPROIT"),o("REPROIT_APP (executable path) required"),o("\u2550".repeat(8)),process.exit(0));const t=Ae(),{remote:r}=await import("webdriverio"),i=new URL(je),e=await r({hostname:i.hostname,port:Number(i.port||4444),path:i.pathname||"/",capabilities:{"tauri:options":{application:H}}});if(process.env.REPROIT_SCENARIO_BARRIER){o("JOURNEY[a] step: scenario actor="+(process.env.REPROIT_DEVICE||"a")),await Nt(e),await e.deleteSession();return}o("JOURNEY claimed role=a"),await e.pause(1500);try{await e.setTimeout({script:3e4})}catch{}await q(e),await pe(e),await ye(e);const s=await it(e);if(s){const n=`target is behind a ${s.vendor} bot-challenge (${s.marker}); reproit could not reach the app.`;o("EXPLORE:UNSCANNABLE "+JSON.stringify({reason:"bot-wall",vendor:s.vendor,marker:s.marker,diagnostic:n})),o("JOURNEY[a] step: UNSCANNABLE - "+n),o("JOURNEY DONE"),o("All tests passed"),await e.deleteSession();return}const a=new Set,l=new Set,g=Ne(t.seed||0),p=Te();p.length&&o(`JOURNEY[a] step: value_nodes=${p.length}`);const S=new Map,O=new Set;function I(n){if(O.has(n.structuralSig))return n.structuralSig;if(n.vsection){let u=S.get(n.structuralSig);if(u||(u=new Set,S.set(n.structuralSig,u)),u.add(n.vsection),u.size>Qe)return O.add(n.structuralSig),o(`JOURNEY[a] step: value-cap hit (${n.structuralSig})`),n.structuralSig}return n.sig}const L=async()=>{await q(e),await pe(e),await ye(e),await V(e);const n=await tt(e,p);if(n.sig=I(n),o("FUZZ:OBS "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},labels:n.labels.slice(0,24),elements:n.tappables.slice(0,24).map(u=>({role:u.role}))})),!a.has(n.sig)){a.add(n.sig),o("EXPLORE:STATE "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},labels:n.labels.slice(0,24),elements:n.tappables.slice(0,24).map(c=>{const k={sel:c.sel,role:c.role,label:c.label};return c.key||(k.nokey=!0),k})}));let u=null,d=null;try{u=await e.execute(ge),await e.pause(120),d=await e.execute(ge)}catch{}const h=qe(u,d);(h.checks.length||!h.complete)&&o("EXPLORE:OVERFLOW "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},...h})),await at(e,n.sig);let y=null;try{y=await e.execute(ot,[...Z])}catch{}y&&y.length&&o("EXPLORE:CONTENTBUG "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},items:y}));let R=null;try{const c=await e.execute(fe);if(R=c,c&&c.length){await e.pause(300);const k=await e.execute(fe);R=Ue(c,k||[])}}catch{}R&&R.length&&o("EXPLORE:OCCLUSION "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},items:R}));let x=null;try{x=await e.execute(Ve)}catch{}x&&x.length&&o("EXPLORE:ZEROCONTRAST "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},items:x}));let A=null;try{A=await e.execute(Me)}catch{}A&&A.length&&o("EXPLORE:SECURITY "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},items:A}));let w=null;try{w=await e.execute(he)}catch{}if(w&&w.length){await nt(e);try{w=await e.execute(he)}catch{}}w&&w.length&&o("EXPLORE:BLANKSCREEN "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},items:w}));let m=null;try{m=await e.execute(()=>{const c=window.__reproit_invariants||[],k=[];for(let F=0;F<c.length;F++){const J=c[F];if(!J||typeof J.test!="function")continue;let N=!0,b="";try{const E=J.test();E&&typeof E=="object"?(N=!!E.ok,b=E.message?String(E.message):""):N=!!E}catch(E){N=!1,b=E&&E.message?String(E.message):String(E)}N||k.push({id:String(J.id),message:b})}return k})}catch{}m&&m.length&&o("EXPLORE:INVARIANT "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},items:m}));let _=null;try{_=await e.execute(Be,[...Z])}catch{}if(_&&_.length&&o("EXPLORE:BROKENASSET "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},items:_})),!Y){let c=[];try{c=await e.executeAsync(Ke)}catch{c=[]}c&&c.length&&o("EXPLORE:SCROLLROUNDTRIP "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},items:c}))}}return n};let f=await L(),T=0;const D=t.prefix||null,v=t.replay||null;let te=!1;const ne=D?D.length:0,Ee=v?v.length:(t.budget||Ze)+ne,ie=new Set,U=new Set;async function re(n,u){let d=null;try{if(d=await e.getWindowSize(),!d||!(d.width>0&&d.height>0)){d=null;return}const h=await e.execute(Ye);await e.setWindowSize(Math.round(d.width/2),Math.round(d.height/2)),await e.pause(350);let y=null;try{y=await e.execute(Ge,h)}catch{y=null}y&&y.length&&o("EXPLORE:ZOOMREFLOW "+JSON.stringify({sig:n,...u?{route:u}:{},items:y}))}catch{}finally{if(d)try{await e.setWindowSize(d.width,d.height),await e.pause(350)}catch{}}}!v&&!Y&&f.anchor&&!U.has(f.anchor)&&(U.add(f.anchor),await re(f.sig,f.anchor));const ae=new Set,oe=new Set;async function _e(n){const u=n.structuralSig;let d=null;try{d=await e.getWindowSize(),!d||!(d.width>0&&d.height>0)?d=null:(await e.setWindowSize(d.height,d.width),await e.pause(350))}catch{}if(d)try{await e.setWindowSize(d.width,d.height),await e.pause(350)}catch{}const h=await L();return n.tappables&&n.tappables.length>0&&h.structuralSig!==u&&o("EXPLORE:ROTATION "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},expected:u,got:h.structuralSig})),h}async function Oe(n){const u=n.structuralSig;try{await e.execute(()=>{try{Object.defineProperty(document,"visibilityState",{configurable:!0,get:()=>"hidden"})}catch{}try{Object.defineProperty(document,"hidden",{configurable:!0,get:()=>!0})}catch{}document.dispatchEvent(new Event("visibilitychange")),window.dispatchEvent(new Event("pagehide")),window.dispatchEvent(new Event("blur"))}),await e.pause(300),await e.execute(()=>{try{Object.defineProperty(document,"visibilityState",{configurable:!0,get:()=>"visible"})}catch{}try{Object.defineProperty(document,"hidden",{configurable:!0,get:()=>!1})}catch{}document.dispatchEvent(new Event("visibilitychange")),window.dispatchEvent(new Event("pageshow")),window.dispatchEvent(new Event("focus"))}),await e.pause(300)}catch{}const d=await L();return n.tappables&&n.tappables.length>0&&d.structuralSig!==u&&o("EXPLORE:BGRESTORE "+JSON.stringify({sig:n.sig,...n.anchor?{route:n.anchor}:{},expected:u,got:d.structuralSig})),d}const $=Date.now(),z={pid:null,tried:!1};v&&await ee(e,0,z);const P=t.clip&&typeof t.clip.sel=="string"?t.clip:null,K=!!(B&&v&&P),ke=K?W(B,"clip.mov"):null;let M=null;if(K){const n=ve(H);n&&(M=kt(n,ke)),M&&await e.pause(400)}for(let n=0;n<Ee&&T<3;n++){if(v&&n>0&&await ee(e,Date.now()-$,z),!v&&!Y&&(ae.has(f.sig)||(ae.add(f.sig),f=await _e(f)),oe.has(f.sig)||(oe.add(f.sig),f=await Oe(f))),!v&&!ie.has(f.sig)){ie.add(f.sig);let m=[];try{m=await e.executeAsync(ze)}catch{m=[]}let _=!1;for(const c of m||[])_=!0,o("EXPLORE:CHOICEBUG "+JSON.stringify({from:f.sig,role:c.role,outlier:c.outlier,magnitude:c.magnitude,siblingMedian:c.siblingMedian}));if(_){f=await L();continue}}let u;if(v)u=v[n];else if(D&&n<ne)u=D[n];else if(t.seed){const m=f.tappables.map(b=>b.sel).sort(),_=t.edgeWeights&&t.edgeWeights[f.sig]||{},c=m.map(b=>"tap:"+b).concat(["back"]),k=new Set(t.contractActions||[]),F=c.map(b=>(k.has(b)?4:1)/(1+(_[b]||0))),J=F.reduce((b,E)=>b+E,0);let N=g(1<<20)/(1<<20)*J;u=c[c.length-1];for(let b=0;b<c.length;b++)if(N-=F[b],N<=0){u=c[b];break}}else{u=null;for(const m of f.tappables)if(!l.has(f.sig+"|"+m.sel)){u="tap:"+m.sel;break}u=u||"back"}if(v&&!te&&process.env.REPROIT_INSPECT==="1"){const m=f.tappables.find(c=>`tap:${c.sel}`===u);te=await $e({action:u,step:n+1,total:v.length,target:m?.label||m?.sel||null})==="continue"}if(o("FUZZ:ACT "+u),u.startsWith("shoot:")){await me(e,u.slice(6));continue}if(u==="back"){const m=f.sig,_=f.content;await e.back().catch(()=>{}),await e.pause(600);const c=await L();c.sig!==m?(o("EXPLORE:EDGE "+JSON.stringify({from:m,action:"back",to:c.sig})),T=0):c.content!==_?T=0:T++,f=c;continue}const d=u.slice(4);l.add(f.sig+"|"+d);const h=f.sig,y=f.content,R=f.anchor;try{await e.execute(ct)}catch{}try{await e.execute(gt)}catch{}try{await e.execute(We)}catch{}if(!await Se(e,d)){o("FUZZ:MISS "+u),T++;continue}await e.pause(700);const x=await wt(e);x&&o("EXPLORE:"+(x.kind==="hang"?"HANG":"JANK")+" "+JSON.stringify({from:h,action:"tap:"+d,bucket:x.bucket,count:x.count}));let A=!1;try{A=await e.execute(He)}catch{}const w=await L();A&&(w.sig===h||w.anchor&&w.anchor===R)&&o("EXPLORE:FOCUSLOSS "+JSON.stringify({from:h,action:"tap:"+d})),w.sig!==h?(o("EXPLORE:EDGE "+JSON.stringify({from:h,action:"tap:"+d,to:w.sig})),T=0,!v&&!Y&&w.anchor&&!U.has(w.anchor)&&(U.add(w.anchor),await re(w.sig,w.anchor))):w.content!==y&&(T=0),f=w}if(v&&await ee(e,Date.now()-$,z),await V(e),K){await e.pause(300);const n=M?await Ot(e,P.sel):null;let u=!1;if(n){const d=Math.max(0,(Date.now()-$)/1e3-.2),h={videoW:n.videoW,videoH:n.videoH,boxes:[{x:n.x,y:n.y,w:n.w,h:n.h,tStart:d,tEnd:1e9,label:P.label||P.oracle||"finding",color:"red"}]};try{j(B,{recursive:!0}),se(W(B,"box-spec.json"),JSON.stringify(h)),u=!0}catch{u=!1}await e.pause(900)}await xt(M),o("FINDING:BOXED "+JSON.stringify({oracle:P.oracle||null,sel:P.sel,drew:u}))}o(`JOURNEY[a] step: explored ${a.size} states`),o("JOURNEY DONE"),o("All tests passed"),await e.deleteSession()}const It=process.argv[1]&&import.meta.url===new URL(`file://${process.argv[1]}`).href;It&&Ct().catch(t=>{o("EXCEPTION CAUGHT BY TAURI RUNNER"),o(String(t&&t.stack?t.stack:t)),o("Some tests failed"),process.exit(0)});export{be as classifyFrameIntervals,le as descriptorOf,ce as signatureOf,xe as valueClass};

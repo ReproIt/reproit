@@ -184,16 +184,19 @@ const r=(e,t=40)=>`
     return false;
   };
 
+  // CANONICAL tappable grammar, byte-identical to shared/dom-walk.mjs. This walk
+  // ASSIGNS Tauri's \`role:<role>#<idx>\`, so it must count exactly what the shared
+  // resolver counts when TAP_JS reads that index back. It did not: this copy
+  // dropped <input type=text/password/email/number/search>, so a text field was
+  // unaddressable while the ground-truth walk in tauri/part-02.mjs indexed it,
+  // and the two streams disagreed about which element role:textfield#N named.
   const interactive = (el, role) => {
     const tag = el.tagName.toLowerCase();
     if (['a', 'button', 'select'].includes(tag)) return true;
-    if (tag === 'input') {
-      const t = (el.getAttribute('type') || 'text').toLowerCase();
-      return !['text', 'password', 'email', 'number', 'search'].includes(t);
-    }
-    if (
-      ['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role)
-    ) return true;
+    if (tag === 'input' || tag === 'textarea') return true;
+    if (role === 'textfield') return true;
+    if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(role))
+      return true;
     if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
     return false;
   };

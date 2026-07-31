@@ -1,6 +1,6 @@
   const ok = await page
     .evaluate(
-      ({ s, mark, box, boxColor }) => {
+      ({ el: resolved, mark, box, boxColor }) => {
         const visible = (el) => {
           const r = el.getBoundingClientRect();
           if (r.width === 0 || r.height === 0) return false;
@@ -140,145 +140,29 @@
           return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
         };
 
-        if (s.startsWith('key:')) {
-          const body = s.slice(4);
-          const ci = body.indexOf(':');
-          if (ci < 0) return false;
-          const kind = body.slice(0, ci);
-          const val = body.slice(ci + 1);
-          let el = null;
-          if (kind === 'testid') {
-            el =
-              document.querySelector('[data-testid="' + cssEscape(val) + '"]') ||
-              document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
-          } else if (kind === 'id') {
-            el = document.getElementById(val);
-          } else if (kind === 'name') {
-            el = document.querySelector('[name="' + cssEscape(val) + '"]');
-          }
-          if (!el) return false;
-          // A keyed control may be below the fold on this runner even though it was
-          // reachable in production. Scroll only that case; auth-gated, hidden, and
-          // occluded controls still fail as stale.
-          if (!bringIntoReach(el)) return false;
-          return doClick(el);
-        }
-
-        if (s.startsWith('role:')) {
-          const hash = s.indexOf('#');
-          if (hash < 0) return false;
-          const role = s.slice('role:'.length, hash);
-          const idx = parseInt(s.slice(hash + 1), 10);
-          if (!(idx >= 0)) return false;
-          // Re-derive document-order tappables of this role from the live tree using
-          // the SAME canonical role logic as snapshot(), and click the idx-th. No text.
-          const ROLES = {
-            screen: 1,
-            header: 1,
-            text: 1,
-            button: 1,
-            link: 1,
-            textfield: 1,
-            image: 1,
-            icon: 1,
-            list: 1,
-            listitem: 1,
-            tab: 1,
-            switch: 1,
-            checkbox: 1,
-            radio: 1,
-            slider: 1,
-            menu: 1,
-            menuitem: 1,
-            dialog: 1,
-            group: 1,
-            node: 1,
-          };
-          const roleOf = (el) => {
-            const tag = el.tagName.toLowerCase();
-            const ariaRole = (el.getAttribute('role') || '').toLowerCase();
-            if (ariaRole) {
-              if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox')
-                return 'textfield';
-              if (ariaRole === 'heading') return 'header';
-              if (ariaRole === 'img') return 'image';
-              if (ariaRole === 'switch') return 'switch';
-              if (ariaRole === 'link') return 'link';
-              if (ariaRole === 'button') return 'button';
-              if (ROLES[ariaRole]) return ariaRole;
-            }
-            if (tag === 'input') {
-              const t = (el.getAttribute('type') || 'text').toLowerCase();
-              if (t === 'checkbox') return 'checkbox';
-              if (t === 'radio') return 'radio';
-              if (t === 'range') return 'slider';
-              if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
-              return 'textfield';
-            }
-            if (tag === 'textarea' || tag === 'select') return 'textfield';
-            if (tag === 'a') return 'link';
-            if (tag === 'button') return 'button';
-            if (tag === 'img' || tag === 'svg') return 'image';
-            if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
-            if (tag === 'ul' || tag === 'ol') return 'list';
-            if (tag === 'li') return 'listitem';
-            if (tag === 'dialog') return 'dialog';
-            if (tag === 'nav' || tag === 'menu') return 'menu';
-            return 'node';
-          };
-          const interactive = (el, r) => {
-            const tag = el.tagName.toLowerCase();
-            if (['a', 'button', 'select'].includes(tag)) return true;
-            // Keep this in lockstep with snapshot()'s interactive() so role+index
-            // ordering is identical: text fields are actionable (driven by "type").
-            if (tag === 'input' || tag === 'textarea') return true;
-            if (r === 'textfield') return true;
-            if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(r))
-              return true;
-            if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
-            return false;
-          };
-          let seen = -1,
-            target = null;
-          const walk = (el) => {
-            if (target) return;
-            if (!visible(el)) {
-              for (const c of el.children) walk(c);
-              return;
-            }
-            const r = roleOf(el);
-            // Count every style-visible interactive, matching the production SDK and
-            // snapshot()'s viewport-independent positional index. Reachability is
-            // checked only after the structural target is selected.
-            if (interactive(el, r) && r === role) {
-              seen++;
-              if (seen === idx) {
-                target = el;
-                return;
-              }
-            }
-            for (const c of el.children) walk(c);
-          };
-          const root = document.body || document.documentElement;
-          if (root) walk(root);
-          if (!target) return false;
-          if (!bringIntoReach(target)) return false;
-          return doClick(target);
-        }
-
-        return false;
+        if (!resolved) return false;
+        // The control may be below the fold on this runner even though it was
+        // reachable in production. Scroll only that case; auth-gated, hidden and
+        // occluded controls still fail as stale.
+        if (!bringIntoReach(resolved)) return false;
+        return doClick(resolved);
       },
       {
-        s: sel,
+        el: target,
         mark: !!(opts && opts.mark),
         box: (opts && opts.box) || null,
         boxColor: (opts && opts.boxColor) || null,
       },
     )
     .catch(() => null);
+  await target.dispose().catch(() => {});
   if (!ok) return false;
   if (ok.preview) return true;
   try {
+    // A REAL pointer activation at the element's centre, through the driver.
+    // Never el.click(): that dispatches an untrusted event straight at the node,
+    // so it skips hit-testing and "succeeds" on a control an overlay completely
+    // covers, and every oracle downstream then judges a state no user can reach.
     await page.mouse.click(ok.x, ok.y, { delay: 10 });
     return true;
   } catch (_) {
@@ -298,9 +182,17 @@
 const INJECTED_VALUES = new Set();
 async function typeInto(page, sel, value, opts) {
   if (value != null && String(value).length > 0) INJECTED_VALUES.add(String(value));
+  // Same shared resolver tap() uses, so a `role:textfield#N` a snapshot emitted
+  // names the same field whichever action the walk chooses for it.
+  const handle = await page.evaluateHandle(resolveStructuralTarget, sel).catch(() => null);
+  const el0 = handle ? handle.asElement() : null;
+  if (!el0) {
+    if (handle) await handle.dispose().catch(() => {});
+    return false;
+  }
   const found = await page
     .evaluate(
-      ({ s, mark }) => {
+      ({ el, mark }) => {
         const visible = (el) => {
           const r = el.getBoundingClientRect();
           if (r.width === 0 || r.height === 0) return false;
@@ -343,119 +235,6 @@ async function typeInto(page, sel, value, opts) {
           } catch (_) {}
           return reachable(el);
         };
-        const cssEscape = (v) =>
-          window.CSS && CSS.escape ? CSS.escape(v) : v.replace(/["\\]/g, '\\$&');
-
-        let el = null;
-        if (s.startsWith('key:')) {
-          const body = s.slice(4);
-          const ci = body.indexOf(':');
-          if (ci < 0) return false;
-          const kind = body.slice(0, ci);
-          const val = body.slice(ci + 1);
-          if (kind === 'testid') {
-            el =
-              document.querySelector('[data-testid="' + cssEscape(val) + '"]') ||
-              document.querySelector('[data-test-id="' + cssEscape(val) + '"]');
-          } else if (kind === 'id') {
-            el = document.getElementById(val);
-          } else if (kind === 'name') {
-            el = document.querySelector('[name="' + cssEscape(val) + '"]');
-          }
-        } else if (s.startsWith('role:')) {
-          const hash = s.indexOf('#');
-          if (hash < 0) return false;
-          const role = s.slice('role:'.length, hash);
-          const idx = parseInt(s.slice(hash + 1), 10);
-          if (!(idx >= 0)) return false;
-          const ROLES = {
-            screen: 1,
-            header: 1,
-            text: 1,
-            button: 1,
-            link: 1,
-            textfield: 1,
-            image: 1,
-            icon: 1,
-            list: 1,
-            listitem: 1,
-            tab: 1,
-            switch: 1,
-            checkbox: 1,
-            radio: 1,
-            slider: 1,
-            menu: 1,
-            menuitem: 1,
-            dialog: 1,
-            group: 1,
-            node: 1,
-          };
-          const roleOf = (el) => {
-            const tag = el.tagName.toLowerCase();
-            const ariaRole = (el.getAttribute('role') || '').toLowerCase();
-            if (ariaRole) {
-              if (ariaRole === 'textbox' || ariaRole === 'searchbox' || ariaRole === 'combobox')
-                return 'textfield';
-              if (ariaRole === 'heading') return 'header';
-              if (ariaRole === 'img') return 'image';
-              if (ariaRole === 'switch') return 'switch';
-              if (ariaRole === 'link') return 'link';
-              if (ariaRole === 'button') return 'button';
-              if (ROLES[ariaRole]) return ariaRole;
-            }
-            if (tag === 'input') {
-              const t = (el.getAttribute('type') || 'text').toLowerCase();
-              if (t === 'checkbox') return 'checkbox';
-              if (t === 'radio') return 'radio';
-              if (t === 'range') return 'slider';
-              if (['button', 'submit', 'reset', 'image'].includes(t)) return 'button';
-              return 'textfield';
-            }
-            if (tag === 'textarea' || tag === 'select') return 'textfield';
-            if (tag === 'a') return 'link';
-            if (tag === 'button') return 'button';
-            if (tag === 'img' || tag === 'svg') return 'image';
-            if (/^h[1-6]$/.test(tag) || tag === 'header') return 'header';
-            if (tag === 'ul' || tag === 'ol') return 'list';
-            if (tag === 'li') return 'listitem';
-            if (tag === 'dialog') return 'dialog';
-            if (tag === 'nav' || tag === 'menu') return 'menu';
-            return 'node';
-          };
-          const interactive = (el, r) => {
-            const tag = el.tagName.toLowerCase();
-            if (['a', 'button', 'select'].includes(tag)) return true;
-            if (tag === 'input' || tag === 'textarea') return true;
-            if (r === 'textfield') return true;
-            if (['button', 'link', 'menuitem', 'tab', 'checkbox', 'switch', 'radio'].includes(r))
-              return true;
-            if (el.hasAttribute('onclick') || el.tabIndex >= 0) return true;
-            return false;
-          };
-          let seen = -1,
-            target = null;
-          const walk = (el) => {
-            if (target) return;
-            if (!visible(el)) {
-              for (const c of el.children) walk(c);
-              return;
-            }
-            const r = roleOf(el);
-            // Count the viewport-independent, style-visible structural space.
-            if (interactive(el, r) && r === role) {
-              seen++;
-              if (seen === idx) {
-                target = el;
-                return;
-              }
-            }
-            for (const c of el.children) walk(c);
-          };
-          const root = document.body || document.documentElement;
-          if (root) walk(root);
-          el = target;
-        }
-        if (!el) return false;
         // A field below the fold can be made reachable without changing its
         // structural identity. Hidden or occluded fields remain a miss.
         if (!bringIntoReach(el)) return false;
@@ -487,9 +266,10 @@ async function typeInto(page, sel, value, opts) {
         }
         return true;
       },
-      { s: sel, mark: !!(opts && opts.mark) },
+      { el: el0, mark: !!(opts && opts.mark) },
     )
     .catch(() => false);
+  await el0.dispose().catch(() => {});
   if (!found) return false;
   // Type via the real keyboard so framework input handlers fire, then commit
   // with Enter. We located + focused the element above; type into the focused

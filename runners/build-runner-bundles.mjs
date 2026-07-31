@@ -13,6 +13,7 @@ const runners = dirname(fileURLToPath(import.meta.url));
 const targets = [
   ["source/shared/signature.mjs", "shared/signature.mjs", false],
   ["source/shared/fuzz.mjs", "shared/fuzz.mjs", false],
+  ["source/shared/dom-walk.mjs", "shared/dom-walk.mjs", false],
   ["source/tauri-snapshot", "tauri-snapshot.mjs", false],
   ["source/hygiene", "web/hygiene-oracles.mjs", true],
   ["source/a2ui", "web/a2ui-runner.mjs", true],
