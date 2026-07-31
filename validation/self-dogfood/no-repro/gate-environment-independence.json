@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "gate-environment-independence",
+  "detail": "Two ci.yml jobs were red for the same reason and both were green locally, which is why neither was caught before pushing. signature-parity loaded the host-pure signature exports out of runners/rn/runner.mjs, but that bundle imported webdriverio at top level, so the pure functions could not load without the Appium driver in a job that installs no npm packages; it passed locally only because runners/rn/node_modules happened to exist. sdk-backend-core pinned an exact `deployment` shape while Capture.resolve_commit deliberately falls back to GITHUB_SHA, which a GitHub runner always sets and a laptop never does, so the batch grew a `commit` key only in CI. The fix defers the webdriverio import to the one call site that starts a session, and gives the Python suite a conftest that clears the ambient code-identity variables. Both defects live in gate wiring and packaging, so no runtime guard can hold them; the bounded regression test is structural in the same spirit as check-harness-integrity.py, asserting that the bundle has no static webdriverio import but still has the dynamic one (so deleting the dependency cannot pass), and that the conftest actually clears the variables it names. All three cases fail on the parent and pass on the fix.",
+  "test": "validation/self-dogfood/test_gate_environment_independence.py",
+  "command": [
+    "python3",
+    "validation/self-dogfood/test_gate_environment_independence.py"
+  ],
+  "timeoutSeconds": 60,
+  "affectedExitCode": 1,
+  "affectedEvidence": [
+    {
+      "path": "validation/self-dogfood/evidence/gate-environment-independence.log",
+      "sha256": "sha256:c6bd5ef36dffdad77462c06eb9bcf5f170cf23c3318cb2ba3218f30b0f5cd169"
+    }
+  ]
+}

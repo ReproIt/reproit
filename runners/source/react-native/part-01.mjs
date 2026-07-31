@@ -49,7 +49,11 @@
 // and requires a keyed press, structural state change, and EXPLORE:EDGE. Native
 // SwiftUI/iOS and Compose/Android fixtures gate the other Appium platform ids.
 
-import { remote } from 'webdriverio';
+// webdriverio is loaded LAZILY at the one call site that starts a session.
+// A top-level import makes the whole module unloadable without the Appium
+// driver installed, including the host-pure signatureOf/descriptorOf exports
+// that runners/signature_test.mjs imports; that broke the parity gate, whose
+// job installs no npm packages at all.
 import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';

@@ -59,6 +59,7 @@
     };
     caps['appium:processArguments'] = pa;
   }
+  const { remote } = await import('webdriverio');
   const driver = await remote({
     hostname: url.hostname,
     port: Number(url.port) || 4723,

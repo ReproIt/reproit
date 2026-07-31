@@ -31,6 +31,15 @@ def _batch_for(status, success):
     return capture._build_batch([operation])
 
 
+def test_a_ci_runner_supplies_the_commit_the_config_omits(monkeypatch):
+    # The env fallback used to be exercised only by accident, when GITHUB_SHA
+    # leaked into the suite and broke the exact-shape assertions below. Pin it
+    # on purpose instead: a deployment carries the identity its runner knows.
+    sha = "f857cb7740a5f857cb7740a5f857cb7740a5f857"
+    monkeypatch.setenv("GITHUB_SHA", sha)
+    assert _batch_for(500, False)["deployment"] == {"version": "1.2.3", "commit": sha}
+
+
 def test_server_error_batch_uses_the_universal_causal_contract():
     batch = _batch_for(500, False)
     assert batch["version"] == 1

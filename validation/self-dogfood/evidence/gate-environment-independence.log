@@ -1,0 +1,58 @@
+Two ci.yml jobs red on the same push (run 30638444619, head d293b951), both
+green on a developer laptop, both failing for the same underlying reason.
+
+1. Job "signature-parity", step "Electron + Tauri runner parity":
+
+  FAIL  ./rn/runner.mjs: bundle does not import: Cannot find package
+  'webdriverio' imported from /home/runner/work/reproit/reproit/runners/rn/runner.mjs
+  ##[error]Process completed with exit code 1.
+
+  runners/signature_test.mjs imports the host-pure signatureOf/descriptorOf out
+  of each runner bundle. The React Native bundle carried a TOP-LEVEL
+  `import{remote as Yt}from"webdriverio"`, so loading those pure functions
+  required the Appium driver. The signature-parity job runs no `npm ci` at all,
+  by design. Reproduced locally by checking out the parent into a worktree,
+  where runners/rn/node_modules does not exist, giving the identical message.
+
+2. Job "sdk-backend-core", step "python (reproit-backend-py)":
+
+  >       assert batch["deployment"] == {"version": "1.2.3"}
+  E       AssertionError: assert {'version': '...cb7740a5f857'} == {'version': '1.2.3'}
+  E         Left contains 1 more item:
+  E         {'commit': 'f857cb7740a5f857cb7740a5f857cb7740a5f857'}
+
+  Capture.resolve_commit deliberately falls back to REPROIT_COMMIT and then
+  GITHUB_SHA. GITHUB_SHA is always set on a GitHub runner and never set locally,
+  so the batch grew a `commit` key only in CI. Reproduced locally with:
+
+    GITHUB_SHA=f857cb7740a5f857cb7740a5f857cb7740a5f857 \
+      uv run --group test -m pytest tests/test_capture.py -q
+    1 failed, 5 passed
+
+After the fix, same commands:
+
+  node runners/signature_test.mjs, with runners/rn/node_modules moved aside:
+    PASS  electron.mjs: 25/25 vectors
+    PASS  tauri.mjs: 25/25 vectors
+    PASS  web/runner.mjs: 25/25 vectors
+    PASS  rn/runner.mjs: 25/25 vectors
+    All 25 vectors pass for all 4 runners.   (rc=0)
+
+  The dynamic import survives bundling rather than being deleted:
+    let{remote:u}=await import("webdriverio"),a=await u({hostname:t.hostname,...
+  and resolves at runtime: `remote is function`.
+
+  The rn runner's own suite is unaffected: 63 pass, 0 fail.
+
+  Python suite, with and without GITHUB_SHA set: 42 passed in both.
+
+The regression test at the parent with only itself overlaid, which is how the
+policy gate evaluates it:
+
+  python3 validation/self-dogfood/test_gate_environment_independence.py
+  test_the_python_capture_suite_clears_ambient_code_identity ... FAIL
+  test_the_rn_bundle_loads_without_the_appium_driver ... FAIL
+  test_the_rn_bundle_still_reaches_the_driver_when_it_needs_one ... FAIL
+  Ran 3 tests
+  FAILED (failures=3)
+  affected rc=1
