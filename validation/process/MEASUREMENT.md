@@ -20,8 +20,10 @@ set `REPROIT_SECCOMP=0` to force the libc-only boundary).
 | C program, `-D_FILE_OFFSET_BITS=64` | 3 | 0 | yes | replay correct |
 | coreutils `cat` | 3 | 0 | yes | replay correct |
 | `python3` script | 782 | 0 | **yes** | REPRODUCES hermetically |
-| `ruby` script | 1780 | 0 | no | fails closed, INCONCLUSIVE |
+| `ruby` script | 1779 | 0 | **yes** | REPRODUCES hermetically |
+| C program opening one relative name twice | 5 | 0 | **yes** | REPRODUCES hermetically |
 | C program, `gcc -static` | 0 | 0 | n/a | capture REFUSED before it runs |
+| the same static image behind `/bin/sh` | 6 | n/a | n/a | capture REFUSED as INCOMPLETE |
 
 Every replay above ran with the input file DELETED.
 
@@ -243,52 +245,162 @@ observed as absent cannot contain anything, so replay now answers ENOENT from
 that recorded fact instead of reporting drift that never happened. See the
 section below on answering from the recording.
 
-What remains is NOT a missing entry. Ruby's replay evaluates `rbconfig.rb`
-twice, which it reports itself:
+**HISTORICAL. The "different search ORDER" diagnosis above was WRONG, and
+measuring it instead of trusting it is what closed the case.** It said ruby's
+replay resolved libraries in a different order, so `require` loaded one file
+under two names, and that closing it meant pinning the interpreter's search
+order. `strace` of the replay says otherwise: the second open is at the SAME
+path as the first,
+`/usr/lib/ruby/vendor_ruby/rubygems/defaults/operating_system.rb`, so nothing
+about the order moved.
+
+The capsule was the problem. Counting bytes by key in the ruby capsule:
 
 ```
-rbconfig.rb:369: warning: already initialized constant RbConfig::TOPDIR
-rbconfig.rb:16:  warning: previous definition of TOPDIR was here
+/usr/lib/ruby/vendor_ruby/rubygems.rb   opens 2   recorded bytes 74,490
+file on disk                                      37,245
 ```
 
-`strace` on the replay shows `/usr/lib/aarch64-linux-gnu/ruby/3.1.0/rbconfig.rb`
-opened twice, while the recorded run searched the `site_ruby` prefixes first.
-So the library search resolves in a different ORDER under replay, `require`
-dedupes on the resolved path, and the same file is loaded under two names.
-Closing it means pinning the interpreter's search order, not adding another
-syscall to the boundary.
-
-It fails closed. At the product level the verdict is `INCONCLUSIVE`, exit 3:
+Exactly twice. The syscall layer re-reads a whole file on every `openat`, and
+replay gathered every read of a key across the WHOLE log, so a file opened
+twice was served containing its own text twice. Rubygems duly warned
+`already initialized constant Gem::MARSHAL_SPEC_DIR` at line 2644 with the
+previous definition at 1295, exactly 1,349 lines apart, which is the length of
+the file. Debian's `alias upstream_default_path default_path` then ran a
+second time, aliased itself, and recursed:
 
 ```
-INCONCLUSIVE recorded exit 3, observed exit 1; failing closed
-boundary: 91 served, 0 diverged, 0 clock overrun, 0 rng overrun, 1 env fallthrough
+rubygems/defaults/operating_system.rb:83:in `default_path':
+  stack level too deep (SystemStackError) ... 9347 levels...
 ```
 
-That distinction matters and is now pinned by a case in
-`validation/process/run.sh`: zero divergences at the boundary is NOT a
-reproduction, and the product must never report one for a replay whose program
-did not do what it did when recorded.
+A file opened twice is TWO streams. Replay now serves the reads that followed
+THIS open and stops at the next open of the same key, and ruby reproduces with
+its input deleted and byte-identical stdout, like python. Both properties are
+pinned as cases in `validation/process/run.sh`.
 
-## Static binaries: measured, and now refused
+The lesson is the same one this file keeps recording, in the sharper
+direction: an abstention with a plausible named cause is still only as good as
+its last measurement, and this one had been carried forward for three rounds
+while the real defect sat one byte count away.
 
-Previously unmeasured because the test image could not link one. It can:
-`gcc -static` produces a working binary, and the measurement shows the
-boundary observes **0 entries**, exactly as predicted. A statically linked
-program resolves no dynamic symbols, so nothing is interposed.
+The four-way distinction the abstention used to pin is not lost. The
+`twoasserts` case still asserts that a replay dying the same way for a
+DIFFERENT reason is `INCONCLUSIVE` and not a reproduction, and the tampered
+capsule case still asserts `DIVERGED`.
 
-A capsule of nothing would replay as a false success, so capture now refuses
-in two independent places:
+## Relative paths: one file with two keys, two files with one
+
+Boundary entries were keyed by the path AS WRITTEN in the libc layer, which
+broke in both directions at once. Measured on a subject that reads `data.txt`
+from a directory, chdirs, and reads a different `data.txt`:
+
+```
+recorded log:   open data.txt / read data.txt(OUTER) / open data.txt / read data.txt(INNER)
+live run:       A=OUTER   B=INNER
+replayed run:   A=<ERR>   B=OUTERINNER
+                REPROIT:DIVERGENCE {"kind":"file","detail":"/work/case/data.txt"}
+```
+
+- `A` is ONE file with TWO keys: record stored `data.txt`, replay resolved it
+  against the cwd, and the lookup missed a file whose bytes the capsule held.
+  A spurious divergence, which is the safe direction but still wrong.
+- `B` is TWO files with ONE key, and it is the unsafe direction: the two files
+  were concatenated and served as one, with ZERO divergences. A silent wrong
+  replay.
+
+Both close with one key. `reproit_path_key` resolves against the cwd or the
+dirfd (through `/proc`) in BOTH modes, normalizes the identity-preserving
+rewrites (`//`, `/./`, a trailing `/`), and folds an over-long path to a hash
+plus its tail rather than truncating, because truncation is one more way for
+two files to share a key.
+
+`a/b/..` is deliberately NOT folded. The kernel resolves `..` after following
+symlinks, so folding it lexically would make `/a/link/../b` key as `/a/b`, a
+DIFFERENT file. That would convert a normalization meant to merge two keys for
+one file into two files sharing one key, which is the exact failure being
+fixed. A symlink and its target therefore still key apart, and under replay
+both spellings simply diverge, which is the safe direction.
+
+The capsule already recorded the working directory and replay ignored it.
+Replay now runs in it, so a guard kept in a repo and checked from the repo root
+still resolves relative names the way the recording did. A recorded working
+directory that no longer exists is `INCONCLUSIVE` with that named cause, never
+a pass and never a reproduction.
+
+## Static binaries: measured, and now refused in three places
+
+`gcc -static` produces a working binary and the boundary observes **0
+entries**, exactly as predicted: a statically linked program resolves no
+dynamic symbols, so the libc half of the boundary is never called.
+
+The seccomp half is a different story, and measuring it changed the answer.
+A seccomp filter SURVIVES `execve`, so a static image launched by a dynamic
+parent is still supervised for files and path metadata. Measured, `/bin/sh`
+exec'ing a static subject produced a capsule of six entries that carried the
+subject's input file and replayed as a clean `reproduced` with that file
+deleted:
+
+```
+open   /tmp/reproit-subject/input.txt
+read   /tmp/reproit-subject/input.txt   boom
+```
+
+That capsule is not wrong about what it holds. It is wrong about what it does
+NOT hold: the libc classes, clock, randomness, environment, and sockets, are
+unobserved inside a static image and nothing in the capsule says so. The same
+program with one socket dial would have replayed against the LIVE network with
+zero divergences.
+
+So capture refuses in three independent places:
 
 - before the program runs, by reading its ELF program headers: no `PT_INTERP`
   means no dynamic loader, and capture stops with a named reason;
 - after it runs, if the boundary observed nothing at all, which also catches a
-  loader that dropped the preload for other reasons.
+  loader that dropped the preload for other reasons;
+- when the supervisor sees the target EXEC into a statically linked image, read
+  from `/proc/<pid>/exe` on image change rather than by trapping `execve`, so
+  the filter and its hot path are untouched. Capture then names the capture
+  INCOMPLETE in the classes it cannot report, rather than shipping it.
 
-The seccomp layer would see a static binary's syscalls, since it filters the
-kernel boundary rather than the symbol table. Wiring capture to run without
-the libc shim is a real option and is NOT implemented; until it is, refusing
-is the honest answer.
+A syscall-only capture path is still a real option, and it is still NOT
+implemented. What changed is that the gap can no longer be reached by accident
+through a wrapper.
+
+## Keeping a capsule: the loop was open at the middle
+
+The capsule could FIND a failure and REPRODUCE it, and there was no route from
+one into `reproit keep`, so it could never become a regression test. That is
+the product's whole loop broken for exactly the programs this format exists to
+serve. Routing was the entire gap: `keep` sniffed `reproit-backend-capture`
+and a process capsule fell through to the finding lookup, which failed with
+"unknown finding" on a file that was sitting right there.
+
+A capsule now keeps exactly as a backend capture does, and for the same
+reasons, with `--exec` required because a capsule may never supply its own
+command:
+
+```
+$ reproit keep capsule.json --exec ./subject
+Kept process capsule guard 56f8bf52b0d6
+  verdict now: reproduced
+  reproit check rep_56f8bf52b0d6 replays it hermetically, ...
+
+$ reproit check rep_56f8bf52b0d6
+  FAIL reproduced by re-execution (fatal signal 6 on process-assertion)
+```
+
+Three things this made explicit rather than assumed:
+
+- The guard is PROVEN LIVE at keep time. A capsule whose current verdict is
+  diverged or inconclusive is refused with the verdict named, because a guard
+  that cannot replay is dead on arrival in CI.
+- The guard file is `capsule.json`, not the backend guard's `capture.json`, so
+  `reproit check <id>` routes on a lookup rather than a sniff and the two
+  formats cannot be confused for one another.
+- `check` resolves a repro by its PREFIXED id, so keep prints `rep_<id>`.
+  Printing the bare directory name would have handed the operator a string
+  that does not resolve, which is how this was found.
 
 ## The environment block and directory listings
 

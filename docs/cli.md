@@ -70,6 +70,7 @@ A different failure never counts as a reproduction.
 ```sh
 reproit keep fnd_... [--as NAME]
 reproit keep capture.json [--exec "node server.js"]   # hermetic guard
+reproit keep capsule.json --exec "./subject"          # process capsule guard
 reproit keep GUARD --refresh [--yes]                  # re-record a drifted guard
 reproit check [CAPTURE]
 reproit check [CAPTURE] --exec "node server.js"
@@ -94,6 +95,15 @@ with `instrument.install()`, and an app that listens on `$PORT`.
 `reproit init` records it whenever it can infer the boot command, and the flag
 remains the override. A capture never supplies a command: only repo-local
 config does.
+
+A `reproit-process-capsule` keeps the same way and needs `--exec` for the same
+reason: it re-executes a whole program rather than re-firing a request. The
+guard lands as `capsule.json` plus its boot recipe, is proven live at keep time
+(a capsule that currently diverges or is inconclusive is refused with the
+verdict named), and `reproit check rep_<id>` replays it afterwards with no
+capsule path and no flag. Replay runs in the capsule's recorded working
+directory, so relative paths resolve as they did when recorded; a recorded
+directory that no longer exists is inconclusive with that named cause.
 
 `keep <guard> --refresh` re-records a guard whose code has DRIFTED (a diverged
 verdict). It boots the guard's own stored recipe with recording on and replay

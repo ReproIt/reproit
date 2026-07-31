@@ -182,7 +182,12 @@ static int peek_path(unsigned long remote, char *out, size_t cap) {
 }
 
 /* Absolute path for a (dirfd, path) pair, resolved against the TARGET's cwd
- * and fd table through /proc, never the supervisor's own. */
+ * and fd table through /proc, never the supervisor's own.
+ *
+ * The result is both the capsule KEY and the path this layer opens, so it is
+ * normalized with the identity-preserving rewrites only (see
+ * reproit_normalize_path). Without that, `open("./x")` and `open("/d/x")`
+ * keyed apart and the second DIVERGED on a file the capsule already held. */
 static void absolutize(int dirfd, const char *path, char *out, size_t cap) {
     if (!path || !path[0]) {
         snprintf(out, cap, "-");
@@ -190,6 +195,7 @@ static void absolutize(int dirfd, const char *path, char *out, size_t cap) {
     }
     if (path[0] == '/') {
         snprintf(out, cap, "%s", path);
+        reproit_normalize_path(out);
         return;
     }
     char base[MAX_PATH_LEN];
@@ -206,6 +212,7 @@ static void absolutize(int dirfd, const char *path, char *out, size_t cap) {
     }
     base[n] = 0;
     snprintf(out, cap, "%s/%s", base, path);
+    reproit_normalize_path(out);
 }
 
 /* ---- responses -------------------------------------------------------- */
@@ -304,146 +311,6 @@ static void record_stat_like(kind_t kind, const char *absolute, const void *blob
 
 /* ---- replay ----------------------------------------------------------- */
 
-/* The scratch tree replay materializes recorded content into. One per
- * supervisor, torn down when the target exits. */
-static char scratch_root[64];
-
-static const char *scratch(void) {
-    if (!scratch_root[0]) {
-        snprintf(scratch_root, sizeof(scratch_root), "/tmp/reproit-replay-XXXXXX");
-        if (!mkdtemp(scratch_root)) {
-            scratch_root[0] = 0;
-            return NULL;
-        }
-    }
-    return scratch_root;
-}
-
-static void scratch_teardown(void) {
-    if (!scratch_root[0]) {
-        return;
-    }
-    /* Bounded and non recursive by construction: the tree is exactly one
-     * level of materialized files plus the rebuilt directories, which are
-     * themselves one level deep. */
-    DIR *root = opendir(scratch_root);
-    if (root) {
-        struct dirent *entry;
-        while ((entry = readdir(root)) != NULL) {
-            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-                continue;
-            }
-            char path[MAX_PATH_LEN];
-            snprintf(path, sizeof(path), "%s/%s", scratch_root, entry->d_name);
-            if (entry->d_type == DT_DIR) {
-                DIR *nested = opendir(path);
-                if (nested) {
-                    struct dirent *inner;
-                    while ((inner = readdir(nested)) != NULL) {
-                        if (strcmp(inner->d_name, ".") == 0 || strcmp(inner->d_name, "..") == 0) {
-                            continue;
-                        }
-                        char nested_path[MAX_PATH_LEN];
-                        snprintf(nested_path, sizeof(nested_path), "%s/%s", path, inner->d_name);
-                        remove(nested_path);
-                    }
-                    closedir(nested);
-                }
-                rmdir(path);
-            } else {
-                unlink(path);
-            }
-        }
-        closedir(root);
-    }
-    rmdir(scratch_root);
-    scratch_root[0] = 0;
-}
-
-/* A stable scratch name for one recorded path, so a file opened repeatedly is
- * materialized once. */
-static void scratch_name(const char *absolute, char *out, size_t cap) {
-    unsigned long hash = 1469598103934665603UL;
-    for (const char *p = absolute; *p; p++) {
-        hash ^= (unsigned char)*p;
-        hash *= 1099511628211UL;
-    }
-    const char *base = strrchr(absolute, '/');
-    base = base ? base + 1 : absolute;
-    snprintf(out, cap, "%s/%016lx-%.64s", scratch_root, hash, base);
-}
-
-/* Materialize recorded content as a REAL file and hand back a descriptor to
- * it.
- *
- * This used to be a memfd, which was measured to break two things a copy
- * cannot fake. glibc validates a locale object structurally, and the dynamic
- * loader maps a shared object PROT_EXEC and relocates it, which a memfd is
- * refused for on kernels that default memfds to noexec. A real file on disk
- * satisfies both, and the program still never touches the host's copy: the
- * bytes come from the capsule and nothing else. */
-static int materialize(const char *absolute, const unsigned char *content, size_t len) {
-    if (!scratch()) {
-        return -1;
-    }
-    char path[MAX_PATH_LEN];
-    scratch_name(absolute, path, sizeof(path));
-    struct stat existing;
-    if (stat(path, &existing) == 0 && (size_t)existing.st_size == len) {
-        return open(path, O_RDONLY | O_CLOEXEC);
-    }
-    /* 0755 so an executable mapping of a served shared object is permitted. */
-    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0755);
-    if (fd < 0) {
-        return -1;
-    }
-    size_t off = 0;
-    while (off < len) {
-        ssize_t wrote = write(fd, content + off, len - off);
-        if (wrote <= 0) {
-            break;
-        }
-        off += (size_t)wrote;
-    }
-    close(fd);
-    return open(path, O_RDONLY | O_CLOEXEC);
-}
-
-/* Rebuild a recorded directory as a real one in a scratch tree, so the
- * program's getdents64 is answered by the KERNEL from names the capsule
- * carries. Writing dirent structs by hand would duplicate the kernel's
- * layout rules for no gain; materializing the names cannot get it wrong. */
-static int serve_dir(const char *absolute) {
-    if (!scratch()) {
-        return -1;
-    }
-    char template[MAX_PATH_LEN];
-    scratch_name(absolute, template, sizeof(template));
-    if (mkdir(template, 0755) != 0 && errno != EEXIST) {
-        return -1;
-    }
-    for (size_t i = 0; i < G.entry_count; i++) {
-        entry_t *e = &G.entries[i];
-        if (e->kind != K_DIRENT || strcmp(e->key, absolute) != 0 || !e->blob) {
-            continue;
-        }
-        char name[MAX_PATH_LEN];
-        size_t len = e->blob_len < sizeof(name) - 1 ? e->blob_len : sizeof(name) - 1;
-        memcpy(name, e->blob, len);
-        name[len] = 0;
-        char full[MAX_PATH_LEN];
-        snprintf(full, sizeof(full), "%s/%s", template, name);
-        if (e->a == DT_DIR) {
-            mkdir(full, 0755);
-        } else {
-            int created = open(full, O_WRONLY | O_CREAT | O_EXCL, 0644);
-            if (created >= 0) {
-                close(created);
-            }
-        }
-    }
-    return open(template, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-}
 
 /* Widen replay from "what the recording READ" to "what the recording can
  * ANSWER". A branchy startup does not take the same path twice: the recorded
@@ -526,11 +393,18 @@ static int listing_denies(const char *absolute) {
 
 static void serve_open(__u64 id, const char *absolute) {
     unsigned char *content = NULL;
-    size_t len = gather(K_READ, absolute, &content);
-    entry_t *opened = find_entry(K_OPEN, absolute);
+    /* The open comes FIRST, because it decides which reads belong to this
+     * stream. This layer re-reads the whole file on every open, so gathering
+     * across the log served a file opened twice with its own text twice; see
+     * gather_span in the capsule header for the ruby measurement. */
+    size_t at = 0;
+    entry_t *opened = find_entry_at(K_OPEN, absolute, &at);
+    size_t from = opened ? at + 1 : 0;
+    size_t to = opened ? next_key_index(K_OPEN, absolute, at) : G.entry_count;
+    size_t len = gather_span(K_READ, absolute, from, to, &content);
     if (opened && opened->b == -1) {
         free(content);
-        int dirfd = serve_dir(absolute);
+        int dirfd = reproit_serve_dir(absolute);
         if (dirfd < 0) {
             diverge("directory", absolute);
             respond_error(id, ENOENT);
@@ -565,7 +439,7 @@ static void serve_open(__u64 id, const char *absolute) {
         respond_error(id, EIO);
         return;
     }
-    int fd = materialize(absolute, content, len);
+    int fd = reproit_materialize(absolute, content, len);
     free(content);
     if (fd < 0) {
         respond_error(id, EIO);
@@ -767,7 +641,7 @@ static void handle_getcwd(const struct seccomp_notif *req) {
 }
 
 /* Directory listing. At replay the descriptor is a REAL directory that
- * serve_dir rebuilt from the capsule's recorded names, so the kernel answers
+ * reproit_serve_dir rebuilt from the capsule's recorded names, so the kernel answers
  * the enumeration correctly and this layer stays out of the struct layout
  * business entirely. At record the directory's names were captured when it
  * was opened, so nothing is needed here either. */
@@ -851,6 +725,38 @@ static void dispatch(const struct seccomp_notif *req) {
     }
 }
 
+/* Notice when the target EXECs into a new program image, and record the ones
+ * the libc half of the boundary cannot see inside.
+ *
+ * A seccomp filter survives execve, so this layer keeps supervising a
+ * statically linked child while LD_PRELOAD does not reach it at all. That
+ * combination produces a capsule with real file entries and NO clock, rng,
+ * environment, or socket entries, which looks complete and is not: measured,
+ * a `gcc -static` subject behind a `/bin/sh` wrapper captured six entries and
+ * replayed as a clean "reproduced". Capture refuses on this entry instead.
+ *
+ * Read from /proc rather than by trapping execve, so the filter and its hot
+ * path are untouched: the image only has to be re-judged when the link
+ * changes, which is once per exec. */
+static void note_target_image(void) {
+    static char seen[MAX_PATH_LEN];
+    char link[64];
+    char exe[MAX_PATH_LEN];
+    snprintf(link, sizeof(link), "/proc/%d/exe", (int)sup_target);
+    ssize_t n = readlink(link, exe, sizeof(exe) - 1);
+    if (n <= 0) {
+        return;
+    }
+    exe[n] = 0;
+    if (strcmp(exe, seen) == 0) {
+        return;
+    }
+    snprintf(seen, sizeof(seen), "%s", exe);
+    if (G.mode == 1 && reproit_elf_is_dynamic(exe) == 0) {
+        record_blob(K_EXEC, exe, NULL, 0, 0, 0);
+    }
+}
+
 static void supervisor_loop(void) {
     struct seccomp_notif *req = calloc(1, sizeof(*req));
     if (!req) {
@@ -864,9 +770,10 @@ static void supervisor_loop(void) {
             }
             break; /* the target is gone */
         }
+        note_target_image();
         dispatch(req);
     }
-    scratch_teardown();
+    reproit_scratch_teardown();
     reproit_report();
     _exit(0);
 }

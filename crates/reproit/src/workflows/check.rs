@@ -62,6 +62,15 @@ pub(super) async fn run(
         }
     }
     if let Some(id) = args.repro.as_deref() {
+        // A kept process capsule guard replays through its stored exec recipe
+        // too, and carries its own capsule file name so the two guard formats
+        // route by lookup rather than by guess.
+        if let Some(code) = super::process_capsule::try_replay_process_guard(ctx, id).await? {
+            if args.record_video {
+                anyhow::bail!("process capsules do not produce screen video evidence");
+            }
+            return Ok(code);
+        }
         // A kept hermetic capture guard replays through its stored exec
         // recipe, needing no live target at all.
         if let Some(code) = backend_headless::try_replay_hermetic_guard(ctx, id, args.auto).await? {
