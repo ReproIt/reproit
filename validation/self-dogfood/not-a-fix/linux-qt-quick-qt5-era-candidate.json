@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "linux-qt-quick-qt5-era-candidate",
+  "changeType": "tooling",
+  "detail": "Records one more measured elimination for Linux Qt Quick. kclock 464252, the timer add-a-minute defect, was the most promising remaining pair because its observable is a duration that moves by a whole minute. Its affected revision 1a02e4d is Qt5-era and does not configure against a Qt6 image at all, so it cannot be built alongside the Qt6 subjects. That is now recorded next to the other eliminations, together with the separate fact that a current-master kclock timer defect would need kclockd running because TimerModel reaches the daemon over D-Bus rather than a config file. No runtime product behavior changes.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/linux-qt-quick-discrimination.jsonl",
+      "sha256": "sha256:b3d28167adb6b37d1e312f041164adc4c4de228a7131a72c4ce8368c08118ece"
+    }
+  ]
+}

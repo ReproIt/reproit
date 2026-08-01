@@ -193,15 +193,16 @@ complete target-specific record validates.
     equals twice the affected build shows nothing and the fixed build still shows 2, while the first
     equals yields 2 on both. What is missing is a second independent repository with a pair that
     separates, and then three affected reproductions, three fixed controls and a corpus
-  - [incomplete-evidence] five candidate applications have been eliminated by running or building
+  - [incomplete-evidence] six candidate applications have been eliminated by running or building
     them, not by reading. kalk 507525 and kclock 505636 both fail to separate their revisions on
     this worker. elisa 476532 fails to separate because Space never reaches the focused player
     button on either revision, the global Play-Pause shortcut consuming it first, while Return
     activates the button on both. marknote needs KF 6.21 against trixie's 6.13. francis 480512
     cannot be linked at 1ccca90 on this toolchain, its static library and its executable both moc
-    Controller, and patching the application under test would compromise the campaign. kclock's
-    timer defects additionally need its own kclockd daemon running, because TimerModel reaches it
-    over D-Bus rather than a config file
+    Controller, and patching the application under test would compromise the campaign. kclock
+    464252, the timer add-a-minute defect, is Qt5-era at 1a02e4d and will not configure against a
+    Qt6 image at all; a current-master kclock defect would additionally need its own kclockd
+    running, because TimerModel reaches the daemon over D-Bus rather than a config file
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
 - Promotion gate:
