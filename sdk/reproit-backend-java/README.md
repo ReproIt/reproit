@@ -81,6 +81,51 @@ them), bounded flush interval (floor 100 ms), per-request timeout, and at most `
 before anything is queued. Uploads use `java.net.http.HttpClient` on one daemon thread.
 `sdk/test/oracle_contract_test.js` pins the `backend-server-error` tagging contract.
 
+## Capsule parity: outbound exchange capture and hermetic replay
+
+The capsule boundary is library-layer only (no `-javaagent`, no bytecode weaving), per the
+Track 2x decision. Route outbound HTTP through the delegating client and database statements
+through the JDBC wrap; both record onto the ambient trace (`Instrument.scope`, or the servlet
+filter's request scope) and both SERVE the recorded exchanges when `REPROIT_REPLAY` names a
+capture payload:
+
+```java
+HttpClient client = ReproitHttpClient.wrap(HttpClient.newHttpClient());
+Connection db = ReproitJdbc.connect(() -> DriverManager.getConnection(url));  // stub in replay
+Random random = Instrument.random();  // seeded from the envelope in replay
+Clock clock = Instrument.clock();     // offset to the capture moment in replay
+```
+
+Bounds are byte-identical to the Node reference: 8 KiB inline body budget (over-cap bodies keep
+byte count + sha256 + a truncated marker and replay fails closed on them), 32 name-sorted
+headers, 64 db rows, 128 stream chunk boundaries. Streaming responses (SSE) are observed via a
+TEE subscriber as the app consumes them and the exchange records at EOF; an abandoned body
+records nothing. Replay matching is strict per-operation ordinals; the first unmatched call
+emits the `REPROIT:DIVERGENCE` marker (byte-identical to Node's, `bodyDelta` included) and
+answers 599 (HTTP) or throws `SQLException` (JDBC). The explicit `Instrument.Http.send` /
+`Instrument.Db.run` boundary remains for apps that prefer it.
+
+NAMED capability gaps of the no-weaving boundary (each a gap, never a silent downgrade):
+
+- Only wrapped clients/connections are visible. A bare `HttpClient` or a direct
+  `DriverManager.getConnection` records nothing and reaches the real network at replay.
+- `System.currentTimeMillis`, `System.nanoTime` and `Instant.now` cannot be intercepted;
+  `Instrument.clock()` is the pinned source. Direct reads stay live.
+- `Random` instances the app constructs, `Math.random`, and `ThreadLocalRandom` are not
+  reseedable; `Instrument.random()` is the pinned source. `SecureRandom` is unpinnable by
+  design and stays live everywhere.
+- JDBC surface: `executeQuery`/`executeUpdate` on Statement/PreparedStatement with indexed
+  parameters. Batch APIs, `CallableStatement`, generated keys, scrollable cursors and
+  multi-result `execute()` pass through unrecorded in capture and fail loudly in replay.
+- HTTP/2 push promises pass through unrecorded; replay ignores the push handler.
+- `TimeZone.setDefault`/`Locale.setDefault` pin zone- and locale-aware code; code reading the
+  `TZ` environment variable directly is not affected.
+
+The money-test fixture lives in `examples/java-backend-fixture/` and the four-verdict gate in
+`validation/backend/java-hermetic-e2e/run.sh` (capture, portability copy, reproduce / fix /
+revert / deleted-exchange-diverges). `sdk/test/backend_replay_parity_test.js` byte-compares the
+served exchange, the 599 body, and the divergence marker against the Node reference.
+
 ## Tests
 
 ```sh

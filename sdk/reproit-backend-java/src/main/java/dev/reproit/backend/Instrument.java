@@ -40,7 +40,61 @@ public final class Instrument {
     private static boolean sessionResolved = false;
     private static Replay session = null;
 
+    // Capture accounting, the Node reference's stats shape. failedCaptures
+    // counts exchanges dropped because the trace finished or hit its
+    // MAX_EVENTS cap (the per-trace exchange bound): the host call goes on
+    // and the drop is countable, never silent.
+    private static final java.util.concurrent.atomic.AtomicLong CAPTURED_EXCHANGES =
+        new java.util.concurrent.atomic.AtomicLong();
+    private static final java.util.concurrent.atomic.AtomicLong TRUNCATED_BODIES =
+        new java.util.concurrent.atomic.AtomicLong();
+    private static final java.util.concurrent.atomic.AtomicLong FAILED_CAPTURES =
+        new java.util.concurrent.atomic.AtomicLong();
+
     private Instrument() {}
+
+    /** Capture accounting counters. */
+    public record Stats(long capturedExchanges, long truncatedBodies, long failedCaptures) {}
+
+    public static Stats stats() {
+        return new Stats(
+            CAPTURED_EXCHANGES.get(), TRUNCATED_BODIES.get(), FAILED_CAPTURES.get());
+    }
+
+    static void countTruncatedBody() {
+        TRUNCATED_BODIES.incrementAndGet();
+    }
+
+    static void countCapturedExchange() {
+        CAPTURED_EXCHANGES.incrementAndGet();
+    }
+
+    static void countFailedCapture() {
+        FAILED_CAPTURES.incrementAndGet();
+    }
+
+    /**
+     * The SDK-provided clock: in replay mode it is offset to the capture
+     * moment (in the capture's zone); otherwise the system clock. Named
+     * no-weaving gap: code reading System.currentTimeMillis or Instant.now
+     * directly is NOT pinned; route time through this Clock to replay it.
+     */
+    public static java.time.Clock clock() {
+        Replay active = session();
+        return active != null ? active.clock() : java.time.Clock.systemDefaultZone();
+    }
+
+    /**
+     * The SDK-provided randomness source: in replay mode a Random over the
+     * envelope's seeded stream; otherwise a plain java.util.Random. Named
+     * no-weaving gaps: Random instances the app constructs itself and
+     * Math.random are not pinned, and SecureRandom is unpinnable by design.
+     */
+    public static java.util.Random random() {
+        Replay active = session();
+        java.util.Random seeded = active == null ? null : active.random();
+        return seeded != null ? seeded : new java.util.Random();
+    }
 
     /**
      * Run `body` with `trace` ambient for {@link Http#send} and
@@ -213,22 +267,9 @@ public final class Instrument {
                 request.headers().firstValue("content-type").orElse("");
             Replay active = session();
             if (active != null) {
-                Map<String, Object> probe = new LinkedHashMap<>();
-                probe.put("method", method);
-                probe.put("url", url);
-                probe.putAll(Exchange.boundedBody(requestBody, requestContentType));
-                Map<String, Object> recorded = active.matched("http", probe);
-                if (recorded == null) return diverged599("diverged");
-                Object rawResponse = recorded.get("response");
-                Map<String, Object> response = rawResponse instanceof Map<?, ?> map
-                    ? castMap(map) : Map.of();
-                if (Boolean.TRUE.equals(response.get("truncated"))) {
-                    // The capture kept identity but not bytes; serving a
-                    // guessed body would be a silent lie.
-                    active.diverge("http", probe);
-                    return diverged599("truncated-exchange-body");
-                }
-                return servedResponse(response);
+                Replay.Served served = active.serveHttp(
+                    probeOf(method, url, requestBody, requestContentType));
+                return new ExchangeResponse(served.status(), served.headers(), served.body());
             }
             HttpResponse<byte[]> response =
                 client.send(request, HttpResponse.BodyHandlers.ofByteArray());
@@ -256,49 +297,24 @@ public final class Instrument {
                             responseHeaders,
                             response.body(),
                             responseHeaders.getOrDefault("content-type", ""))));
+                    countCapturedExchange();
                 } catch (RuntimeException ignored) {
                     // The trace may have finished or overflowed; the host call goes on.
+                    countFailedCapture();
                 }
             }
             return new ExchangeResponse(
                 response.statusCode(), responseHeaders, response.body());
         }
 
-        private static ExchangeResponse servedResponse(Map<String, Object> response) {
-            int status = response.get("status") instanceof Number number
-                ? number.intValue() : 200;
-            Map<String, String> headers = new LinkedHashMap<>();
-            if (response.get("headers") instanceof Map<?, ?> recorded) {
-                for (Map.Entry<?, ?> entry : recorded.entrySet()) {
-                    String name = String.valueOf(entry.getKey()).toLowerCase(Locale.ROOT);
-                    if (name.equals("content-length") || name.equals("transfer-encoding")
-                        || name.equals("content-encoding")) {
-                        continue;
-                    }
-                    if (entry.getValue() != null) {
-                        headers.put(name, String.valueOf(entry.getValue()));
-                    }
-                }
-            }
-            Object body = response.get("body");
-            byte[] bytes;
-            if (body == null) {
-                bytes = new byte[0];
-            } else if (body instanceof String text) {
-                bytes = text.getBytes(StandardCharsets.UTF_8);
-            } else {
-                bytes = Json.canonicalJson(body).getBytes(StandardCharsets.UTF_8);
-            }
-            return new ExchangeResponse(status, headers, bytes);
-        }
-
-        private static ExchangeResponse diverged599(String reason) {
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("reproit", reason);
-            return new ExchangeResponse(
-                599,
-                new LinkedHashMap<>(Map.of("content-type", "application/json")),
-                Json.canonicalJson(body).getBytes(StandardCharsets.UTF_8));
+        /** The replay probe for one outbound request: method, url, body. */
+        static Map<String, Object> probeOf(
+                String method, String url, byte[] requestBody, String contentType) {
+            Map<String, Object> probe = new LinkedHashMap<>();
+            probe.put("method", method);
+            probe.put("url", url);
+            probe.putAll(Exchange.boundedBody(requestBody, contentType));
+            return probe;
         }
 
         private static byte[] bodyOf(HttpRequest request) {
@@ -400,8 +416,10 @@ public final class Instrument {
                     .resource("pg")
                     .key(key.substring(0, Math.min(key.length(), 256)))
                     .exchange(Exchange.db(text, values, outcome)));
+                countCapturedExchange();
             } catch (RuntimeException ignored) {
                 // The trace may have finished or overflowed; the host call goes on.
+                countFailedCapture();
             }
         }
     }

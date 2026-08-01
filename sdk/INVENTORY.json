@@ -35,7 +35,7 @@
       "gate": ["working-directory: sdk/reproit-backend-go"]
     },
     "reproit-backend-java": {
-      "runs": "mvn test, which runs all six JUnit classes including the behavior vectors",
+      "runs": "mvn test, which runs all seven JUnit classes including the behavior vectors and the capsule parity suite",
       "gate": ["mvn -B -f sdk/reproit-backend-java/pom.xml test"]
     },
     "reproit-backend-node": {

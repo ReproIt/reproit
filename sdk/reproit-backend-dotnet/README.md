@@ -75,6 +75,48 @@ methods match the Node and Rust recorder cores. `CaptureValues.Replayable`, `Str
 span, and actor identifiers that do not fit the wire token grammar become deterministic SHA-256
 correlation tokens instead of being dropped.
 
+## Capsule boundary: outbound exchanges and hermetic replay
+
+.NET has no monkeypatching, so the exchange boundary is explicit and opt-in
+(Track 2x boundary: HttpMessageHandler + ADO.NET wrap):
+
+```csharp
+var client = new HttpClient(Instrument.Handler());       // outbound HTTP
+var db = Ado.Wrap(new NpgsqlConnection(connectionString)); // ADO.NET, pg wire shape
+```
+
+Every dependency call made while a request trace is ambient records an `exchange` (the
+request the app sent and the response the dependency returned), bounded exactly like the
+Node reference: 8 KiB inline body budget (over it: byte count + sha256 + truncated marker,
+replay fails closed), 32 headers capped over name-sorted order (digest over every byte),
+64 db rows, 128 stream chunk boundaries. Streaming responses (SSE / chunked) record their
+chunk boundaries through a TEE stream as the app consumes the body; an abandoned body
+records nothing. `Instrument.Db.RunAsync` remains for statements no ADO.NET provider
+carries.
+
+With `REPROIT_REPLAY` naming a capture, the SAME boundary serves the recorded exchanges:
+no socket opens, `Ado.Wrap`'s connect stub answers `Open()` so the app boots with the
+database down, matching is strict per-operation ordinals, and the first unmatched call
+fails closed with the structured `REPROIT:DIVERGENCE` stderr line (byte-identical to the
+Node SDK's, `bodyDelta` included). `sdk/test/backend_replay_parity_test.js` pins the
+served bytes and the marker against the Node golden bytes;
+`validation/backend/dotnet-hermetic-e2e/run.sh` is the money-test gate
+(capture, PORTABILITY copy, reproduce / fix / revert / deleted-exchange verdicts).
+
+Named capability gaps, not silent downgrades:
+
+- `System.Security.Cryptography.RandomNumberGenerator` reads the OS CSPRNG directly and
+  cannot be pinned; only `Instrument.RandomSource` (the envelope-seeded `System.Random`)
+  replays deterministically.
+- Direct `DateTime.Now` / `DateTime.UtcNow` reads cannot be intercepted without profiler
+  APIs; `Instrument.Time` is the pinned `TimeProvider`. The time ZONE is pinned
+  process-wide on Unix; Windows resolves the zone from the registry and keeps the
+  readable `Instrument.ReplayTimeZone()` fallback.
+- Recorded db row cells are reduced to JSON-safe primitives (DateTime/Guid/byte[] become
+  strings); replay serves those primitives back.
+- CultureInfo (locale) is not pinned: the envelope's Node reference carries no locale
+  field, and .NET culture comes from the OS.
+
 ## Tests
 
 ```sh
