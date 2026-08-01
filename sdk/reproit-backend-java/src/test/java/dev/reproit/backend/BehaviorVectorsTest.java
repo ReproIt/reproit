@@ -200,6 +200,96 @@ class BehaviorVectorsTest {
 
     @SuppressWarnings("unchecked")
     @Test
+    void matchingVectors() throws Exception {
+        Map<String, Object> matching = (Map<String, Object>) vectors().get("matching");
+        for (Object entry : (List<Object>) matching.get("cases")) {
+            Map<String, Object> kase = (Map<String, Object>) entry;
+            boolean actual = Replay.httpMatches(
+                (Map<String, Object>) kase.get("recorded"),
+                (Map<String, Object>) kase.get("live"));
+            assertEquals(
+                ((Map<?, ?>) kase.get("expect")).get("matches"),
+                actual,
+                "matching case " + kase.get("name"));
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void pgMatchingVectors() throws Exception {
+        Map<String, Object> matching = (Map<String, Object>) vectors().get("matching");
+        for (Object entry : (List<Object>) matching.get("pgCases")) {
+            Map<String, Object> kase = (Map<String, Object>) entry;
+            boolean actual = Replay.dbMatches(
+                (Map<String, Object>) kase.get("recorded"),
+                (Map<String, Object>) kase.get("live"));
+            assertEquals(
+                ((Map<?, ?>) kase.get("expect")).get("matches"),
+                actual,
+                "pg matching case " + kase.get("name"));
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void divergenceMarkerStartsTheLineAndCarriesRequiredFields() throws Exception {
+        Map<String, Object> divergence = (Map<String, Object>) vectors().get("divergence");
+        Map<String, Object> kase =
+            (Map<String, Object>) ((List<Object>) divergence.get("cases")).get(0);
+        List<Map<String, Object>> events = new ArrayList<>();
+        long sequence = 1;
+        for (Object exchange : (List<Object>) kase.get("capsuleExchanges")) {
+            Map<String, Object> event = new LinkedHashMap<>();
+            event.put("kind", "effect");
+            event.put("sequence", sequence++);
+            event.put("exchange", exchange);
+            events.add(event);
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("format", "reproit-backend-capture");
+        payload.put("version", 2L);
+        payload.put("operation", "GET /x");
+        payload.put("oracle", "backend-server-error");
+        payload.put("events", events);
+        Path file = Files.createTempFile("reproit-vector-divergence", ".json");
+        Files.writeString(file, Json.canonicalJson(payload), StandardCharsets.UTF_8);
+        file.toFile().deleteOnExit();
+        Replay session = Replay.load(file.toString());
+
+        java.io.PrintStream original = System.err;
+        java.io.ByteArrayOutputStream held = new java.io.ByteArrayOutputStream();
+        System.setErr(new java.io.PrintStream(held, true, StandardCharsets.UTF_8));
+        Object matched;
+        try {
+            Map<String, Object> probe = new LinkedHashMap<>();
+            probe.put("method", "GET");
+            probe.put("url", "http://svc/unknown");
+            matched = session.matched("http", probe);
+        } finally {
+            System.setErr(original);
+        }
+        assertEquals(null, matched);
+        String prefix = (String) divergence.get("markerPrefix");
+        String marker = held.toString(StandardCharsets.UTF_8).lines()
+            .filter(line -> line.startsWith(prefix))
+            .findFirst().orElseThrow();
+        Map<String, Object> report =
+            (Map<String, Object>) Json.parse(marker.substring(prefix.length()));
+        Map<String, Object> fields =
+            (Map<String, Object>) divergence.get("reportFields");
+        for (Object field : (List<Object>) fields.get("required")) {
+            assertTrue(report.containsKey(String.valueOf(field)), String.valueOf(field));
+        }
+        Map<String, Object> expect = (Map<String, Object>) kase.get("expect");
+        assertEquals(expect.get("consumed"), report.get("consumed"));
+        assertEquals(expect.get("total"), report.get("total"));
+        assertEquals(
+            Json.canonicalJson(expect.get("expectedRequest")),
+            Json.canonicalJson(report.get("expected")));
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
     void triggerTokenIsInTheProtocolVocabulary() throws Exception {
         Map<String, Object> tokens = (Map<String, Object>) vectors().get("triggerTokens");
         Map<String, Object> bySdkKind = (Map<String, Object>) tokens.get("bySdkKind");

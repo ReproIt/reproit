@@ -149,13 +149,7 @@ public final class HermeticFixture {
     }
 
     static void writeCapture(BackendTrace trace) throws IOException {
-        Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put("observedAtMs", System.currentTimeMillis());
-        envelope.put("tz", java.util.TimeZone.getDefault().getID());
-        envelope.put("runtime", "java " + System.getProperty("java.version"));
-        envelope.put("os", System.getProperty("os.name"));
-        envelope.put("arch", System.getProperty("os.arch"));
-        envelope.put("replaySeed", "c0ffee00c0ffee00");
+        Map<String, Object> envelope = Capture.determinismEnvelope(null);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("format", Capture.CAPTURE_FORMAT);
         payload.put("version", 2);
