@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "react-native-android-sidebar-row-addressing",
+  "changeType": "tooling",
+  "detail": "The joplin trigger long-pressed the wrong node, and this is the root cause behind both of its executed failures. delete_joplin_welcome_notebook matched the notebook by substring, and the note list header is a non-interactive View carrying the same title with an emoji prefix that precedes the sidebar in document order, so the substring match selected the header every time. In the first executed run the header had no clickable ancestor anywhere above it, so the walk ran to the boundless root and the long press failed with 'UI node has no usable bounds'; with the bounds fallback in place the second run made the header addressable and long-pressed a title, so no action sheet ever opened and the campaign timed out waiting for one. The retained joplin-affected-1-notebook-actions-wait-failure.xml shows the sidebar fully open with Notebooks, Welcome!, All notes, Trash, Tags, Configuration and Synchronize present, and tracing the ancestry of every node matching Welcome! separates the three: the header View at [163,128][817,264] with clickable false, the sidebar row Button at [0,438][651,533] with clickable true and content-desc '👋, Welcome!', and that Button's TextView child at [136,456][612,513] whose text is exactly 'Welcome!'. The row is now matched exactly rather than by substring, which selects the TextView and walks up to its clickable Button, and the post-deletion wait keys on content-desc=\"Welcome!\", an attribute only the sidebar row carries, so a header that lingers cannot satisfy it. The action sheet labels the campaign waits for were checked against side-menu-content.tsx at the affected revision rather than assumed: the prompt title is 'Notebook: %s', the destructive item is 'Delete', and the confirmation is 'Move notebook \"%s\" to the trash?' with an 'OK'. The bounds fallback added in the previous commit is kept: it is correct for a React Native touchable that genuinely exposes no clickable attribute, and it is guarded by unit cases. This is tooling work on the validation harness: no CLI behaviour changes and no promotion is claimed by this commit.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/react-native-android-field-runner.md",
+      "sha256": "sha256:184e5c90fcc734e5db42b2e3c130fb57bee09d6b1288a2b633c8a67e4ab26b47"
+    }
+  ]
+}

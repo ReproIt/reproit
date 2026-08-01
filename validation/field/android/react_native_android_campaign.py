@@ -59,6 +59,10 @@ MUSIC_ISSUE = "https://github.com/MissingCore/Music/issues/220"
 MUSIC_AFFECTED_REVISION = "cdd2305aa0ae3bb5dcefe0691090a1d57cf53cb3"
 MUSIC_FIXED_REVISION = "5c86ff15ee99ac8f77abc19b9e58b98a705a9951"
 MUSIC_IDENTITY = "react-native-state:album-split-by-inconsistent-release-year"
+# The sidebar notebook row, addressed by the attribute only it carries. The
+# note list header repeats the same title with an emoji prefix and no
+# content-desc, so matching on the bare title alone is ambiguous.
+SIDEBAR_WELCOME = 'content-desc="Welcome!"'
 MUSIC_FIXTURE_NAMES = {
     "control-alpha.mp3",
     "control-beta.mp3",
@@ -435,9 +439,16 @@ def delete_joplin_welcome_notebook(
         session,
         device.evidence,
         f"{label}-sidebar",
-        lambda value: "Welcome!" in value and "Configuration" in value,
+        lambda value: SIDEBAR_WELCOME in value and "Configuration" in value,
     )
-    long_press_text(session, source, "Welcome!", contains=True)
+    # Exactly, not by substring. The note list header is a non-interactive View
+    # carrying text "\N{waving hand sign} Welcome!", and it precedes the sidebar
+    # in document order, so a contains match long-pressed the header instead of
+    # the notebook: the first executed run walked up from it looking for a
+    # clickable ancestor, found none, and landed on the boundless root. The
+    # sidebar row's own TextView has text exactly "Welcome!" and does have a
+    # clickable Button ancestor.
+    long_press_text(session, source, "Welcome!")
     source = wait_source(
         session,
         device.evidence,
@@ -456,7 +467,7 @@ def delete_joplin_welcome_notebook(
         session,
         device.evidence,
         f"{label}-welcome-deleted",
-        lambda value: "Configuration" in value and "Welcome!" not in value,
+        lambda value: "Configuration" in value and SIDEBAR_WELCOME not in value,
     )
     tap_text(session, source, "Configuration")
     return wait_source(

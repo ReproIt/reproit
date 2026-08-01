@@ -162,6 +162,34 @@ remaining ADB devices, and every owned emulator and Appium process proven gone
 by start-clock-tick identity, so the ownership and reset half of the runner is
 now executed rather than asserted.
 
+### joplin, second executed run: the wrong node was being pressed
+
+With the addressing fallback in place the joplin campaign got past the long
+press and failed later, waiting for the notebook action sheet. The retained
+`joplin-affected-1-notebook-actions-wait-failure.xml` shows the sidebar wide
+open, with Notebooks, Welcome!, All notes, Trash, Tags, Configuration and
+Synchronize all present, and no action sheet. Reading the ancestry of every
+node matching `Welcome!` explains both failures at once:
+
+| node | class | clickable | bounds |
+| --- | --- | --- | --- |
+| `text="👋 Welcome!"` | `View` | false | `[163,128][817,264]` |
+| `content-desc="👋, Welcome!"` | `Button` | **true** | `[0,438][651,533]` |
+| `text="Welcome!"` | `TextView` | false | `[136,456][612,513]` |
+
+The first is the note list header, and it precedes the sidebar in document
+order, so `contains=True` matched the header rather than the notebook. In the
+first run that header had no clickable ancestor anywhere above it, which is
+what sent the walk to the boundless root; in the second the fallback made the
+header addressable and the long press landed on a non-interactive title. The
+sidebar row's own `TextView` has `text` exactly `Welcome!` and does have a
+clickable `Button` ancestor, so the row is addressed exactly now, and the
+post-deletion wait keys on `content-desc="Welcome!"`, an attribute only the
+sidebar row carries. The action sheet labels the campaign waits for are correct
+and were confirmed against `side-menu-content.tsx` at the affected revision:
+the prompt title is `Notebook: %s`, the destructive item is `Delete`, and the
+confirmation reads `Move notebook "%s" to the trash?` with an `OK`.
+
 ## Both trigger defects answered
 
 - `find_node` still prefers a clickable ancestor, and now falls back to the
