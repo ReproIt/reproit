@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "react-native-ios-campaign-driver",
+  "changeType": "tooling",
+  "detail": "react-native-ios had no campaign driver at all, only a build. This commits one, and it is committed because the observable it drives was measured first rather than assumed. Reading a live element tree from a running session, instead of guessing another predicate as the previous attempt did, shows the Joplin note row is an XCUIElementTypeButton carrying its title in name and label, not a StaticText: that is why a StaticText predicate never matched a visibly present row. The button's frame IS the pressable, which is exactly the view issue 15972's fix changes, so the frame separates the revisions directly. Measured on the built products: affected 7d90db0b gives x=16 y=127 w=370 h=20, fixed 2fa45a5a gives x=0 y=111 w=402 h=52, a growth of exactly the 16pt padding on all four sides. Both revisions centre the row identically at (201, 137), so a tap a fixed distance above that centre is the same absolute point on either build, which is what makes one coordinate a fair trigger for both. Executed at offset 19, tap point (201, 118): the affected build stays on the note list and the fixed build opens the note. The pair discriminates on the observable the adapter owns, verified before any benchmark run was spent on it. The driver owns one simulator, erases and reboots it before every run so each reproduction starts from a first-launch container with the Welcome notebook seeded, deletes it on every exit and fails if it survives. It owns one Appium server for the whole campaign, compiling WebDriverAgent once into a campaign-owned derivedDataPath and pinning wdaLocalPort away from 8100, because a neighbouring booted simulator holding that port is what produced 'Unable to start WebDriverAgent session. Original error: Request failed with status code 401' on the first attempt. Runs are bounded to 1 through 3, the CLI commit must be a full lowercase hash, and every run retains a screenshot, a source dump, the measured hit area and the exact tap point. This commit is the driver and the measured discrimination; it claims no campaign and no promotion, because no benchmark has been run with it yet.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/react-native-ios-simulator-build.md",
+      "sha256": "sha256:3e89e4ec5e2a900717256b2196f0a95039fb236fcc352ca88c4f3905005a3a0c"
+    }
+  ]
+}
