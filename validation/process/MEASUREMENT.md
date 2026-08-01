@@ -511,16 +511,94 @@ python3 libc-only replay dies `OSError: [Errno 9] Bad file descriptor` inside
 case for track 4c: seccomp user-notify REQUIRED for interpreted runtimes. The
 gate SKIPS those rows with that named reason rather than letting the row
 silently measure a different boundary. On a real x86_64 kernel the layer
-installs; the EINVAL is the emulator's.
+installs; the EINVAL is the emulator's (measured below, not assumed).
+
+### Re-measured for umbrella track 4b/4c (2026-08-01)
+
+Track 4a made short serves loud; 4b records the movers FULLY so the loud
+divergence becomes a correct replay for in-bound files, and 4c makes the
+seccomp layer a recorded, enforced property of the capsule instead of a
+silent runtime accident.
+
+What changed, each measured before and after:
+
+- The libc movers (`mmap`, `copy_file_range`, `sendfile`, `splice`) recorded
+  at most 8 KiB PER CALL; they now record the whole moved range through a
+  bounded pread loop, up to `REPROIT_FILE_CAP` per file, and a range past the
+  cap records a `trunc` marker so the refusal names the bound. The movers
+  record what MOVED, after the real call, because recording the requested
+  length re-recorded the overlap when the kernel moved less than asked, and
+  doubled content serves doubled. A high-water offset per fd stops a
+  re-mapped range from being recorded twice for the same reason.
+- Single-entry recording sites (`read`, `pread`, `readv`, `preadv`, `fread`)
+  inlined at most 8 KiB per call; they now chunk through `record_content`, so
+  one large read no longer loses everything past its first chunk. `preadv64`
+  is now aliased; `readv` on a served FILE returned a false EOF (it asked the
+  socket stream) and now reads the real injected descriptor.
+- A serve that gathers MORE than the recorded size (`overlong-file`) now
+  refuses too: a doubled serve is as silent and as wrong as a short one.
+- The capsule records WHICH layer captured it (`layer seccomp` or
+  `layer libc`, stamped by the shim at init). A layer-less capture or replay
+  emits one named `REPROIT:PROCESS-LAYER` line, never silence; and a replay
+  of a seccomp-captured capsule on a host that cannot install the layer
+  REFUSES by name (`seccomp-required`, exit 3) before the program runs.
+  Measured before the fix: that pairing died mid-run as
+  `OSError: [Errno 9] Bad file descriptor` inside CPython's getpath with
+  ZERO divergence lines, a silent wrong replay wearing a stack trace.
+
+Gate: `validation/process/gate-completeness.sh` (`gcc:13`, glibc 2.36),
+run on linux/amd64 (Docker emulation, libc layer), linux/arm64 (seccomp
+layer), and on a REAL x86_64 kernel (strix, Fedora 7.1.4, via Docker
+`gcc:13`), where the seccomp layer installs and the full row set passes,
+proving the amd64 SKIP is the emulator's limit and not the code's.
+
+| row | amd64 emulated (libc) | arm64 (seccomp) | x86_64 real (seccomp) |
+| --- | --- | --- | --- |
+| cat, 100 KiB through the movers | byte identical, 0 div (was loud truncated-file) | same | same |
+| mmap, 100 KiB mapping | byte identical, 0 div (was loud truncated-file) | same | same |
+| mmap, 16.5 MiB file past the cap | loud `truncated-file recorded=17301504 served=16777216 cap=16777216` | same | same |
+| python3 capsule replayed layer-less | n/a (simulated seccomp capsule: refused by name) | `seccomp-required`, refused before the program ran (was OSError Errno 9 mid-run) | same as arm64 |
+| static binary (`gcc -static`) | 0 entries recorded, 0 markers at replay: unsupported by construction, and measurably so | same | same |
+| full gate | 12/12 | 14/14 | 14/14 |
+
+`run.sh` still passes 20/20 (arm64, `reproit-phase2-rust` image: python3,
+ruby, SDL2 engine, static refusals, keep/check by id).
+
+Honest limit found on the REAL x86_64 host and kept: Fedora 43 (glibc 2.42)
+ships `/usr/lib/locale/locale-archive` at 233,242,544 bytes, which no sane
+per-file cap covers, so a native (non-container) python3 capture there hits
+the cap and its replay refuses loudly:
+`truncated-file /usr/lib/locale/locale-archive recorded=233242544
+served=16777216 cap=16777216`. The stdout of that replay was still byte
+identical (glibc fell back past the refused archive), but the run is
+reported diverged, which is the fail-closed direction. A giant memory-mapped
+system archive is a real cost of the per-file bound and it is NAMED, not
+special-cased.
 
 ## Bounds
 
-Per file inline content is capped at 4 MiB, deliberately larger than the SDKs'
-8 KiB body rule because a process input is a whole file (a locale archive is
-350 KiB), and a file past the cap records its size but not all its bytes,
-which the completeness oracle turns into a loud `truncated-file` at the serve
-(see above for why the check cannot wait for the reads). The capsule keeps
-its 8192 entry bound with the dropped count stated.
+Every bound is explicit, and hitting one records a named `trunc` marker so
+the replay divergence carries the bound instead of an anonymous gap:
+
+- Per FILE: `REPROIT_FILE_CAP` 16 MiB, shared by the seccomp layer's
+  `record_file` and the libc data movers so a file bounds the same way
+  whichever layer records it. Larger than the SDKs' 8 KiB body rule because
+  a process input is a whole file (a locale archive is 350 KiB); larger than
+  the earlier 4 MiB because engine assets are the next consumer. A file past
+  it replays as a loud `truncated-file ... cap=16777216`.
+- Per CAPSULE content: 48 MiB of inline bytes, under the structural ceiling
+  (8192 entries x 8 KiB = 64 MiB) so the `capsule-content` marker fires
+  before the entry bound starts dropping lines.
+- Per CAPSULE entries: 8192, with the LAST slot reserved for the
+  `capsule-entries` marker, because a marker past the bound would never be
+  loaded back.
+- Replay load: 96 MiB of raw log (48 MiB of content base64s to 64 MiB). The
+  earlier fixed 4 MiB read buffer silently parsed a PREFIX of an oversized
+  log; past the bound the load now refuses loudly (`capsule-oversize`).
+
+A capsule that carries any `capsule-*` marker also diverges by name at load
+(`capsule-bound`), because a bounded recording cannot replay completely and
+should say so up front rather than one short file at a time.
 
 ## Answering from the recording, not only from what it read
 
