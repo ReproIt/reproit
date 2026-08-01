@@ -210,6 +210,12 @@ void diverge(const char *kind, const char *detail) {
     }
 }
 
+void diverge_short(const char *kind, const char *path, long recorded, long held) {
+    static char detail[MAX_KEY_LEN + 64];
+    snprintf(detail, sizeof(detail), "%s recorded=%ld served=%ld", path, recorded, held);
+    diverge(kind, detail);
+}
+
 /* Load the replay log. Called once, before any interposed call serves. */
 void load_replay(const char *path) {
     cap_resolve();

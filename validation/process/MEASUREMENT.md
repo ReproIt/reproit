@@ -447,25 +447,80 @@ Two real bugs surfaced while doing it, both fixed:
 ## The completeness oracle
 
 A capsule that recorded an `open` but none of the file's bytes used to serve
-an empty file, which is a silent wrong replay. The open entry now carries the
-file's size, and:
+an empty file, which is a silent wrong replay. The open entry carries the
+file's observed size, and every serve is judged against it:
 
 - recorded size > 0 with zero recorded bytes emits `incomplete-file` and fails
   the open;
+- recorded size > 0 with FEWER bytes than recorded emits `truncated-file` and
+  fails the open;
 - a recorded dial with zero recorded stream bytes emits `incomplete-socket`;
-- a PARTIAL capture does not diverge at open, because a program that
-  legitimately reads only a prefix would be punished for nothing. It diverges
-  at the moment the program reads PAST what the capsule carries, reported as
-  `truncated-file`.
+- both file markers name the byte counts in the detail
+  (`<path> recorded=N served=M`), because a shortfall without its size is not
+  actionable.
+
+**The check fires AT THE SERVE, not at the reads, and the earlier deferral
+was measured wrong.** The first version of this oracle flagged a partial
+capture on the fd and diverged only when the program read PAST what the
+capsule held, on the theory that a program legitimately reading a prefix
+should not be punished. That deferral only exists on the libc `read` path.
+The seccomp layer injects a descriptor the KERNEL answers, so no interposed
+call ever sees the reads: a capsule truncated by hand replayed `cat` as
+exit 0 with shortened output and ZERO divergences, on the default boundary.
+An fmemopen stream has the same blindness, because glibc stdio internals
+(fgets, fscanf, getline) bypass the fread interposer. mmap of a short memfd
+is worse still: the bytes between the held length and the end of the last
+page read back as zeros. So a serve that cannot cover the recorded size now
+refuses up front on all three serving paths, and the libc read-EOF check
+stays only as a backstop (with counts) for any future path that reintroduces
+a partial fd. The cost is honest: a program that wanted only a prefix of a
+source past the inline cap fails loudly instead of maybe-working, which is
+the fail-closed direction.
+
+### Re-measured for umbrella track 4a (2026-08-01)
+
+Gate: `validation/process/gate-completeness.sh`, self-driving through Docker
+(`gcc:13`, glibc 2.36), run on BOTH `linux/amd64` and `linux/arm64`. Every
+replay row runs with the input file DELETED; the oracle rows replay capsules
+gutted by hand (read entries removed, or their bytes cut to a 1 byte prefix
+with the open's recorded size kept).
+
+| row | linux/amd64 (libc layer) | linux/arm64 (seccomp layer) |
+| --- | --- | --- |
+| C program, plain `open`/`read` | byte identical, 0 divergences | byte identical, 0 divergences |
+| coreutils `cat` | byte identical, 0 divergences | byte identical, 0 divergences |
+| `python3` script | SKIP, named (below) | byte identical, 0 divergences |
+| `cat`, capsule emptied | loud `incomplete-file recorded=20 served=0` | same |
+| `cat`, capsule truncated | loud `truncated-file recorded=20 served=1` | same (was SILENT: exit 0, 0 div) |
+| `python3`, capsule emptied | n/a | loud `incomplete-file recorded=20 served=0` |
+| C program, `fopen`/`fread`, libc forced | byte identical, 0 divergences | same |
+| `fopen`, capsule emptied | loud `incomplete-file` | same |
+| `fopen`, capsule truncated | loud `truncated-file` | same |
+
+`ruby` (ruby:3.1 image, arm64) was probed for regression after the at-serve
+change and still replays byte identical with 0 divergences, as does the
+existing `run.sh` python3 case; nothing those runs open falls short of its
+recorded size, so the stricter rule costs them nothing.
+
+Named limit, measured: Docker's x86_64 emulation on this arm64 host answers
+EINVAL to `seccomp(SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_NEW_LISTENER)`,
+so the completeness layer cannot install there and the shim falls back to the
+libc boundary. An interpreted runtime does not survive that fallback (the
+python3 libc-only replay dies `OSError: [Errno 9] Bad file descriptor` inside
+`<frozen getpath>` with zero divergence lines), which is the already-stated
+case for track 4c: seccomp user-notify REQUIRED for interpreted runtimes. The
+gate SKIPS those rows with that named reason rather than letting the row
+silently measure a different boundary. On a real x86_64 kernel the layer
+installs; the EINVAL is the emulator's.
 
 ## Bounds
 
 Per file inline content is capped at 4 MiB, deliberately larger than the SDKs'
 8 KiB body rule because a process input is a whole file (a locale archive is
 350 KiB), and a file past the cap records its size but not all its bytes,
-which the completeness oracle turns into a loud `truncated-file` when the
-program reads past what the capsule holds. The capsule keeps its 8192 entry
-bound with the dropped count stated.
+which the completeness oracle turns into a loud `truncated-file` at the serve
+(see above for why the check cannot wait for the reads). The capsule keeps
+its 8192 entry bound with the dropped count stated.
 
 ## Answering from the recording, not only from what it read
 

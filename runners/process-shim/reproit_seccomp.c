@@ -74,9 +74,12 @@
 
 /* Per file inline cap. Bigger than the SDKs' 8 KiB body rule on purpose: a
  * process input is a whole file, not an HTTP body, and a locale archive is
- * 350 KiB. A file past the cap records its size but not all its bytes, which
- * the existing completeness oracle turns into a loud truncated-file at the
- * moment the program reads past what the capsule holds. */
+ * 350 KiB. A file past the cap records its size but not all its bytes, and
+ * the completeness oracle in serve_open refuses to serve that prefix: the
+ * kernel answers the injected descriptor's reads, so this layer never sees
+ * them and cannot defer the check to an over-read. The earlier claim that it
+ * fired there was measured false; a short scratch file replayed a truncated
+ * cat with ZERO divergences. */
 #define FILE_CAP (4u << 20)
 #define CHUNK MAX_BLOB
 
@@ -434,7 +437,20 @@ static void serve_open(__u64 id, const char *absolute) {
      * the open but never the bytes, so serving an empty file would be a
      * silent wrong replay. */
     if (opened && opened->b > 0 && len == 0) {
-        diverge("incomplete-file", absolute);
+        diverge_short("incomplete-file", absolute, opened->b, 0);
+        free(content);
+        respond_error(id, EIO);
+        return;
+    }
+    /* The capsule holds a PREFIX (the file outgrew FILE_CAP, or its reads
+     * were lost to the entry bound). The injected descriptor is answered by
+     * the KERNEL, so this layer never sees the target's reads and cannot
+     * defer the check to the over-read the way the libc read path can.
+     * Serving the short copy would replay wrong in silence (measured: a
+     * capsule truncated by hand replayed a shortened cat with zero
+     * divergences), so it fails at the serve, with both counts named. */
+    if (opened && opened->b > 0 && len < (size_t)opened->b) {
+        diverge_short("truncated-file", absolute, opened->b, (long)len);
         free(content);
         respond_error(id, EIO);
         return;
