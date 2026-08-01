@@ -146,6 +146,141 @@ class InstrumentTest < Minitest::Test
     assert_nil bare["capabilities"].find { |entry| entry["capability"] == "network" }
   end
 
+  def test_streaming_bodies_record_chunk_boundaries_via_the_tee
+    # SSE, the LLM shape: the app consumes the body with read_body and a
+    # block; recording tees those exact yields, so the observed chunk
+    # boundaries land on the exchange and the exchange lands at EOF.
+    parts = ["data: a\n\n", "data: b\n\n", "data: c\n\n"]
+    server, port = start_upstream do |_request, response|
+      response.status = 200
+      response["content-type"] = "text/event-stream"
+      response.chunked = true
+      response.body = proc do |out|
+        parts.each do |part|
+          out.write(part)
+          out.flush if out.respond_to?(:flush)
+          sleep 0.05
+        end
+      end
+    end
+    trace = begin_trace
+    seen = []
+    R::Instrument.with_trace(trace) do
+      Net::HTTP.start("127.0.0.1", port) do |http|
+        http.request(Net::HTTP::Get.new("/stream")) do |response|
+          response.read_body { |chunk| seen << chunk }
+        end
+      end
+    end
+    server.shutdown
+    exchange = exchanges(trace).first
+    refute_nil exchange, "streamed exchange recorded"
+    response = exchange["response"]
+    assert_equal parts.join, response["body"]
+    stream = response["stream"]
+    refute_nil stream, "stream boundaries recorded"
+    assert_equal seen.map(&:bytesize), stream["chunks"],
+                 "boundaries must be the chunks the app itself observed"
+    assert_operator stream["chunks"].length, :>=, 2, "the tee must not drain in one gulp"
+  end
+
+  def test_abandoned_stream_records_after_net_http_drains_it
+    server, port = start_upstream do |_request, response|
+      response.status = 200
+      response["content-type"] = "application/json"
+      response.body = JSON.generate({ "ok" => true })
+    end
+    trace = begin_trace
+    R::Instrument.with_trace(trace) do
+      Net::HTTP.start("127.0.0.1", port) do |http|
+        # The caller's block never reads the body; Net::HTTP drains it after
+        # the block, so the exchange still records (as one chunk).
+        http.request(Net::HTTP::Get.new("/ignored")) { |_response| nil }
+      end
+    end
+    server.shutdown
+    exchange = exchanges(trace).first
+    refute_nil exchange
+    assert_equal({ "ok" => true }, exchange["response"]["body"])
+  end
+
+  FakeResult = Struct.new(:rows_array, :status, :count) do
+    def to_a
+      rows_array
+    end
+
+    def cmd_status
+      status
+    end
+
+    def cmd_tuples
+      count
+    end
+  end
+
+  def fake_pg
+    Module.new do
+      const_set(:Connection, Class.new do
+        def self.connect(*)
+          new
+        end
+
+        def exec_params(text, _values = nil)
+          raise "relation missing" if text.include?("boom")
+          InstrumentTest::FakeResult.new([{ "id" => 7, "symbol" => "ACME" }], "SELECT 1", 1)
+        end
+      end)
+    end
+  end
+
+  def test_wrapped_pg_records_statements_in_the_node_wire_shape
+    pg = R.wrap_pg(fake_pg)
+    connection = pg.const_get(:Connection).connect
+    trace = begin_trace
+    R::Instrument.with_trace(trace) do
+      connection.exec_params("SELECT id, symbol FROM issuers WHERE symbol = $1", ["ACME"])
+      begin
+        connection.exec_params("SELECT boom")
+      rescue RuntimeError
+        nil
+      end
+    end
+    recorded = exchanges(trace)
+    assert_equal 2, recorded.length
+    assert_equal "pg", recorded[0]["protocol"]
+    assert_equal ["ACME"], recorded[0]["request"]["values"]
+    assert_equal "SELECT", recorded[0]["response"]["command"]
+    assert_equal 1, recorded[0]["response"]["rowCount"]
+    assert_equal [{ "id" => 7, "symbol" => "ACME" }], recorded[0]["response"]["rows"]
+    assert_equal "relation missing", recorded[1]["response"]["error"]["message"]
+  end
+
+  def test_wrapping_pg_twice_does_not_double_record
+    pg = fake_pg
+    R.wrap_pg(pg)
+    R.wrap_pg(pg)
+    trace = begin_trace
+    R::Instrument.with_trace(trace) do
+      pg.const_get(:Connection).connect.exec_params("SELECT 1")
+    end
+    assert_equal 1, exchanges(trace).length
+  end
+
+  def test_over_cap_exchanges_drop_with_the_counter_and_spare_the_request
+    trace = begin_trace
+    before = R::Instrument.stats[:failed_captures]
+    R::Instrument.with_trace(trace) do
+      # Fill the trace to its event cap, then one more exchange: the drop
+      # must be counted and must never surface into the host request.
+      (R::MAX_EVENTS - trace.events.length).times do |index|
+        trace.effect("read", resource: "fill", key: index.to_s)
+      end
+      R::Instrument.record("call", "svc", "GET /over", { "protocol" => "http" })
+    end
+    assert_equal R::MAX_EVENTS, trace.events.length
+    assert_equal before + 1, R::Instrument.stats[:failed_captures]
+  end
+
   def test_capture_mode_stamps_the_determinism_envelope_on_events
     handle = R::Capture.create(
       endpoint: "http://c/v1/capture-batches", api_key: "sk", app_id: "app-demo"

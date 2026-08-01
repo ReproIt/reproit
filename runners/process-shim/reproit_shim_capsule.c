@@ -368,6 +368,36 @@ void load_replay(const char *path) {
             diverge("capsule-bound", detail);
         }
     }
+    /* Phase 2 input schedule consistency: an input event's recorded TICK is
+     * the ordinal of the clock reads made before it, and in record mode every
+     * tick increment appends exactly one clock or time entry, so the tick a
+     * single threaded recording stamps on an input event always equals the
+     * count of clock and time entries that precede it in the log. A capsule
+     * where they disagree was edited or reordered after capture, and its
+     * schedule cannot be replayed as a session that ever happened. Measured
+     * before this check: moving one press's tick made the presses look back
+     * to back and the replay reported the bug FIXED, exit 0, 0 divergences,
+     * which is a false certificate. Refuse by name, before the program runs,
+     * exactly like seccomp-required. */
+    size_t schedule_tick = 0;
+    size_t schedule_event = 0;
+    for (size_t i = 0; i < G.entry_count; i++) {
+        entry_t *e = &G.entries[i];
+        if (e->kind == K_CLOCK || e->kind == K_TIME) {
+            schedule_tick++;
+        } else if (e->kind == K_INPUT) {
+            if (e->b < 0 || (size_t)e->b != schedule_tick) {
+                static char detail[160];
+                snprintf(detail, sizeof(detail),
+                         "input event %zu records tick=%ld but the log places it at tick=%zu; "
+                         "the input schedule was altered after capture",
+                         schedule_event, e->b, schedule_tick);
+                diverge("input-tick", detail);
+                _exit(3);
+            }
+            schedule_event++;
+        }
+    }
 }
 
 entry_t *next_entry_at(kind_t kind, const char *key, size_t *index) {

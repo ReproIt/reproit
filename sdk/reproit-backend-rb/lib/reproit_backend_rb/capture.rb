@@ -25,6 +25,11 @@ module ReproitBackendRb
   # finding context (`context.reproitCapture`).
   CAPTURE_FORMAT = "reproit-backend-capture"
   CAPTURE_VERSION = 1
+  # Version stamped when any event carries a captured dependency `exchange`
+  # or an envelope stamp. Older readers reject it with a named version error
+  # instead of silently evaluating a payload whose replay semantics they do
+  # not understand.
+  CAPTURE_VERSION_EXCHANGES = 2
   # First-class registry oracle id for an operation that returned HTTP 5xx.
   SERVER_ERROR_ORACLE = "backend-server-error"
 
@@ -43,21 +48,48 @@ module ReproitBackendRb
     value.is_a?(String) && TOKEN_PATTERN.match?(value)
   end
 
+  # Where and when the capture happened, and a seed that makes REPLAY runs
+  # deterministic. Honesty note: the seed does not reproduce the randomness
+  # the app drew in production; it pins the replay's.
+  def self.determinism_envelope(observed_at_ms = nil)
+    envelope = {
+      "observedAtMs" =>
+        observed_at_ms.is_a?(Integer) ? observed_at_ms : (Time.now.to_f * 1000).to_i,
+      "tz" => Time.now.zone.to_s,
+      "runtime" => "ruby #{RUBY_VERSION}",
+      "os" => RbConfig::CONFIG["host_os"].to_s,
+      "arch" => RbConfig::CONFIG["host_cpu"].to_s,
+      "replaySeed" => SecureRandom.hex(8),
+    }
+    digest = ENV["REPROIT_IMAGE_DIGEST"]
+    envelope["imageDigest"] = digest if valid_token?(digest)
+    envelope
+  end
+
+  # Version 2 the moment any event carries an exchange or an envelope stamp.
+  def self.payload_version(events)
+    stamped = events.any? do |event|
+      event.is_a?(Hash) && (event["exchange"] || event.key?("at") || event.key?("monoNs"))
+    end
+    stamped ? CAPTURE_VERSION_EXCHANGES : CAPTURE_VERSION
+  end
+
   # The replayable capture object (`reproit debug replay-capture` input).
   # Trailing effect events are dropped first when the payload exceeds the
   # context budget; a payload that stays oversized with only start/return
   # left is omitted entirely (nil). Returns [payload, dropped].
-  def self.capture_payload(operation)
+  def self.capture_payload(operation, envelope = nil)
     events = operation["events"].dup
     dropped = 0
     loop do
       payload = {
         "format" => CAPTURE_FORMAT,
-        "version" => CAPTURE_VERSION,
+        "version" => payload_version(events),
         "operation" => operation["operation"],
         "oracle" => SERVER_ERROR_ORACLE,
         "events" => events,
       }
+      payload["envelope"] = envelope unless envelope.nil?
       if canonical_json(payload).bytesize <= MAX_CAPTURE_JSON_BYTES
         return [payload, dropped]
       end
@@ -415,17 +447,7 @@ module ReproitBackendRb
     end
 
     def envelope_attributes(first)
-      attributes = {
-        "observedAtMs" => first["at"].is_a?(Integer) ? first["at"] : (Time.now.to_f * 1000).to_i,
-        "tz" => Time.now.zone.to_s,
-        "runtime" => "ruby #{RUBY_VERSION}",
-        "os" => RbConfig::CONFIG["host_os"].to_s,
-        "arch" => RbConfig::CONFIG["host_cpu"].to_s,
-        "replaySeed" => SecureRandom.hex(8),
-      }
-      digest = ENV["REPROIT_IMAGE_DIGEST"]
-      attributes["imageDigest"] = digest if ReproitBackendRb.valid_token?(digest)
-      attributes
+      ReproitBackendRb.determinism_envelope(first["at"].is_a?(Integer) ? first["at"] : nil)
     end
 
     def send_batch(batch)

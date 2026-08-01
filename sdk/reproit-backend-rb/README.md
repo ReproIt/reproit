@@ -74,6 +74,48 @@ them), bounded flush interval, per-request timeout, and at most `retry_limit` (c
 queued. Uploads use stdlib net/http on one background thread. `sdk/test/oracle_contract_test.js`
 pins the `backend-server-error` tagging contract.
 
+## Capsule parity (outbound capture + hermetic replay)
+
+This SDK is at full capsule parity with the Node reference (`sdk/reproit-backend-node`), pinned
+byte-for-byte by `sdk/test/backend_replay_parity_test.js` and the shared behavior vectors:
+
+- Outbound exchange capture at the library layer: a `Module#prepend` on `Net::HTTP#request`
+  (covers HTTParty, Faraday's default adapter, Octokit, and everything else built on Net::HTTP);
+  streaming responses consumed via `read_body { |chunk| ... }` (SSE/chunked, the LLM shape) are
+  TEED, so the observed chunk boundaries record in `response.stream` while the app still
+  consumes the live stream, and the exchange lands at EOF (an abandoned body records only what
+  Net::HTTP itself drains).
+- `ReproitBackendRb.wrap_pg(pg)` wraps the pg gem's `PG::Connection` statement surface:
+  statements and results record as `pg`-protocol exchanges in the Node wire shape; in replay
+  every connect constructor returns an in-process stub, so the app boots with the database down.
+- `REPROIT_REPLAY=<capture.json>` flips every hook from recorder to stub: strict per-operation
+  ordinal matching, bodies modulo recorded `$reproit` placeholders, first unmatched call fails
+  closed (599 / DivergenceError) with the structured `REPROIT:DIVERGENCE` marker; prompt drift
+  names the first differing message index for chat-shaped bodies. TZ, the wall clock
+  (`Time.now` and `Process.clock_gettime(CLOCK_REALTIME)`, offset via singleton prepend, the
+  Timecop pattern, replay mode only), and `Kernel#rand` (via `srand`) pin from the capture
+  envelope.
+
+Named capability gaps (recorded here so they are never a silent downgrade):
+
+- `SecureRandom` reads OS entropy directly and CANNOT be pinned by the envelope; only the
+  default `Kernel#rand` stream is seeded.
+- The wall-clock prepend's blast radius is deliberate and bounded: it runs ONLY under
+  `REPROIT_REPLAY`, offsets rather than freezes, and leaves every monotonic clock alone so
+  duration math and timeout loops keep working. Code reading time through other channels
+  (`DateTime.now` via `Date`, C extensions calling `gettimeofday`) is not pinned.
+- Clients that bypass `Net::HTTP` (raw TCP sockets, libcurl bindings such as typhoeus/curb,
+  async-http) are invisible to the prepend; they record through explicit `Instrument.db`-style
+  calls or not at all.
+- The pg wrap covers string statements with positional parameters on the `exec`/`exec_params`/
+  `query`/`async_exec` surface; COPY, named prepared statements, and pipeline mode pass through
+  unrecorded. mysql2/sqlite3/Sequel adapters are not wrapped.
+- The non-block `request` path drains the response in one read, so its recorded SSE stream
+  boundaries are coarse (whole-body); fine-grained boundaries come from the `read_body` tee.
+- Replayed JSON bodies re-serialize from the canonically stored capture (sorted keys, compact
+  separators, identical to Node): an app comparing raw response TEXT against later raw request
+  text can observe the reordering; structural matching is unaffected.
+
 ## Tests
 
 ```sh

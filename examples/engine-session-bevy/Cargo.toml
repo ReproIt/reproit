@@ -1,0 +1,17 @@
+# Standalone engine-sample crate (not a workspace member): a real third-party
+# engine loop, bevy_app's schedule runner at a fixed timestep, headless by
+# construction (no window, no GPU), with the same planted stale-combo defect
+# as validation/process/engine.c. validation/session/gate-session.sh builds
+# and measures it; the locked bevy version is the table's engine version.
+[package]
+name = "engine-session-bevy"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+bevy_app = "0.16"
+bevy_ecs = "0.16"
+libc = "0.2"
+
+[workspace]

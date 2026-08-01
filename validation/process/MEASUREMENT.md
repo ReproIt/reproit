@@ -77,6 +77,11 @@ ticks=714, clockOverrun=0` from the target process. The crashing run reports
 nothing, because a program that dies on a fatal signal never runs the reporting
 destructor; the divergence LINES are the authority there, as before.
 
+The track 5 acceptance built on top of this machinery (a third-party engine
+sample, the portability bar, the fix flip, and a tick tamper that refuses by
+name) is measured in `validation/session/MEASUREMENT.md`, gated by
+`validation/session/gate-session.sh`.
+
 ### Two defects this phase exposed
 
 **A replay that OUTLIVES its recording used to hang.** Once the capsule's clock

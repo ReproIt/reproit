@@ -8,17 +8,19 @@
   "exports": {
     ".": "./index.js",
     "./express": "./express.js",
-    "./fastify": "./fastify.js"
+    "./fastify": "./fastify.js",
+    "./ci": "./ci.js"
   },
   "files": [
     "index.js",
     "capture.js",
+    "ci.js",
     "express.js",
     "fastify.js",
     "README.md"
   ],
   "scripts": {
-    "test": "node --test test/trace.test.js test/capture.test.js",
+    "test": "node --test test/trace.test.js test/capture.test.js test/ci.test.js",
     "test:e2e": "node --test test/e2e.test.js"
   },
   "engines": {
