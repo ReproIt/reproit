@@ -494,6 +494,16 @@ public sealed class Capture
         return capabilities;
     }
 
+    // Where and when the capture happened, and a seed that makes REPLAY runs deterministic.
+    // Public so a file-writing fixture can stamp the same envelope the upload path does.
+    // Honesty note: the seed does not reproduce the randomness the app drew in production;
+    // it pins the replay's.
+    public static Dictionary<string, object?> DeterminismEnvelope(long? observedAtMs = null) =>
+        EnvelopeAttributes(new Dictionary<string, object?>
+        {
+            ["at"] = observedAtMs,
+        });
+
     private static Dictionary<string, object?> EnvelopeAttributes(
         Dictionary<string, object?> first)
     {

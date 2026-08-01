@@ -4,11 +4,15 @@
 // records exchanges at capture time SERVES them instead, so the application re-executes
 // against exactly what production saw with no live dependency at all.
 //
-// Determinism is a contract here, not a similarity score. Matching is strict: the first
-// unconsumed exchange of the protocol is the only candidate, recorded `$reproit` redaction
-// placeholders match any value at their position, and a body truncated at capture fails
-// closed. The first unmatched call is a DIVERGENCE, reported as a structured
-// `REPROIT:DIVERGENCE` stderr line, byte-identical to the Node SDK's.
+// Determinism is a contract here, not a similarity score. Matching is strict per-operation
+// ordinals: within one operation (method plus path for HTTP, statement text for pg) exchanges
+// are consumed in recorded order, so pooled db clients and LLM tool-call loops that interleave
+// operations still match exactly. Recorded `$reproit` redaction placeholders match any value
+// at their position, and a body truncated at capture fails closed. The first unmatched call is
+// a DIVERGENCE, reported as a structured `REPROIT:DIVERGENCE` stderr line, byte-identical to
+// the Node SDK's (insertion-order compact JSON, Json.Compact), with a `bodyDelta` naming
+// WHERE the bodies differ: chat-shaped bodies name the first differing message index, unknown
+// shapes fall back to the byte offset of the first differing byte.
 //
 // The envelope pins the replay: the time zone comes from the capture and Rng() yields the
 // seeded stream. Honesty note: the seed makes REPLAY runs deterministic; it does not
@@ -123,6 +127,15 @@ public sealed class Replay
         }
     }
 
+    // The capture moment from the envelope, or null when the capture carries none.
+    public long? ObservedAtMs() => _envelope.GetValueOrDefault("observedAtMs") switch
+    {
+        long value => value,
+        int value => value,
+        double value => (long)value,
+        _ => null,
+    };
+
     // Deterministic xorshift64* stream from the capture's `replaySeed`, or null when the
     // capture carries no envelope seed.
     public ReplayRng? Rng()
@@ -136,11 +149,14 @@ public sealed class Replay
             out var state) ? new ReplayRng(state | 1UL) : null;
     }
 
-    // Strict next-unconsumed match. The first unconsumed exchange of the protocol is the ONLY
-    // candidate; skipping it silently would be a fuzzy match. Null is a divergence, reported.
+    // Strict per-operation ordinal match. Within one operation (the key below) the next
+    // unconsumed exchange is the ONLY candidate; skipping it silently would be a fuzzy match.
+    // Other operations' exchanges may interleave (db pooling, tool-call loops), which is why
+    // the key filters first. Null is a divergence, reported.
     internal Dictionary<string, object?>? Matched(
         string protocol, Dictionary<string, object?> probe)
     {
+        var key = OperationKey(protocol, probe);
         lock (_lock)
         {
             foreach (var entry in _exchanges)
@@ -150,6 +166,7 @@ public sealed class Replay
                 var recorded =
                     entry.Exchange.GetValueOrDefault("request") as Dictionary<string, object?>
                     ?? new Dictionary<string, object?>();
+                if (OperationKey(protocol, recorded) != key) continue;
                 var hit = protocol == "http"
                     ? HttpMatches(recorded, probe)
                     : DbMatches(recorded, probe);
@@ -165,10 +182,22 @@ public sealed class Replay
         return null;
     }
 
-    // Report a divergence on stderr in the shared structured shape.
+    // One operation's identity for ordinal matching: HTTP is method plus path and query, pg
+    // is the exact statement text.
+    internal static string OperationKey(string protocol, Dictionary<string, object?> request) =>
+        protocol == "http"
+            ? (request.GetValueOrDefault("method") as string ?? string.Empty) + " " +
+                PathAndQuery(request.GetValueOrDefault("url"))
+            : request.GetValueOrDefault("text") as string ?? string.Empty;
+
+    // Report a divergence on stderr in the shared structured shape. Field order mirrors the
+    // Node reference so the marker line is byte-comparable across SDKs; compact insertion-
+    // order separators for the same reason.
     internal void Diverge(string protocol, Dictionary<string, object?> probe)
     {
-        object? expected = null;
+        var key = OperationKey(protocol, probe);
+        Dictionary<string, object?>? expected = null;
+        Dictionary<string, object?>? firstCandidate = null;
         long consumed = 0;
         long total;
         lock (_lock)
@@ -178,15 +207,24 @@ public sealed class Replay
                 if (entry.Consumed)
                 {
                     consumed += 1;
+                    continue;
                 }
-                else if (expected == null &&
-                    entry.Exchange.GetValueOrDefault("protocol") as string == protocol)
+                if (entry.Exchange.GetValueOrDefault("protocol") as string != protocol)
                 {
-                    expected = entry.Exchange.GetValueOrDefault("request");
+                    continue;
+                }
+                var request =
+                    entry.Exchange.GetValueOrDefault("request") as Dictionary<string, object?>
+                    ?? new Dictionary<string, object?>();
+                firstCandidate ??= request;
+                if (expected == null && OperationKey(protocol, request) == key)
+                {
+                    expected = request;
                 }
             }
             total = _exchanges.Count;
         }
+        expected ??= firstCandidate;
         var report = new Dictionary<string, object?>
         {
             ["protocol"] = protocol,
@@ -195,13 +233,217 @@ public sealed class Replay
             ["consumed"] = consumed,
             ["total"] = total,
         };
-        Console.Error.WriteLine(DivergenceMarker + Json.Canonical(report));
+        // Prompt drift: when the recorded and live bodies both exist and differ, name WHERE.
+        var delta = expected == null
+            ? null
+            : BodyDelta(
+                expected.TryGetValue("body", out var recordedBody) ? recordedBody : Absent,
+                probe.TryGetValue("body", out var liveBody) ? liveBody : Absent);
+        if (delta != null) report["bodyDelta"] = delta;
+        Console.Error.WriteLine(DivergenceMarker + Json.Compact(report));
+    }
+
+    // Distinct from null: an ABSENT body is "the request had no body key", which the delta
+    // must not confuse with an explicit JSON null.
+    internal static readonly object Absent = new();
+
+    // The messages array of an OpenAI/Anthropic-shaped chat body, else null.
+    private static List<object?>? ChatMessages(object? body) =>
+        body is Dictionary<string, object?> map &&
+        map.GetValueOrDefault("messages") is List<object?> messages ? messages : null;
+
+    private static byte[] DeltaBytes(object? value) =>
+        System.Text.Encoding.UTF8.GetBytes(value is string text ? text : Json.Compact(value));
+
+    // Locate the first difference between a recorded request body and a live one, modulo
+    // redaction placeholders. Null when there is nothing to report (either body missing, or
+    // no difference the matcher would object to).
+    internal static Dictionary<string, object?>? BodyDelta(object? recorded, object? live)
+    {
+        if (ReferenceEquals(recorded, Absent) || ReferenceEquals(live, Absent)) return null;
+        if (Matches(recorded, live)) return null;
+        var recordedMessages = ChatMessages(recorded);
+        var liveMessages = ChatMessages(live);
+        if (recordedMessages != null && liveMessages != null)
+        {
+            var bound = Math.Min(recordedMessages.Count, liveMessages.Count);
+            int? index = null;
+            for (var i = 0; i < bound; i++)
+            {
+                if (!Matches(recordedMessages[i], liveMessages[i]))
+                {
+                    index = i;
+                    break;
+                }
+            }
+            // All shared indexes match: the drift is a longer or shorter conversation, and
+            // the first differing message is the first unshared one. If lengths also agree
+            // the drift is outside `messages`; fall through to bytes.
+            if (index == null && recordedMessages.Count != liveMessages.Count) index = bound;
+            if (index != null)
+            {
+                return new Dictionary<string, object?>
+                {
+                    ["kind"] = "message",
+                    ["firstDifferingMessage"] = (long)index.Value,
+                    ["recordedMessages"] = (long)recordedMessages.Count,
+                    ["liveMessages"] = (long)liveMessages.Count,
+                };
+            }
+        }
+        var recordedBytes = DeltaBytes(recorded);
+        var liveBytes = DeltaBytes(live);
+        var length = Math.Min(recordedBytes.Length, liveBytes.Length);
+        long offset = length;
+        for (var i = 0; i < length; i++)
+        {
+            if (recordedBytes[i] != liveBytes[i])
+            {
+                offset = i;
+                break;
+            }
+        }
+        return new Dictionary<string, object?> { ["kind"] = "byte", ["offset"] = offset };
+    }
+
+    // The served shape of one HTTP probe: what the instrumented handler synthesizes a
+    // response from. `Chunks` is present only for a recorded stream shape.
+    public sealed class Served
+    {
+        public required int Status { get; init; }
+        public required Dictionary<string, object?> Headers { get; init; }
+        public required string BodyText { get; init; }
+        public List<byte[]>? Chunks { get; init; }
+    }
+
+    // Resolve a live HTTP probe against the session, entirely in process (no sockets). A
+    // divergence, a body truncated at capture, and truncated stream boundaries all serve a
+    // hard 599 so the application observes an attributable failure instead of a guess.
+    public Served ServeHttp(Dictionary<string, object?> probe)
+    {
+        var recorded = Matched("http", probe);
+        if (recorded == null) return Diverged599("diverged");
+        var response = recorded.GetValueOrDefault("response") as Dictionary<string, object?>
+            ?? new Dictionary<string, object?>();
+        if (response.GetValueOrDefault("truncated") as bool? == true)
+        {
+            // The capture kept identity but not bytes; serving a guessed body would be a
+            // silent lie. Fail closed with the named reason.
+            var diverged = new Dictionary<string, object?>(probe) { ["truncated"] = true };
+            Diverge("http", diverged);
+            return Diverged599("truncated-exchange-body");
+        }
+        var headers = new Dictionary<string, object?>();
+        if (response.GetValueOrDefault("headers") is Dictionary<string, object?> recordedHeaders)
+        {
+            foreach (var (name, value) in recordedHeaders)
+            {
+                var lower = name.ToLowerInvariant();
+                if (lower is "content-length" or "transfer-encoding" or "content-encoding")
+                {
+                    continue;
+                }
+                headers[name] = value;
+            }
+        }
+        var body = response.GetValueOrDefault("body");
+        var bodyText = body switch
+        {
+            null => string.Empty,
+            string text => text,
+            // Insertion-order compact: byte-identical to the Node reference's
+            // JSON.stringify of the same recorded body.
+            _ => Json.Compact(body),
+        };
+        var status = response.GetValueOrDefault("status") switch
+        {
+            long value => (int)value,
+            int value => value,
+            double value => (int)value,
+            _ => 200,
+        };
+        List<byte[]>? chunks = null;
+        if (response.GetValueOrDefault("stream") is Dictionary<string, object?> stream &&
+            stream.GetValueOrDefault("chunks") is List<object?> boundaries)
+        {
+            if (stream.GetValueOrDefault("truncated") as bool? == true)
+            {
+                // The capture kept the body but not every chunk boundary; serving a guessed
+                // stream shape would be a silent lie. Fail closed, named.
+                var diverged = new Dictionary<string, object?>(probe)
+                {
+                    ["streamBoundariesTruncated"] = true,
+                };
+                Diverge("http", diverged);
+                return Diverged599("truncated-stream-boundaries");
+            }
+            chunks = SplitChunks(bodyText, boundaries);
+        }
+        return new Served
+        {
+            Status = status,
+            Headers = headers,
+            BodyText = bodyText,
+            Chunks = chunks,
+        };
+    }
+
+    // Split a replayed body at the recorded chunk boundaries (byte lengths). Redaction can
+    // change body byte counts, so lengths are clamped and the last chunk absorbs any
+    // remainder: the CHUNK COUNT (the stream shape the app observed) is preserved exactly,
+    // the recorded content never padded.
+    internal static List<byte[]> SplitChunks(string bodyText, List<object?> lengths)
+    {
+        var raw = System.Text.Encoding.UTF8.GetBytes(bodyText);
+        var chunks = new List<byte[]>(lengths.Count);
+        var offset = 0;
+        for (var index = 0; index < lengths.Count; index++)
+        {
+            var last = index == lengths.Count - 1;
+            var size = lengths[index] switch
+            {
+                long value when value > 0 => (int)value,
+                int value when value > 0 => value,
+                double value when value > 0 => (int)value,
+                _ => 0,
+            };
+            var end = last ? raw.Length : Math.Min(offset + size, raw.Length);
+            chunks.Add(raw[offset..end]);
+            offset = end;
+        }
+        return chunks;
+    }
+
+    private static Served Diverged599(string reason) => new()
+    {
+        Status = 599,
+        Headers = new Dictionary<string, object?> { ["content-type"] = "application/json" },
+        BodyText = Json.Compact(new Dictionary<string, object?> { ["reproit"] = reason }),
+    };
+
+    // Parse a request body the way the capture recorded it: declared JSON parses (so the
+    // matcher compares structure), everything else stays text.
+    public static object? TryJson(string text, string? contentType)
+    {
+        if (contentType != null &&
+            contentType.Contains("application/json", StringComparison.Ordinal))
+        {
+            try
+            {
+                return Json.Parse(text);
+            }
+            catch (Exception)
+            {
+                return text;
+            }
+        }
+        return text;
     }
 
     // Method, path and query of the original URL, and body modulo placeholders. Recorded
     // headers are deliberately not matched: they carry per-run noise that would turn every
     // replay into a divergence.
-    private static bool HttpMatches(
+    internal static bool HttpMatches(
         Dictionary<string, object?> recorded, Dictionary<string, object?> probe)
     {
         if (!Equals(recorded.GetValueOrDefault("method"), probe.GetValueOrDefault("method")))
@@ -218,7 +460,7 @@ public sealed class Replay
     }
 
     // Exact statement text, values modulo placeholders.
-    private static bool DbMatches(
+    internal static bool DbMatches(
         Dictionary<string, object?> recorded, Dictionary<string, object?> probe)
     {
         if (!Equals(recorded.GetValueOrDefault("text"), probe.GetValueOrDefault("text")))
