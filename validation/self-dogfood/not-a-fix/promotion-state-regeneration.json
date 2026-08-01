@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "promotion-state-regeneration",
+  "changeType": "maintenance",
+  "detail": "docs/compatibility.md carries a generated promotion-state block, and its counts still read 11 Stable and 10 Preview after linux-qt-widgets and windows-winui were promoted on executed field campaigns. The regeneration was produced while resolving a merge conflict across four campaign worktrees, but only SUPPORT.md and validation/compatibility/ were committed with it, so this one generated surface was left dirty in the working tree. That is not cosmetic: validation/compatibility/check.py --check-generated compares every generated surface against a fresh render and exits 1 on any drift, so CI would have gone red on the next push. Verified both ways before committing rather than assumed: --check-generated exits 1 with the regeneration stashed and 0 with it applied. Counts now read 12 Stable, 9 Preview, 0 Experimental. No product code changes.",
+  "evidence": [
+    {
+      "path": "docs/compatibility.md",
+      "sha256": "sha256:d465383e1ca9d1869b7de3711ff097a11d2fdd74e79b8b7e081fc385fd82bd9c"
+    }
+  ]
+}

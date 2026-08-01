@@ -73,7 +73,7 @@ no target's recorded state moves because of it.
 
 <!-- generated:promotion-state -->
 
-Stable atomic targets: 11. Preview: 10. Experimental: 0.
+Stable atomic targets: 12. Preview: 9. Experimental: 0.
 
 | Target | Maturity | Standard | OS | Architectures | Blockers |
 |---|---|---|---|---|---|
