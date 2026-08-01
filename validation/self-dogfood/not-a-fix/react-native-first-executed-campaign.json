@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "react-native-first-executed-campaign",
+  "changeType": "maintenance",
+  "detail": "The first React Native application campaign is complete and retained, and both targets stay Preview because each still needs one more thing. react-native-android: joplin, issue 15004, affected de637847 and fixed 623da377, ran on a pixel_6 AVD on android-36 google_apis x86_64 recreated per run and booted with -wipe-data -no-snapshot, inside the pinned worker image with Docker network mode none. Three affected reproductions, all landing on react-native-navigation:hardware-back-exits-app-after-deleted-notebook with the launcher in the foreground and the application gone; three fixed controls, all reaching the same observation and returning to the note list; neighbouring legal behaviour, the same back key without the deletion, holding on both revisions; and a cleanup audit that passes with the run-scoped AVD gone, no ADB devices left and every owned emulator and Appium process proven gone by start clock ticks rather than PID alone. Getting there corrected five separate defects, each found only by running it and each recorded: node resolution that could not address a React Native touchable, a substring match that selected the note list header instead of the sidebar row, AlertDialog labels that arrive uppercased, a deleted-notebook check that passed while the notebook was still listed because a re-rendered row gained a nesting suffix, and an oracle written against the qualification prose rather than the behaviour, since the affected build leaves the application instead of stranding the user on settings. The benchmark is recorded as pending: one application of the two Stable requires. The second, MissingCore/Music, now seeds correctly, with MediaStore proven to hold all four fixtures before launch, and stops on the application, which reports zero tracks for the full 300 second bound after the media permission is granted. react-native-ios: the observable is measured rather than assumed. The note row is an XCUIElementTypeButton whose frame is the pressable the fix changes, affected 370 by 20 and fixed 402 by 52, both centred at the same point, and one tap at (201, 118) is swallowed on the affected build and opens the note on the fixed one, executed on both. A driver on that observable is committed and has never obtained a WebDriverAgent session across four executed device and server configurations, while the standalone probes obtain them reliably against the same Appium, driver, derived data and bundles; stale xcodebuild runners were one real cause, are reaped now, and were not sufficient. No promotion is claimed by this commit and no run is recorded that was not performed.",
+  "evidence": [
+    {
+      "path": "validation/field/react-native-android.json",
+      "sha256": "sha256:dcc8131ba89faae13ee810ca5785ab733887d8e60dadf370b5a0e5a4399419dc"
+    },
+    {
+      "path": "validation/field/evidence/joplin-back-after-delete-15028.json",
+      "sha256": "sha256:48ae1afe3263af54c600eb2a7a8923fbd9d56e54888224164cce22c3cac4d0bd"
+    },
+    {
+      "path": "validation/field/evidence/react-native-android-field-runner.md",
+      "sha256": "sha256:e0c8fb857793df4f47f8c1a0919042e89cc2e47fe86a3d39ed4fc1bcf4576003"
+    },
+    {
+      "path": "validation/field/evidence/react-native-ios-simulator-build.md",
+      "sha256": "sha256:364ad15e8db1749115c08429f7db4b8faa30eb4e7379b11c178f53d3cf485cf4"
+    }
+  ]
+}

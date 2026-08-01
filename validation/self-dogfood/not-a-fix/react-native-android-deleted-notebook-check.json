@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "react-native-android-deleted-notebook-check",
+  "changeType": "tooling",
+  "detail": "The joplin trigger now opens the notebook sheet, deletes the notebook, accepts the confirmation and opens settings, and the run that got that far exposed two defects in the campaign's own predicates. The first is cosmetic: Setting.ts asks for the settings section with the British spelling Synchronisation and the shipped en_US catalogue renders Synchronization, which is what the device draws, so the settings-screen predicate timed out on a screen that was correctly open. It accepts either spelling now. The second is not cosmetic and is the reason this is worth a record. The wait that was supposed to prove the notebook had been deleted tested the raw dump for the exact attribute content-desc=\"Welcome!\", and by that point UiAutomator2 was rendering the re-drawn sidebar row as Welcome!  (level 1). The exact string was absent, so the check passed while the notebook was still listed: a guard meant to stop a run in a wrong state was instead waving it through, which is the failure mode that silently produces a false campaign rather than an honest stop. Presence is now read from the parsed accessibility tree, by prefix, against the comma form that only the sidebar row carries, and the long press matches there too. The parsing matters independently: the raw dump escapes the emoji as a numeric entity, so any raw substring search for the comma form can never match, and would have failed open in exactly the same direction. Five unit cases guard the new behaviour: the row is seen with a nesting suffix, the row is seen without one, a genuinely deleted notebook is absent, either spelling of the sync section counts as the settings screen, and the sidebar alone does not. This is tooling work on the validation harness: no CLI behaviour changes and no promotion is claimed by this commit.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/react-native-android-field-runner.md",
+      "sha256": "sha256:4795796ed7b2dc823bd050ccc5d34db23baefbe131129fad34c9b48f04ef1ac1"
+    }
+  ]
+}

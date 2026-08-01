@@ -119,11 +119,30 @@ the media permission and reached the application's own Home screen. It timed out
 after 180 seconds in `capture_music_ui`, whose first wait requires both `HOME`
 and `ARTISTS` in the accessibility tree. The retained
 `music-affected-1-home-wait-failure.xml` shows the live screen at
-`cdd2305aa0ae3bb5dcefe0691090a1d57cf53cb3`: the top-level tabs are `HOME`,
-`FOLDERS`, `PLAYLISTS` and `TRACKS`, with no `ARTISTS` tab at all, and the track
-count still reads `0`. The trigger was authored against a navigation this
-revision does not have, and it also assumes the media scan has completed by the
-time the Home screen renders.
+`cdd2305aa0ae3bb5dcefe0691090a1d57cf53cb3`: the visible tabs are `HOME`,
+`FOLDERS`, `PLAYLISTS` and `TRACKS` in a band at `y` 2150 to 2285, followed by
+the `Search` and `Settings` actions, and the track count still reads `0`.
+
+Two independent causes, and the first reading of this dump got one of them
+wrong. The correction is on the record rather than quietly replaced.
+
+**The ARTISTS tab is not missing; it is off screen.** `(main)/_layout.tsx`
+renders the bar as a horizontal `FlatList` over `index` plus every displayed
+tab, and `UserPreferences.ts` defaults `tabsOrder` to
+`["folder", "playlist", "track", "album", "artist"]` with all of them visible.
+Six entries do not fit 1080 device pixels, so `ALBUMS` and `ARTISTS` start
+beyond the right edge, and a UiAutomator2 dump only reports visible nodes.
+Waiting for `ARTISTS` without scrolling the bar could never have succeeded on
+any revision. The first record said the tab did not exist at this revision;
+that was wrong about the mechanism, and the candidate was never in doubt.
+
+**Nothing was ever indexed.** `seed_music` announced each pushed file with
+`ACTION_MEDIA_SCANNER_SCAN_FILE`. That is a protected broadcast MediaProvider
+stopped honouring long before API 36, so it silently indexed nothing and the
+application had no media to scan, which is why the track count read `0` rather
+than `4`. Seeding now calls MediaStore's `scan_file` per fixture and
+`scan_volume` for `external_primary` through the content provider, queries the
+audio volume back, and refuses to continue unless every fixture is present.
 
 ### joplin: executed and disqualified on an unaddressable node
 
@@ -143,12 +162,139 @@ remaining ADB devices, and every owned emulator and Appium process proven gone
 by start-clock-tick identity, so the ownership and reset half of the runner is
 now executed rather than asserted.
 
-## Exact missing input
+### joplin, second executed run: the wrong node was being pressed
 
-1. A Music trigger authored against the tabs this revision actually has, plus a
-   wait on the scan completing rather than on the Home screen rendering.
-2. Node resolution in `find_node` that can address a React Native touchable
-   which does not set `clickable`, so the joplin long press has usable bounds.
+With the addressing fallback in place the joplin campaign got past the long
+press and failed later, waiting for the notebook action sheet. The retained
+`joplin-affected-1-notebook-actions-wait-failure.xml` shows the sidebar wide
+open, with Notebooks, Welcome!, All notes, Trash, Tags, Configuration and
+Synchronize all present, and no action sheet. Reading the ancestry of every
+node matching `Welcome!` explains both failures at once:
 
-Both are harness work on a proven route with the four archives already built.
-The applications, the revision pairs and the identities are unchanged.
+| node | class | clickable | bounds |
+| --- | --- | --- | --- |
+| `text="👋 Welcome!"` | `View` | false | `[163,128][817,264]` |
+| `content-desc="👋, Welcome!"` | `Button` | **true** | `[0,438][651,533]` |
+| `text="Welcome!"` | `TextView` | false | `[136,456][612,513]` |
+
+The first is the note list header, and it precedes the sidebar in document
+order, so `contains=True` matched the header rather than the notebook. In the
+first run that header had no clickable ancestor anywhere above it, which is
+what sent the walk to the boundless root; in the second the fallback made the
+header addressable and the long press landed on a non-interactive title. The
+sidebar row's own `TextView` has `text` exactly `Welcome!` and does have a
+clickable `Button` ancestor, so the row is addressed exactly now, and the
+post-deletion wait keys on `content-desc="Welcome!"`, an attribute only the
+sidebar row carries. The action sheet labels the campaign waits for are correct
+and were confirmed against `side-menu-content.tsx` at the affected revision:
+the prompt title is `Notebook: %s`, the destructive item is `Delete`, and the
+confirmation reads `Move notebook "%s" to the trash?` with an `OK`.
+
+### joplin, third executed run: the sheet opens, its buttons shout
+
+Addressing the row exactly opened the notebook action sheet, and the campaign
+then timed out waiting for `Delete` in it. The retained dump from that run
+contains exactly `['CANCEL', 'DELETE', 'EDIT', 'Notebook: Welcome!']`.
+`side-menu-content.tsx` pushes menu items labelled `Edit`, `Delete` and
+`Cancel`, and the Android `AlertDialog` these become renders its buttons with
+`textAllCaps`, so the accessibility tree carries the shouted forms. The wait
+and the tap use `DELETE` now. The confirmation's `OK` is already uppercase, so
+that step was never affected.
+
+### joplin, fourth executed run: two defects in the campaign's own predicates
+
+The sheet opened, `DELETE` was tapped, the confirmation was accepted, the
+sidebar updated and `Configuration` was tapped. The campaign then timed out
+waiting for the settings screen, and the retained dump shows two separate
+problems, one of which was silently letting a run continue in a wrong state.
+
+`Synchronisation` is never drawn. `Setting.ts` asks for it with the British
+spelling, and the shipped en_US catalogue renders `Synchronization`. The dump
+of the settings screen contains Appearance, General, Editor, Markdown, Note,
+Note History, Plugins, Tools, Import and Export, More information and
+`Synchronization`. The predicate accepts either spelling now.
+
+Worse, the same dump still lists the Welcome notebook. The
+`-welcome-deleted` wait had passed anyway, because it tested the raw dump for
+the exact attribute `content-desc="Welcome!"`, and by then UiAutomator2 was
+rendering the re-drawn row as `Welcome!  (level 1)`. The exact string was
+absent, so a check meant to prove the notebook was gone passed while it was
+still there. Presence is now read from the parsed tree, by prefix, against the
+one string only the sidebar row carries, and five unit cases guard it: the row
+is seen with and without a nesting suffix, a genuinely deleted notebook is
+absent, either spelling of the sync section counts as the settings screen, and
+the sidebar alone does not.
+
+The emoji matters here. The raw dump escapes it as a numeric entity, so a raw
+substring search for the comma form silently never matches; the check has to
+run against the parsed tree, which is also why the long press is matched there.
+
+### joplin, fifth executed run: the defect does not do what was written down
+
+The whole trigger executed. The notebook was deleted, settings opened, and the
+hardware back key was sent. The run then reported that it had not reached an
+observation, and the retained `joplin-affected-1-source.xml` says why: the
+foreground package is `com.google.android.apps.nexuslauncher`. The screen is
+the Android launcher, with Chrome, Gmail, Messages, Phone, Photos and YouTube.
+
+The affected build does not strand the user on settings. It **leaves the
+application**. That follows directly from the fix: `appReducer.ts` empties the
+navigation history when the current route is a deleted folder, and the fix
+pushes `DEFAULT_ROUTE` so there is always a back target. With the history empty
+nothing claims the hardware back event, so Android's default handling takes it
+and the activity finishes.
+
+The oracle was written against the recorded prose rather than the behaviour,
+and it is corrected to the behaviour: the identity is that the platform back
+gesture left the application, and it is renamed to
+`react-native-navigation:hardware-back-exits-app-after-deleted-notebook`. A run
+that ends stranded on settings is a genuinely different state, so it is
+recorded as such and fails the expected identity loudly rather than being
+folded into the same name. Each run now retains the foreground package set, the
+note list visibility and the settings visibility, so the three outcomes are
+distinguishable in the evidence rather than collapsed into one boolean.
+
+### joplin: complete
+
+With the addressing, the shouted labels, the presence check and the observable
+all corrected, the joplin campaign runs end to end and is written up in
+`joplin-back-after-delete-15028.json` and its companion prose. Three affected
+reproductions on one identity, three fixed controls reaching the same
+observation, neighbouring legal behaviour holding on both revisions, and a
+passing cleanup audit.
+
+### music: MediaStore holds the fixtures, the application does not see them
+
+The music campaign now seeds correctly. `scan_file` returns a real row per
+fixture rather than the silence the old broadcast returned, `scan_volume`
+completes, and the query-back assertion confirms all four files are indexed
+before the application is launched. The campaign still stops, one step later
+than before, in the new wait for the application's own track count to leave
+zero. The retained `music-affected-1-scan-wait-failure.xml` shows the Home
+screen after the media permission was granted, with `content-desc="0, Tracks"`
+still on the card and `You haven't played anything yet!` below it, for the full
+300 second bound.
+
+So the fixtures are in MediaStore and the application's library is empty. The
+remaining question is what makes MissingCore/Music ingest an already-populated
+volume: whether its onboarding scan runs before the permission grant lands and
+is never retried, or whether it needs its own rescan action driven from
+settings. That is an application-behaviour question with a definite answer, not
+a harness bound, and it is the one thing standing between this target and its
+second application.
+
+## Both trigger defects answered
+
+- `find_node` still prefers a clickable ancestor, and now falls back to the
+  matching node itself, rising only as far as the nearest ancestor with bounds a
+  pointer action can target. Three unit cases guard the three outcomes.
+- The Music trigger waits for the home screen, then waits for the application's
+  own track count to leave zero, then scrolls the navigation bar within its own
+  measured band until `ARTISTS` is addressable, retaining a dump if eight swipes
+  do not reveal it.
+- Seeding proves the index rather than requesting it, and each run record
+  retains the MediaStore rows it saw.
+
+`react_native_android_campaign.py` reached this repository's 1000 line ceiling
+with these changes, so the accessibility-tree addressing and the gestures both
+applications share moved into `react_native_android_ui.py`.
