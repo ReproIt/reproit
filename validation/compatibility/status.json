@@ -413,11 +413,15 @@
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",
-          "detail": "no application campaign has been executed. 9 candidate defects across 5 independent applications are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls"
+          "detail": "no application campaign has been executed. 9 candidate defects across 5 independent applications are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls. An execution attempt on 2026-08-01 got no further than the first launch: see the environment-unreachable blocker below, which is now the input this one waits on"
         },
         {
           "code": "incomplete-evidence",
           "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+        },
+        {
+          "code": "environment-unreachable",
+          "detail": "the campaign cannot be executed on the only permissioned macOS host, and this is the same fault that stalls the required-CI runner rather than a second one. This host's syspolicyd has been pinned near 98 percent CPU since 6 July, and it performs Gatekeeper assessment, so any Mach-O file that has not been assessed at its current path stalls in _dyld_start at 0 percent CPU indefinitely. Ten bounded launches separate what runs from what does not: signing, ad-hoc re-signing, architecture, the Rosetta path, the directory, and the process that wrote the file all make no difference, and cp of a system binary that runs instantly in place also stalls at its new path, so the assessment is keyed on the file rather than on the code. It reaches builds too, not only launches: an xcodebuild of Platypus compiled and then stopped in a run-script phase with /bin/sh itself stuck in _dyld_start. No application can therefore be built or launched, so no reproduction run of any kind is possible. Nothing here disqualifies any of the 9 candidates: none was built, no accessibility tree was dumped, and no revision pair was tested for discrimination. Repairing syspolicyd needs root"
         }
       ]
     },
