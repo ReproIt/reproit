@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "tauri-flutter-field-campaigns",
+  "changeType": "tooling",
+  "detail": "Field-campaign work for two Preview targets. tauri-linux: the cc-switch preset-pointer-select scenario reported its identity on BOTH revisions because two informational dialogs render a full-window overlay that swallowed the pointer press, so the scenario now dismisses every open dialog, fixes the window geometry, and refuses to press an element that is not the topmost element at its own centre. The affected build then observes an unselected preset and the fixed build selects Kimi, so one application campaign is retained. flutter-android: the release-versus-profile runtime bound was measured, not argued, and the manifest scope and runtime bound are restated to cover profile-mode builds only. No runtime product behavior changes; both targets stay Preview.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/flutter-android-vm-service-profile-vs-release.md",
+      "sha256": "sha256:4abdd3ff0f0e50513f6d6803e9c41ca6020e6084c740e7d9b031c9ed7d5c0ec9"
+    }
+  ]
+}

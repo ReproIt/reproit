@@ -139,7 +139,7 @@ complete target-specific record validates.
 - Target id: `flutter-android`
 - Current maturity: Preview
 - Environment: android-emulator; x86_64
-- Runtime bound: Dart VM service, flutter drive
+- Runtime bound: Dart VM service (profile-mode build), flutter drive
 - Framework bound: Flutter
 - Native gates:
   - `flutter-android`: required-ci in .github/workflows/native-gates.yml job `android-hosted`
@@ -153,9 +153,11 @@ complete target-specific record validates.
     reproductions and three reached-observation fixed controls
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
-  - [unsupported-capability] a Flutter release APK is AOT compiled with the Dart VM service removed,
-    so the declared runtime bound is not reachable from the release artifact. The campaign must
-    either observe through a profile-mode build or the bound must be restated
+  - [environment-unreachable] the arch bound is x86_64 because the flutter-android native gate
+    declares x86_64, but every Android system image installed on the campaign host is arm64-v8a, so
+    an application campaign run here cannot satisfy the declared architecture. Either install an
+    x86_64 API 36 image and campaign on it, or run the campaign on the same x86_64 executor the gate
+    uses
 - Promotion gate:
   - Set `flutter-android.maturity` to `stable` only after the benchmark,
     qualification slots, required-CI gates, and blockers validate together.
@@ -388,9 +390,12 @@ complete target-specific record validates.
     ```
 - Field benchmark to create: `validation/field/tauri-linux.json`
 - Open blockers:
-  - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 3
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
+  - [incomplete-evidence] one of the two required independent application campaigns is executed. cc-
+    switch issue 4302 has three clean affected reproductions on one identity, three reached-
+    observation fixed controls, a minimized trigger, and both controls. The second application is
+    missing: readest needs a pnpm 11 workspace build with setup-vendors and a dotenv-driven Next.js
+    export before its Tauri artifact resolves offline, and note-gen cannot be used with this harness
+    because its selected defect observes a GTK file chooser rather than the webview DOM
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
 - Promotion gate:

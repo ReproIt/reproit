@@ -96,6 +96,7 @@ jobs:
           python3 validation/compatibility/check.py --check-generated
           for benchmark in validation/field/benchmark.json \
                            validation/field/electron-linux.json \
+                           validation/field/tauri-linux.json \
                            validation/field/tui.json \
                            validation/field/web-firefox.json \
                            validation/field/web-webkit.json; do

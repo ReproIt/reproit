@@ -121,8 +121,50 @@ const fixtureSmoke = {
 // goes through WebDriver pointer actions at real window coordinates.
 
 const PRESET_QUERY = 'kimi';
+const PRESET_BUTTON = '//button[normalize-space(.)="KimiKimi"]';
+// Each preset button carries its family label as well as its display name, so
+// the Kimi button reads "KimiKimi" and this one reads "KimiKimi For Coding".
+const CONTROL_BUTTON = '//button[contains(normalize-space(.),"Kimi For Coding")]';
 const NAME_PLACEHOLDER = 'e.g., Claude Official';
 const SEARCH_LABEL = 'Search provider presets';
+const WINDOW_WIDTH = 1600;
+const WINDOW_HEIGHT = 1100;
+const DIALOG_SETTLE_MS = 60_000;
+
+// The application shows two informational dialogs, a first-launch welcome and
+// an "About Common Config" note on the add-provider form. Each renders a
+// full-window overlay. Neither is part of the defect, and both swallow the
+// pointer press: the press lands on the overlay, the search closes, and the
+// preset is never selected -- on BOTH revisions. That is a run whose observable
+// is produced by the harness rather than by the subject, so the scenario
+// dismisses every open dialog and refuses to proceed until none is open.
+async function dismissDialogs(browser) {
+  return browser.execute(() => {
+    const open = [];
+    for (const dialog of document.querySelectorAll('[role="dialog"],[role="alertdialog"]')) {
+      if (!dialog.offsetWidth) continue;
+      const accept = [...dialog.querySelectorAll('button')]
+        .find((b) => /got it|知道了|ok|确定/i.test((b.textContent || '').trim()));
+      if (accept) accept.click();
+      open.push((dialog.textContent || '').trim().slice(0, 24));
+    }
+    return open;
+  });
+}
+
+// Dialogs appear asynchronously, so one dismissal proves nothing. Require two
+// consecutive clear polls before the run may continue.
+async function settleDialogs(browser, label) {
+  const deadline = Date.now() + DIALOG_SETTLE_MS;
+  let clear = 0;
+  while (Date.now() < deadline) {
+    const open = await dismissDialogs(browser);
+    clear = open.length === 0 ? clear + 1 : 0;
+    if (clear >= 2) return true;
+    await sleep(700);
+  }
+  throw new Error(`${label}: a modal overlay never cleared`);
+}
 
 // A genuine press and release on the element. The WebDriver Element Click
 // command scrolls the element into view and dispatches a real pointer sequence,
@@ -130,19 +172,35 @@ const SEARCH_LABEL = 'Search provider presets';
 // by hand is not equivalent and is not safe: the rect a query returns can
 // belong to an offscreen twin of the element, so the press lands on whatever
 // occupies that point instead.
-async function pointerPress(browser, selector) {
-  // A selector can match an offscreen twin of the intended element. Press the
-  // first match that is actually displayed and clickable, never simply the
-  // first in document order.
-  const matches = await browser.$$(selector);
-  for (const element of matches) {
-    if (!(await element.isDisplayed())) continue;
-    if (!(await element.isClickable())) continue;
-    const text = (await element.getText()).trim().slice(0, 40);
-    await element.click();
-    return { selector, text };
-  }
-  throw new Error(`no displayed clickable element for ${selector} (${matches.length} matched)`);
+//
+// The hit test is part of the contract: the press is only attributed when the
+// preset itself is the topmost element at its own centre. Without it, an
+// overlay absorbs the press and the run reports the defect's observable on
+// every revision.
+async function pointerPress(browser, xpath) {
+  const hit = await browser.execute((selector) => {
+    const found = document.evaluate(
+      selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null,
+    ).singleNodeValue;
+    if (!found) return { found: false };
+    const rect = found.getBoundingClientRect();
+    const x = Math.round(rect.x + rect.width / 2);
+    const y = Math.round(rect.y + rect.height / 2);
+    const top = document.elementFromPoint(x, y);
+    return {
+      found: true,
+      centre: [x, y],
+      topmost: !!top && found.contains(top),
+      text: (found.textContent || '').trim().slice(0, 40),
+    };
+  }, xpath);
+  if (!hit.found) throw new Error(`no element matched ${xpath}`);
+  if (!hit.topmost) throw new Error(`${xpath} is not the topmost element at its own centre`);
+  const element = await browser.$(xpath);
+  if (!(await element.isDisplayed())) throw new Error(`${xpath} is not displayed`);
+  if (!(await element.isClickable())) throw new Error(`${xpath} is not clickable`);
+  await element.click();
+  return { selector: xpath, text: hit.text, centre: hit.centre };
 }
 
 const presetPointerSelect = {
@@ -151,15 +209,14 @@ const presetPointerSelect = {
   async readiness(browser, context, state) {
     const deadline = Date.now() + READY_TIMEOUT_MS;
     let last = 'not attempted';
+    // The application window is 1000x650 by configuration, which puts most of
+    // the preset grid outside the viewport. Fix the geometry first so every run
+    // presses the same preset at the same place.
+    await browser.setWindowRect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+    await sleep(SETTLE_MS);
     while (Date.now() < deadline) {
       try {
-        // The first launch shows a welcome dialog that swallows every click.
-        await browser.execute(() => {
-          const got = [...document.querySelectorAll('button')]
-            .find((b) => /got it|\u77e5\u9053\u4e86/i.test((b.textContent || '').trim()));
-          if (got) got.click();
-        });
-        await sleep(600);
+        await settleDialogs(browser, 'launch');
         const opened = await browser.execute(() => {
           const plus = [...document.querySelectorAll('button')].find((b) => {
             const svg = b.querySelector('svg');
@@ -170,6 +227,8 @@ const presetPointerSelect = {
           return true;
         });
         await sleep(1200);
+        // The add-provider form raises its own informational dialog.
+        await settleDialogs(browser, 'add-provider');
         const ready = await browser.execute((placeholder) => !!(
           [...document.querySelectorAll('input')].find((i) => i.placeholder === placeholder)
         ), NAME_PLACEHOLDER);
@@ -213,61 +272,66 @@ const presetPointerSelect = {
     }, { label: SEARCH_LABEL, query: PRESET_QUERY });
     await sleep(1200);
 
-    const pressed = await pointerPress(
-      browser,
-      `//button[contains(translate(., 'KIM', 'kim'), '${PRESET_QUERY}')]`,
-    );
+    const pressed = await pointerPress(browser, PRESET_BUTTON);
     state.presetLabel = pressed.text;
     await sleep(1500);
-    return { query: PRESET_QUERY, preset: pressed.text };
+    return { query: PRESET_QUERY, preset: pressed.text, centre: pressed.centre };
   },
-  // Neighboring legal behavior: the search itself still works. The trigger
-  // leaves the affected build with the search closed, which is the defect's own
-  // side effect, so the control reopens it before filtering. Holding on both
-  // revisions separates "a result cannot be selected by pointer" from "the
-  // search feature is broken".
+  // Neighboring legal behavior, run on the affected build after the trigger:
+  // the same pointer press on a preset with the search closed still selects it.
+  // Holding here separates "a preset reached through the search cannot be
+  // selected by pointer" from "this harness cannot select a preset at all".
   async control(browser) {
-    await browser.execute(() => {
-      const search = [...document.querySelectorAll('button')].find((b) => {
-        const svg = b.querySelector('svg');
-        return svg && /lucide-search/.test(svg.getAttribute('class') || '') && b.offsetWidth;
+    await settleDialogs(browser, 'control');
+    // The trigger closes the search on the affected build; close it explicitly
+    // if the run being controlled left it open.
+    const searchOpen = await browser.execute((label) => !!(
+      [...document.querySelectorAll('input')].find((i) => i.getAttribute('aria-label') === label)
+    ), SEARCH_LABEL);
+    if (searchOpen) {
+      await browser.execute(() => {
+        const search = [...document.querySelectorAll('button')].find((b) => {
+          const svg = b.querySelector('svg');
+          return svg && /lucide-search/.test(svg.getAttribute('class') || '') && b.offsetWidth;
+        });
+        if (search) search.click();
       });
-      if (search) search.click();
-    });
-    await sleep(900);
-    const counts = await browser.execute((args) => {
-      const input = [...document.querySelectorAll('input')]
-        .find((i) => i.getAttribute('aria-label') === args.label);
-      if (!input) return null;
-      const setter = Object.getOwnPropertyDescriptor(
-        window.HTMLInputElement.prototype, 'value').set;
-      const visible = () => [...document.querySelectorAll('button')]
-        .filter((b) => b.offsetWidth).length;
-      setter.call(input, '');
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      const all = visible();
-      setter.call(input, args.query);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      return { all, filtered: visible() };
-    }, { label: SEARCH_LABEL, query: PRESET_QUERY });
-    return {
-      ...(counts ?? {}),
-      reopened: counts !== null,
-      legal: !!counts && counts.filtered < counts.all,
-    };
-  },
-  async observe(browser, context, state) {
-    // Selecting a preset fills the provider name field. On the affected build
-    // the mousedown clears the search first, so nothing is ever selected.
+      await sleep(900);
+    }
+    const pressed = await pointerPress(browser, CONTROL_BUTTON);
+    await sleep(1500);
     const name = await browser.execute((placeholder) => {
       const input = [...document.querySelectorAll('input')]
         .find((i) => i.placeholder === placeholder);
       return input ? input.value : null;
     }, NAME_PLACEHOLDER);
     return {
-      identity: name ? null : this.identity,
-      exceptions: [],
+      preset: pressed.text,
+      searchWasOpen: searchOpen,
       providerName: name,
+      legal: name === 'Kimi For Coding',
+    };
+  },
+  async observe(browser, context, state) {
+    // Selecting a preset fills the provider name field. On the affected build
+    // the mousedown clears the search first, so nothing is ever selected.
+    const observed = await browser.execute((args) => {
+      const name = [...document.querySelectorAll('input')]
+        .find((i) => i.placeholder === args.placeholder);
+      const search = [...document.querySelectorAll('input')]
+        .find((i) => i.getAttribute('aria-label') === args.label);
+      return {
+        providerName: name ? name.value : null,
+        searchStillOpen: !!search,
+        searchValue: search ? search.value : null,
+      };
+    }, { placeholder: NAME_PLACEHOLDER, label: SEARCH_LABEL });
+    return {
+      identity: observed.providerName ? null : this.identity,
+      exceptions: [],
+      providerName: observed.providerName,
+      searchStillOpen: observed.searchStillOpen,
+      searchValue: observed.searchValue,
       preset: state.presetLabel ?? null,
     };
   },
