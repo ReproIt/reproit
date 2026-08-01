@@ -135,7 +135,44 @@ was a guess at the addressing rather than a reading of it, and the tree above is
 what reading it produced: the row is a `Button`, and its title is carried by
 `name` and `label` on that button rather than by any static text.
 
-## The campaign driver cannot obtain a session, and the probe can
+## Why the driver could not obtain a session, bisected
+
+The driver hung where the probe did not, so the difference was in this code and
+the probe was the working end to bisect from.
+
+| step | change from the probe | session |
+| --- | --- | --- |
+| 1 | the script boots the simulator itself | no |
+| 2 | step 1's device, already booted, no boot here | no |
+| 3 | step 2 with a clean WebDriverAgent derived data path | no |
+| 5 | step 3 with `appium:usePrebuiltWDA` | **yes** |
+
+Step 2 killed the settle-time theory: the same code against a device that had
+been up for half an hour still hung. Step 3 killed the corrupted-derived-data
+theory. Step 5 found it, and `showXcodeLog` explained it: the WebDriverAgent
+scheme carries a build post-action that shells out to
+`Scripts/embed-runner-icon.sh`, the xcodebuild output stops at exactly that
+line, and sampling the `sh` shows it stalled in `_dyld_start` before executing
+a single instruction of the script. Nine of those shells were piled up, one per
+attempt, and `syspolicyd` sat at 97% of a core throughout. Process launch on
+this host is being stalled by Gatekeeper assessment, so `build-for-testing`
+never returns and the runner is never launched.
+
+`usePrebuiltWDA` runs `test-without-building` against the already-built runner.
+It skips the build, so it skips the post-action, and it is the right thing on
+its own terms: WebDriverAgent is fixed test infrastructure and rebuilding it
+per reproduction measures nothing about the application.
+
+Two other real defects were fixed on the way and are not the same thing as the
+hang. Terminating the Appium server does not reap the `xcodebuild` it spawned,
+so an interrupted attempt leaves a runner holding the test session and poisons
+every later attempt; the driver reaps them at startup and after every run now,
+and records how many survived. And the first executed fixed run showed that the
+opened note repeats its own title, so the tapped row's title is present on both
+screens and cannot say which one this is; the note list's LAST row can, because
+it is on screen only while the list is.
+
+## The earlier record: the driver could not obtain a session, and the probe could
 
 The driver is committed and the observable it drives is measured, but no
 benchmark has been run with it: it has never obtained a WebDriverAgent session.

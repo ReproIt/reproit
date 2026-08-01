@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "react-native-ios-prebuilt-wda",
+  "changeType": "tooling",
+  "detail": "The react-native-ios driver could not obtain a WebDriverAgent session while the standalone probe reliably could, so the difference was in this code and the probe was the working end to bisect from. Step 1, the probe changed only so it boots the simulator itself: hung. Step 2, the same code against the device step 1 left behind, already up for half an hour, booting nothing: hung, which killed the settle-time theory. Step 3, step 2 with a clean WebDriverAgent derived data directory: hung, which killed the corrupted-derived-data theory. Step 5, step 3 with appium:usePrebuiltWDA: session obtained, and it read the affected hit area 370 by 20 immediately. Turning on showXcodeLog explained it. The WebDriverAgent scheme carries a build post-action that shells out to Scripts/embed-runner-icon.sh, the xcodebuild output stops at exactly that line, and sampling the sh process shows it stalled in _dyld_start without executing a single instruction of the script. Nine of those shells were piled up, one per attempt, with syspolicyd pinned near a full core throughout: process launch on this host is being stalled by Gatekeeper assessment, so build-for-testing never returns and the runner is never launched. usePrebuiltWDA runs test-without-building against the already-built runner, which skips the build and therefore the post-action, and it is correct on its own terms because WebDriverAgent is fixed test infrastructure whose rebuild measures nothing about the application. Two further real defects were fixed on the way and are not the same thing. Terminating the Appium server does not reap the xcodebuild it spawned, so an interrupted attempt leaves a runner holding the test session and poisons every later attempt; the driver reaps them at startup and after every run and records how many survived. And the first executed fixed run showed that the opened note repeats its own title, so the tapped row's title is present on both screens and cannot say which one is showing; the note list's last row can, because it is on screen only while the list is, and the run record now retains both. This commit is the driver reaching a session. It claims no campaign and no promotion.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/react-native-ios-simulator-build.md",
+      "sha256": "sha256:0d4212e4e50be5265046d49c5aed50b18564809815f2faa5b0dfe19e37d62ace"
+    }
+  ]
+}
