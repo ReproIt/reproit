@@ -283,6 +283,50 @@ settings. That is an application-behaviour question with a definite answer, not
 a harness bound, and it is the one thing standing between this target and its
 second application.
 
+## The second application: Music is out, Notesnook is the replacement
+
+MissingCore/Music is discarded rather than retried. The measurement above is a
+property of that application: with all four fixtures confirmed present in
+MediaStore before launch and the media permission granted, its library reports
+zero tracks for the full 300 second bound. Making it ingest an already
+populated volume is not harness work and it is not this target's job.
+
+`streetwriters/notesnook` replaces it. It is already qualified in this record
+as offline with a skippable signup, its release `signingConfig` uses the
+committed `debug.keystore` so it needs no secret, and its selected defect
+`notesnook-unlink-notebook-10053` has a verified pair, affected `14f727d6` and
+fixed `7c3fdab6`, whose diff is confined to
+`apps/mobile/app/screens/link-notebooks/index.tsx`: in single-select mode the
+fix diffs the initial selection against the current one and writes an explicit
+`deselected` state, so on the affected build a notebook the user removed stays
+linked. Both revisions are bootstrapped, `npm install` and the workspace
+bootstrap complete, and the iOS pods resolve at both.
+
+## The host is stalling process launches, and it is blocking the builds
+
+The Android build of Notesnook has not completed. It is not failing; it stalls,
+in the same way the WebDriverAgent build stalled, and for the same reason.
+`syspolicyd` on this host sits pinned near a full core, and processes spawned by
+Gradle sleep in `_dyld_start` without executing a single instruction:
+
+- `/usr/bin/env node .../@react-native-community/cli/build/bin.js config`, the
+  React Native autolinking command, during the settings phase;
+- `/usr/bin/env node ./node_modules/.bin/vite --version`, during the editor
+  bundle step.
+
+The same command runs instantly from an interactive shell, so this is not the
+binary and not the script. Two workarounds are in place and both are recorded
+rather than hidden: the autolink config is generated once from a shell and fed
+to Gradle with `autolinkLibrariesFromCommand(["/bin/cat", <file>])`, which
+produces byte-identical autolinking without spawning node, and the build is
+driven by a bounded retry loop, because Gradle's up-to-date checks mean each
+attempt resumes where the last stalled. That combination has carried the build
+from the settings phase through configuration and into compilation.
+
+This is the exact remaining input for the second application, and it is a build
+problem on one host rather than anything about the application, the revision
+pair or the trigger.
+
 ## Both trigger defects answered
 
 - `find_node` still prefers a clickable ancestor, and now falls back to the
