@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "react-native-android-alert-dialog-caps",
+  "changeType": "tooling",
+  "detail": "Addressing the Joplin sidebar row exactly opened the notebook action sheet for the first time, and the campaign then timed out waiting for a button labelled Delete inside it. The retained dump from that run contains exactly ['CANCEL', 'DELETE', 'EDIT', 'Notebook: Welcome!']. side-menu-content.tsx pushes menu items labelled Edit, Delete and Cancel, and the Android AlertDialog those become renders its buttons with textAllCaps, so the accessibility tree carries the shouted forms rather than the authored ones. The wait predicate and the tap both use DELETE now, with the observed dump quoted at the call site so the next reader does not have to rediscover why. The confirmation dialog's OK was never affected because it is already uppercase in the source string. The remaining steps of this trigger were checked against the application at the affected revision rather than assumed: the prompt title is 'Notebook: %s', the confirmation message is 'Move notebook \"%s\" to the trash?', and Setting.ts renders the settings section the observation keys on as 'Synchronisation' with the British spelling the predicate already used. This is tooling work on the validation harness: no CLI behaviour changes and no promotion is claimed by this commit.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/react-native-android-field-runner.md",
+      "sha256": "sha256:135b4516459158b65e9a331b842f277d8a2fe35b6de9c2d6b84220894adf0907"
+    }
+  ]
+}

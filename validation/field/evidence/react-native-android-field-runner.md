@@ -190,6 +190,17 @@ and were confirmed against `side-menu-content.tsx` at the affected revision:
 the prompt title is `Notebook: %s`, the destructive item is `Delete`, and the
 confirmation reads `Move notebook "%s" to the trash?` with an `OK`.
 
+### joplin, third executed run: the sheet opens, its buttons shout
+
+Addressing the row exactly opened the notebook action sheet, and the campaign
+then timed out waiting for `Delete` in it. The retained dump from that run
+contains exactly `['CANCEL', 'DELETE', 'EDIT', 'Notebook: Welcome!']`.
+`side-menu-content.tsx` pushes menu items labelled `Edit`, `Delete` and
+`Cancel`, and the Android `AlertDialog` these become renders its buttons with
+`textAllCaps`, so the accessibility tree carries the shouted forms. The wait
+and the tap use `DELETE` now. The confirmation's `OK` is already uppercase, so
+that step was never affected.
+
 ## Both trigger defects answered
 
 - `find_node` still prefers a clickable ancestor, and now falls back to the

@@ -453,9 +453,15 @@ def delete_joplin_welcome_notebook(
         session,
         device.evidence,
         f"{label}-notebook-actions",
-        lambda value: "Notebook: Welcome!" in value and "Delete" in value,
+        lambda value: "Notebook: Welcome!" in value and "DELETE" in value,
     )
-    tap_text(session, source, "Delete")
+    # side-menu-content.tsx pushes menu items labelled Edit, Delete and Cancel,
+    # and the Android AlertDialog these become renders its buttons with
+    # textAllCaps, so the accessibility tree carries EDIT, DELETE and CANCEL.
+    # The retained joplin-affected-1-notebook-actions dump from the run that
+    # first opened this sheet reads exactly ['CANCEL', 'DELETE', 'EDIT',
+    # 'Notebook: Welcome!'].
+    tap_text(session, source, "DELETE")
     source = wait_source(
         session,
         device.evidence,
