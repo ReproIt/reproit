@@ -158,16 +158,21 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] no application campaign has been executed. Both remaining candidate
-    applications now build at both revisions in an offline linux/amd64 trixie container, kalk at
-    940abaf and b452c5a and kclock at ac9abd2 and 033e713, but neither has three clean affected
-    reproductions and three reached-observation fixed controls
-  - [incomplete-evidence] the trigger read is unfinished for both candidates and is the only thing
-    between here and a campaign. kalk's expression and result fields are AT-SPI text nodes whose
-    accessible name is empty, so the locale-separator observation has to go through the text
-    interface rather than through node names, and that read is not written. kclock's preset row only
-    renders when TimerPresetModel already holds a preset, so the fixture has to seed one before the
-    timer form is opened, and no such fixture exists yet
+  - [incomplete-evidence] no application campaign has been executed, and the two candidates that
+    build were both executed against their triggers and did not separate their revisions. kalk
+    940abaf versus b452c5a: under de_DE.UTF-8 the affected build already evaluates the comma decimal
+    '1,5+1' to '2,5' read through the AT-SPI text interface, because libqalculate parses the
+    separator itself, so the normalisation the fix adds changes nothing observable. kclock ac9abd2
+    versus 033e713: with a preset seeded into kclockrc the preset row is showing on both revisions,
+    so the isMobile gate the fix removes is not gating anything on this worker. Both are discarded
+    rather than forced
+  - [incomplete-evidence] a third Qt Quick application has to be mined, because the qualified pool
+    is now exhausted. marknote needs KF 6.21 against trixie's 6.13; keysmith 477812 is severity
+    wishlist rather than a defect; kalk and kclock are the two discarded above. elisa 18e843d versus
+    5b191f1 is the only qualified candidate left and its build was started but not completed: it
+    wants KF6Codecs and a further chain a music player pulls in, which is materially larger than the
+    two calculators. Its trigger is otherwise sound on paper, since the fix removes a key event
+    filter and the observable is whether Space toggles a focused player-control button
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
 

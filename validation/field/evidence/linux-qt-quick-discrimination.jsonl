@@ -1,0 +1,3 @@
+{"candidate": "kalk-decimal-separator-507525", "locale": "de_DE.UTF-8", "resultTexts": ["2,5"], "revision": "affected", "typed": "1,5+1", "verdict": "affected build already evaluates the comma decimal correctly, so the pair does not separate"}
+{"candidate": "kclock-timer-presets-505636", "hidePresetsVisible": true, "presetButtonVisible": true, "presetSeeded": "5 m", "revision": "affected", "toggleDeleteVisible": true, "verdict": "preset row is visible on both revisions, so the pair does not separate"}
+{"candidate": "kclock-timer-presets-505636", "hidePresetsVisible": true, "presetButtonVisible": true, "presetSeeded": "5 m", "revision": "fixed", "toggleDeleteVisible": true, "verdict": "preset row is visible on both revisions, so the pair does not separate"}
