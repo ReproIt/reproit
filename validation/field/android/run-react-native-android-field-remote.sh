@@ -34,7 +34,7 @@ done
 usage() {
   cat <<'EOF'
 usage: validation/field/android/run-react-native-android-field-remote.sh
-         --application joplin|music
+         --application joplin|music|notesnook
          --affected-apk PATH --fixed-apk PATH
          [--fixture-dir PATH] [--runs 1-3] [--with-corpus]
          [--current-tree] [--keep-remote]
@@ -103,7 +103,7 @@ while (($#)); do
 done
 
 case "$APPLICATION" in
-  joplin) ;;
+  joplin|notesnook) ;;
   music)
     [[ -n "$FIXTURE_DIR" ]] || {
       echo "the music campaign requires --fixture-dir" >&2

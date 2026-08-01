@@ -33,6 +33,15 @@ UI_MODULE = importlib.util.module_from_spec(UI_SPEC)
 UI_SPEC.loader.exec_module(UI_MODULE)
 find_node = UI_MODULE.find_node
 
+NOTESNOOK_PATH = MODULE_PATH.with_name("notesnook_link_notebooks.py")
+NOTESNOOK_SPEC = importlib.util.spec_from_file_location(
+    "notesnook_link_notebooks",
+    NOTESNOOK_PATH,
+)
+assert NOTESNOOK_SPEC is not None and NOTESNOOK_SPEC.loader is not None
+NOTESNOOK = importlib.util.module_from_spec(NOTESNOOK_SPEC)
+NOTESNOOK_SPEC.loader.exec_module(NOTESNOOK)
+
 RUNTIME_PATH = MODULE_PATH.with_name("react_native_android_runtime.py")
 RUNTIME_SPEC = importlib.util.spec_from_file_location(
     "react_native_android_runtime",
@@ -242,6 +251,109 @@ class WelcomeNotebookPresenceTest(unittest.TestCase):
 
     def test_the_sidebar_alone_is_not_the_settings_screen(self) -> None:
         self.assertFalse(MODULE.configuration_screen_shown("Configuration Trash"))
+
+
+class NotesnookObservableTest(unittest.TestCase):
+    """The note row's own label is the whole observable.
+
+    The row joins every part of its accessibility label with a comma, and each
+    linked notebook is preceded by a notebook glyph the raw dump escapes as a
+    private-use codepoint, so the linked set is read from the parsed tree.
+    """
+
+    GLYPH = "\U000f0b64"
+
+    def row(self, description: str) -> str:
+        return (
+            "<hierarchy><node>"
+            f'<node resource-id="note-item-0" content-desc="{description}" '
+            'bounds="[0,591][1080,814]"/>'
+            "</node></hierarchy>"
+        )
+
+    def test_both_notebooks_are_read_off_the_affected_row(self) -> None:
+        source = self.row(
+            f"02:15 PM, TriggerNote, {self.GLYPH}, Alpha, {self.GLYPH}, Beta"
+        )
+
+        self.assertEqual(
+            NOTESNOOK.linked_notebooks(source),
+            frozenset({"Alpha", "Beta"}),
+        )
+
+    def test_the_fixed_row_lists_the_new_notebook_alone(self) -> None:
+        source = self.row(f"02:28 PM, TriggerNote, {self.GLYPH}, Beta")
+
+        self.assertEqual(NOTESNOOK.linked_notebooks(source), frozenset({"Beta"}))
+
+    def test_an_unlinked_row_lists_no_notebook(self) -> None:
+        source = self.row("02:28 PM, TriggerNote")
+
+        self.assertEqual(NOTESNOOK.linked_notebooks(source), frozenset())
+
+    def test_the_relink_verdict_follows_the_row_and_the_subject(self) -> None:
+        affected = frozenset({"Alpha", "Beta"})
+
+        self.assertEqual(
+            NOTESNOOK.relink_identity("benchmark", affected),
+            NOTESNOOK.NOTESNOOK_IDENTITY,
+        )
+        self.assertIsNone(
+            NOTESNOOK.relink_identity("benchmark", frozenset({"Beta"}))
+        )
+        self.assertIsNone(
+            NOTESNOOK.relink_identity(
+                "adversarial-multi-select",
+                frozenset({"Alpha", "Beta", "Gamma"}),
+            )
+        )
+
+    def test_an_outcome_the_subject_cannot_reach_is_refused(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "not an outcome"):
+            NOTESNOOK.relink_identity("benchmark", frozenset({"Alpha"}))
+        with self.assertRaisesRegex(RuntimeError, "not an outcome"):
+            NOTESNOOK.relink_identity(
+                "adversarial-restored-selection",
+                frozenset({"Alpha", "Beta"}),
+            )
+
+
+class NotesnookAddressingTest(unittest.TestCase):
+    """Two nodes the editor and the link screen really publish.
+
+    The editor toolbar lists buttons with [0,0][0,0] bounds, and tapping the
+    centre of one of those is a tap at the top left corner of the screen. The
+    link screen's notebook row carries the name, a comma and a checkbox glyph
+    that changes when it is selected, so only the prefix is stable.
+    """
+
+    SOURCE = (
+        "<hierarchy><node>"
+        '<node resource-id="tool-link" bounds="[0,0][0,0]"/>'
+        '<node resource-id="editor-title" bounds="[0,364][1080,472]"/>'
+        '<node content-desc="Alpha, \U000f0131" bounds="[42,713][1038,801]"/>'
+        '<node content-desc="Alphabet soup" bounds="[42,900][1038,988]"/>'
+        "</node></hierarchy>"
+    )
+
+    def test_a_zero_area_node_is_not_addressable(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "not found by resource id"):
+            NOTESNOOK.resource_node(self.SOURCE, "tool-link")
+
+    def test_a_test_id_addresses_its_own_node(self) -> None:
+        node = NOTESNOOK.resource_node(self.SOURCE, "editor-title")
+
+        self.assertEqual(node.attrib["bounds"], "[0,364][1080,472]")
+
+    def test_the_notebook_row_matches_the_name_and_its_comma(self) -> None:
+        row = NOTESNOOK.notebook_row(self.SOURCE, "Alpha")
+
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(row.attrib["bounds"], "[42,713][1038,801]")
+
+    def test_a_notebook_that_is_not_listed_is_not_invented(self) -> None:
+        self.assertIsNone(NOTESNOOK.notebook_row(self.SOURCE, "Gamma"))
 
 
 if __name__ == "__main__":

@@ -28,7 +28,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 case "${REPROIT_FIELD_APPLICATION:-}" in
-    joplin)
+    joplin|notesnook)
         fixture_arguments=()
         ;;
     music)

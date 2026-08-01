@@ -23,7 +23,7 @@ if [[ ! "$BASE" =~ $OWNED ]]; then
   exit 2
 fi
 case "$APPLICATION" in
-  joplin|music) ;;
+  joplin|music|notesnook) ;;
   *)
     echo "unsupported React Native application: $APPLICATION" >&2
     exit 2
@@ -182,9 +182,14 @@ if ((OVERALL == 0)); then
   if [[ -c /dev/dri/card1 ]]; then
     DEVICE_ARGS+=(--device /dev/dri/card1)
   fi
+  # The lane SDK and the download cache are shared with every other Android
+  # campaign on this worker, and a :Z mount relabels them for one container
+  # exclusively, which takes them away from a run already using them. The
+  # container is unconfined instead and mounts the shared trees plainly.
   docker run --rm \
     --name "$RUN_CONTAINER" \
     --network none \
+    --security-opt label=disable \
     "${DEVICE_ARGS[@]}" \
     --env ANDROID_AVD_HOME=/android-avd \
     --env ANDROID_HOME=/android-sdk \
@@ -207,8 +212,8 @@ if ((OVERALL == 0)); then
     --volume "$SOURCE:/repo:Z" \
     --volume "$EVIDENCE:/evidence:Z" \
     --volume "$PAYLOAD:/payload:ro,Z" \
-    --volume "$SDK_ROOT:/android-sdk:ro,Z" \
-    --volume "$CACHE:/cache:Z" \
+    --volume "$SDK_ROOT:/android-sdk:ro" \
+    --volume "$CACHE:/cache" \
     --volume "$AVD:/android-avd:Z" \
     "$IMAGE" \
     bash /repo/validation/field/android/run_react_native_android_field_driver.sh \

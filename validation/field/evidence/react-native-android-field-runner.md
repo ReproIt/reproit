@@ -453,8 +453,59 @@ module rather than being rediscovered:
   two of the three failed passes were taps sent into a screen that had not
   finished rendering.
 
-### What remains for this application
+### The observer, and what driving it through Appium corrected
 
-The campaign module has no notesnook observer yet, so no benchmark run has been
-performed and none is written up. What is proven is the build at both
-revisions, the trigger, and that the pair separates.
+`notesnook_link_notebooks.py` is the observer. It is its own module because the
+campaign module was already within seventy lines of this repository's 1000 line
+ceiling, and it drives the trigger above through Appium rather than adb, which
+is what the benchmark runs on.
+
+Three things the hand-driven pass had not met came out of writing it, each
+found by running it rather than by reading it:
+
+- creating a notebook raises a "Notebook added" toast whose own "Add notes"
+  button is drawn directly over the sidebar add button, at
+  `[608,2163][864,2270]` against `[671,2218][763,2309]`. Creating the second
+  notebook immediately after the first therefore taps the toast and lands on
+  the notebook's own add-notes screen. The observer waits for `toast.button` to
+  go away between creations. The earlier hand-driven pass never saw this,
+  because a human types the next step slowly enough for the toast to clear;
+- the editor toolbar publishes buttons with `[0,0][0,0]` bounds, so addressing
+  a node by testID has to require a rectangle with area or a tap lands at the
+  top left corner of the screen;
+- the previous note about `left` and `notebook-item-<depth>-<index>` is
+  superseded by what the tree actually shows. Creating a notebook from the
+  sidebar does NOT navigate into it, so the sidebar stays where it is, and the
+  rows are addressed by their own `content-desc` prefix, `Alpha,`, rather than
+  by an index that depends on creation order. The index form is still what the
+  application sets, but the name is what the run means.
+
+The observable is read from the note row's `content-desc`, parsed, as the set
+of comma separated parts that are notebook names. Waiting for that set to stop
+being the one the screen opened with is neutral between the two revisions:
+they disagree about which set follows the relink, and agree that it is not the
+one before it.
+
+The three corpus subjects were driven by hand on the affected build before the
+observer encoded them, on the same AVD:
+
+| subject | note row after the trigger |
+| --- | --- |
+| first link only | `TriggerNote, <book>, Alpha` |
+| selection reverted with the header restore button | `TriggerNote, <book>, Alpha` |
+| multi-select relink from Alpha and Beta, adding Gamma | `TriggerNote, <book>, Alpha, <book>, Beta, <book>, Gamma` |
+
+The restore button carries no testID: it is an `IconButton` whose only stable
+attribute is the private-use codepoint of its own glyph, `U+F099B`, and it
+exists only while the selection differs from the one the screen opened with.
+Restoring makes those equal again, which is the same condition that draws the
+floating save button, so the save button goes away with it and the only way off
+the screen is back. That is what the subject does.
+
+A one-run smoke of the committed campaign module, driven through Appium inside
+the pinned worker image with a recreated `pixel_6` AVD per observation, was run
+before the benchmark: affected reproduced
+`react-native-state:single-select-relink-keeps-previous-notebook` with the note
+in Alpha and Beta, fixed did not reproduce with the note in Beta alone, and the
+neighbouring first link left the note in Alpha on both revisions. That is one
+run per revision and is recorded as exactly that, not as a benchmark.

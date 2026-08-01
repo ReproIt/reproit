@@ -17,6 +17,16 @@ from nextplayer_permission_loop import (
     run_with_reset,
     sha256,
 )
+from notesnook_link_notebooks import (
+    NOTESNOOK_ACTIVITY,
+    NOTESNOOK_AFFECTED_REVISION,
+    NOTESNOOK_FIXED_REVISION,
+    NOTESNOOK_IDENTITY,
+    NOTESNOOK_ISSUE,
+    NOTESNOOK_PACKAGE,
+    NOTESNOOK_REPOSITORY,
+    observe_notesnook,
+)
 from react_native_android_ui import (
     grant_permission,
     install,
@@ -627,6 +637,21 @@ def application_setup(
             "package": MUSIC_PACKAGE,
             "activity": MUSIC_ACTIVITY,
         }
+    if application == "notesnook":
+        observer = lambda apk, label, identity: observe_notesnook(
+            device,
+            apk,
+            label,
+            identity,
+        )
+        return observer, NOTESNOOK_IDENTITY, {
+            "repository": NOTESNOOK_REPOSITORY,
+            "issueUrl": NOTESNOOK_ISSUE,
+            "affectedRevision": NOTESNOOK_AFFECTED_REVISION,
+            "fixedRevision": NOTESNOOK_FIXED_REVISION,
+            "package": NOTESNOOK_PACKAGE,
+            "activity": NOTESNOOK_ACTIVITY,
+        }
     observer = lambda apk, label, identity: observe_joplin(
         device,
         apk,
@@ -698,6 +723,49 @@ def run_supplemental_observations(
                     True,
                 ),
             )
+        return neighbors, corpus
+    if application == "notesnook":
+        # The neighbouring legal behaviour is the same screen used the ordinary
+        # way: one first link, which both revisions must leave in one notebook.
+        for variant, apk in (("affected", affected_apk), ("fixed", fixed_apk)):
+            label = f"notesnook-neighbor-{variant}"
+            neighbors[variant] = run_with_reset(
+                device,
+                label,
+                lambda apk=apk, label=label: observe_notesnook(
+                    device,
+                    apk,
+                    label,
+                    None,
+                    "first-link",
+                ),
+            )
+        if with_corpus:
+            for key, apk, mode in (
+                ("cleanFirstLink", fixed_apk, "first-link"),
+                (
+                    "adversarialRestoredSelection",
+                    affected_apk,
+                    "adversarial-restored-selection",
+                ),
+                (
+                    "adversarialMultiSelect",
+                    affected_apk,
+                    "adversarial-multi-select",
+                ),
+            ):
+                label = f"notesnook-corpus-{mode}"
+                corpus[key] = run_with_reset(
+                    device,
+                    label,
+                    lambda apk=apk, label=label, mode=mode: observe_notesnook(
+                        device,
+                        apk,
+                        label,
+                        None,
+                        mode,
+                    ),
+                )
         return neighbors, corpus
     if with_corpus:
         assert fixture_dir is not None
@@ -806,7 +874,11 @@ def campaign(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--application", choices=("joplin", "music"), required=True)
+    parser.add_argument(
+        "--application",
+        choices=("joplin", "music", "notesnook"),
+        required=True,
+    )
     parser.add_argument("--sdk", required=True, type=Path)
     parser.add_argument("--avd-home", required=True, type=Path)
     parser.add_argument("--affected-apk", required=True, type=Path)
