@@ -135,6 +135,25 @@ pub(super) async fn run(
                     if args.record_video {
                         anyhow::bail!("backend captures do not produce screen video evidence");
                     }
+                    // A test-trigger capture (CI capture mode) re-runs the
+                    // failing TEST, not an inbound request; offline
+                    // re-evaluation cannot judge it, so the test command is
+                    // required rather than silently downgraded.
+                    if backend_headless::capture_is_test_trigger(Path::new(reference)) {
+                        let Some(exec) = args.exec.as_deref() else {
+                            anyhow::bail!(
+                                "a CI test capsule re-executes the failing test: pass --exec \
+                                 \"<test command>\" (for example --exec \"node \
+                                 tests/checkout.test.mjs\")"
+                            );
+                        };
+                        return backend_headless::check_capture_test(
+                            ctx,
+                            Path::new(reference),
+                            exec,
+                        )
+                        .await;
+                    }
                     if let Some(exec) = args.exec.as_deref() {
                         return backend_headless::check_capture_exec(
                             ctx,
@@ -164,6 +183,19 @@ pub(super) async fn run(
         if routes_to_capture_file(&loaded, reference) {
             if args.record_video {
                 anyhow::bail!("backend captures do not produce screen video evidence");
+            }
+            // A test-trigger capture re-runs the failing test. backend.exec
+            // is an APP boot recipe, the wrong command for a test run, so it
+            // never stands in: the test command must be explicit.
+            if backend_headless::capture_is_test_trigger(Path::new(reference)) {
+                let Some(exec) = args.exec.as_deref() else {
+                    anyhow::bail!(
+                        "a CI test capsule re-executes the failing test: pass --exec \"<test \
+                         command>\" (backend.exec boots the app, which is not a test run)"
+                    );
+                };
+                return backend_headless::check_capture_test(ctx, Path::new(reference), exec)
+                    .await;
             }
             // --exec wins; otherwise an initialized project's backend.exec
             // supplies the boot recipe, so hermetic re-execution is the

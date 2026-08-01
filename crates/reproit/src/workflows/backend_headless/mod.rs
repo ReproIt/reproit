@@ -931,9 +931,11 @@ mod refresh;
 pub use refresh::refresh_capture_guard;
 pub(crate) mod hermetic;
 mod rerecord;
+mod test_trigger;
 pub use hermetic::{
     check_capture_exec, keep_capture_guard, try_replay_hermetic_guard, HermeticVerdict,
 };
+pub use test_trigger::{capture_is_test_trigger, check_capture_test};
 use replay_command::{
     escape_pointer, find_artifact, maybe_reset_target, replay_endpoint, value_as_text,
 };
