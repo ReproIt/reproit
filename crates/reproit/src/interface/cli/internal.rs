@@ -32,6 +32,24 @@ pub(crate) enum InternalCmd {
         /// Where to write the capsule.
         #[arg(long = "out", value_name = "CAPSULE")]
         out: PathBuf,
+        /// A checkpoint artifact the program itself wrote and that the command
+        /// resumes from (an application-level anchor). The capsule then
+        /// carries the artifact by digest and its boundary log covers the
+        /// tail only, from the anchor forward.
+        #[arg(
+            long = "anchor-checkpoint",
+            value_name = "FILE",
+            requires = "anchor_position"
+        )]
+        anchor_checkpoint: Option<PathBuf>,
+        /// The position the checkpoint corresponds to, in the program's own
+        /// unit (a trainer's step, an engine's tick).
+        #[arg(
+            long = "anchor-position",
+            value_name = "ORDINAL",
+            requires = "anchor_checkpoint"
+        )]
+        anchor_position: Option<u64>,
         /// The command to run, after `--`.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         command: Vec<String>,
