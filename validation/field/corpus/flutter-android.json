@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "target": "flutter-android",
+  "worker": {
+    "image": "reproit-android-x86-07cae9bc60e8a40263ee:ef0ac03b8a24",
+    "platform": "android-emulator/x86_64-api36",
+    "network": "none"
+  },
+  "cleanCases": 2,
+  "adversarialCases": 3,
+  "confirmedFalsePositives": 0,
+  "unreachedObservations": 0,
+  "containersRemaining": 0,
+  "cases": [
+    {
+      "id": "localsend-fixed-clean-message",
+      "kind": "clean",
+      "application": "localsend-receive-link-2904-fixed",
+      "repository": "https://github.com/localsend/localsend",
+      "revision": "9e4a5985b5fd1377f7c4c1fa9127a00b8fc9abff",
+      "fixture": null,
+      "variant": "message-with-trailing-text",
+      "why": "The ordinary fixed-revision message request is a known-good subject: the same trigger the campaign uses, on the revision that carries the fix.",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "message": "https://example.com some extra text",
+        "linkSubtitleVisible": false,
+        "messageSubtitleVisible": true,
+        "openLinkButtonVisible": false,
+        "prepareUploadPending": true,
+        "automation": "Appium 3.5.2 with UiAutomator2 8.0.0",
+        "sessionId": "d15b8382-835e-4fc7-b6b1-603c535fe1a1",
+        "sourceSha256": "sha256:21f4b8148e880093926206f2d44edbf3959e2f980ec4b086c15775a76bbab7e6",
+        "screenshotSha256": "sha256:a1bb72d1419a857ce4e5f96a41a99cdfa8a94d6e76fc99a70db7a2799c33ed2e",
+        "reset": "fresh API 36 x86_64 AVD, -wipe-data, -no-snapshot"
+      }
+    },
+    {
+      "id": "localsend-adversarial-bare-url-fixed",
+      "kind": "adversarial",
+      "application": "localsend-receive-link-2904-fixed",
+      "repository": "https://github.com/localsend/localsend",
+      "revision": "9e4a5985b5fd1377f7c4c1fa9127a00b8fc9abff",
+      "fixture": null,
+      "variant": "bare-absolute-url",
+      "why": "A bare absolute URL is legitimately classified as a link on the fixed revision, so this known-good subject produces exactly the surface the defect produces and must not be reported.",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "message": "https://example.com",
+        "linkSubtitleVisible": true,
+        "messageSubtitleVisible": false,
+        "openLinkButtonVisible": true,
+        "prepareUploadPending": true,
+        "automation": "Appium 3.5.2 with UiAutomator2 8.0.0",
+        "sessionId": "424dd169-1e98-43cd-8903-b134d415f8d5",
+        "sourceSha256": "sha256:1e481b169870cd6e5d4160ed72a79886c78f05e77c760df87721503f0e1726f6",
+        "screenshotSha256": "sha256:035e52afcb0b0582d695279f327bbeb9ed799a8beca7b5ccaf6db24793008fcd",
+        "reset": "fresh API 36 x86_64 AVD, -wipe-data, -no-snapshot"
+      }
+    },
+    {
+      "id": "localsend-adversarial-bare-url-affected",
+      "kind": "adversarial",
+      "application": "localsend-receive-link-2904-affected",
+      "repository": "https://github.com/localsend/localsend",
+      "revision": "3ec2d77875fc31dab21548ae4966ca693e8b2733",
+      "fixture": null,
+      "variant": "bare-absolute-url",
+      "why": "The affected revision on the legal input: the link path itself is untouched by the defect, so the build that carries the defect must still report nothing here.",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "message": "https://example.com",
+        "linkSubtitleVisible": true,
+        "messageSubtitleVisible": false,
+        "openLinkButtonVisible": true,
+        "prepareUploadPending": true,
+        "automation": "Appium 3.5.2 with UiAutomator2 8.0.0",
+        "sessionId": "0516dff5-3a3c-49ef-9aab-1572aeaa4765",
+        "sourceSha256": "sha256:1e481b169870cd6e5d4160ed72a79886c78f05e77c760df87721503f0e1726f6",
+        "screenshotSha256": "sha256:1251311a13af0e577b0658677e89ec5dd7683a2692cabf49789bac5b60219f2f",
+        "reset": "fresh API 36 x86_64 AVD, -wipe-data, -no-snapshot"
+      }
+    },
+    {
+      "id": "gopeed-fixed-clean-credentials",
+      "kind": "clean",
+      "application": "gopeed-proxy-credentials-1180-fixed",
+      "repository": "https://github.com/GopeedLab/gopeed",
+      "revision": "5bb85413854f2f4202bdc8e6026a3a856358b4d4",
+      "fixture": null,
+      "variant": "credentials-typed-and-restarted",
+      "why": "The ordinary fixed-revision settings round trip is a known-good subject on the second application.",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "typedCredentials": true,
+        "restoredFields": [
+          "127.0.0.1",
+          "1080",
+          "reproituser",
+          "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
+        ],
+        "addressRetained": true,
+        "usernameRetained": true,
+        "automation": "Appium 3.5.2 with UiAutomator2 8.0.0",
+        "sessionId": "44b27a71-adaf-414e-b64a-7d5233fa8ff3",
+        "sourceSha256": "sha256:59d8edddb5db20bd5a1d5a95bf97f3f69989520a7e9afd4f4196cc83fe561580",
+        "screenshotSha256": "sha256:b84b298aac62ceacbbcee80b6de49878ff85f2d8a32626af7fbf8787da8b3804",
+        "reset": "fresh API 36 x86_64 AVD, -wipe-data, -no-snapshot"
+      }
+    },
+    {
+      "id": "gopeed-adversarial-address-only-affected",
+      "kind": "adversarial",
+      "application": "gopeed-proxy-credentials-1180-affected",
+      "repository": "https://github.com/GopeedLab/gopeed",
+      "revision": "f7189668fd014696c9716bf7687ecc48fb91cd3b",
+      "fixture": null,
+      "variant": "address-only-no-credentials",
+      "why": "The revision that carries the defect, restarted the same way with empty credential fields: the restored fields look exactly like a reproduction and must not be reported, because nothing was typed.",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "typedCredentials": false,
+        "restoredFields": [
+          "127.0.0.1",
+          "1080",
+          "",
+          ""
+        ],
+        "addressRetained": true,
+        "usernameRetained": false,
+        "automation": "Appium 3.5.2 with UiAutomator2 8.0.0",
+        "sessionId": "19acbcb6-2c06-4ea2-943a-b8aaca05dd1b",
+        "sourceSha256": "sha256:341952b09b831ea2859b51f4e6a7a52820787bd8e2a76d3ffda842232a8a42f3",
+        "screenshotSha256": "sha256:9d63be8a52ba17d24c68f5a0990abae653178d1c01ac007c437b229406fd9954",
+        "reset": "fresh API 36 x86_64 AVD, -wipe-data, -no-snapshot"
+      }
+    }
+  ]
+}

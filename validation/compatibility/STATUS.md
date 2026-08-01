@@ -67,39 +67,28 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 
 ## Flutter Android
 
-- Maturity: Preview
-- Scope: Flutter profile-mode builds on a reset Android emulator. A release APK is AOT compiled with
-  no Dart VM service, and a profile APK exposes the service for tree dumps and IO profiles but
-  neither expression evaluation nor the widget inspector. Both facts were measured rather than
-  assumed
+- Maturity: Stable
+- Scope: Flutter profile-mode builds on a reset Android emulator, driven through Appium
+  UiAutomator2. A release APK is AOT compiled with no Dart VM service; a profile APK exposes the
+  service, but its tree dumps carry nothing and evaluate is refused, so the observable is read from
+  the platform accessibility hierarchy that attaching a UiAutomation makes Flutter generate. Every
+  one of those facts was measured rather than assumed
 - Promotion standard: schema-3
 - Native gates: flutter-android
-- Field benchmark: incomplete
+- Field benchmark: validation/field/flutter-android.json
 - Production-to-local: Unqualified
 - Production-to-local evidence: none
 - Operating systems: android-emulator
 - Architectures: x86_64
-- Runtimes: Dart VM service (profile-mode build, dump and profile RPCs only), flutter drive
+- Runtimes: Dart VM service (profile-mode build, liveness and isolate only), Appium UiAutomator2
 - Frameworks: Flutter
 - Qualifications:
-  - cleanCorpus: missing
-  - adversarialCorpus: missing
+  - cleanCorpus: evidence
+  - adversarialCorpus: evidence
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] the first application's pair is now verified to discriminate but no
-    campaign has been run. LocalSend 3ec2d77 against 9e4a598, issue 2904, separates on the receive
-    page: with the message 'https://example.com some extra text' delivered by a prepare-upload
-    request on loopback, the affected build shows 'sent you a link:' and the fixed build shows 'sent
-    you a message:'. A bare URL stays a link on both revisions, which is the neighbouring legal
-    control. What is missing is the campaign runner on the executor, three affected reproductions
-    and three fixed controls
-  - [incomplete-evidence] only one application is verified and the second is untouched. gopeed
-    remains the recorded second candidate and no revision of it has been fetched, built or run
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target. The adversarial subject is already identified and
-    measured: a bare URL on the fixed build legitimately produces the link subtitle, which is what
-    the defect produces
+  - None
 
 ## Flutter iOS
 

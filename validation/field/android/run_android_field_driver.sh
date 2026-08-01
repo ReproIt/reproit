@@ -27,6 +27,7 @@ trap cleanup EXIT INT TERM
 
 case "${REPROIT_FIELD_DRIVER:-}" in
   nextplayer_permission_loop.py|greenstash_currency_rotation.py) ;;
+  localsend_receive_link.py|gopeed_proxy_credentials.py) ;;
   *)
     echo "unsupported Android field driver: ${REPROIT_FIELD_DRIVER:-}" >&2
     exit 2

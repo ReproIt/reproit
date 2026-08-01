@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 3,
+  "target": "flutter-android",
+  "status": "complete",
+  "applications": [
+    {
+      "id": "localsend",
+      "repository": "https://github.com/localsend/localsend",
+      "issueUrl": "https://github.com/localsend/localsend/issues/2904",
+      "affectedRevision": "3ec2d77875fc31dab21548ae4966ca693e8b2733",
+      "fixedRevision": "9e4a5985b5fd1377f7c4c1fa9127a00b8fc9abff",
+      "authority": "authored-contract",
+      "expectedIdentity": "flutter-receive:trailing-text-message-classified-as-link",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "flutter-receive:trailing-text-message-classified-as-link",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "flutter-receive:trailing-text-message-classified-as-link",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "flutter-receive:trailing-text-message-classified-as-link",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 23,
+        "replaySecondsP95": 18.1,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/localsend-receive-link-2904.json",
+        "validation/field/evidence/localsend-receive-link-2904.md"
+      ]
+    },
+    {
+      "id": "gopeed",
+      "repository": "https://github.com/GopeedLab/gopeed",
+      "issueUrl": "https://github.com/GopeedLab/gopeed/issues/1180",
+      "affectedRevision": "f7189668fd014696c9716bf7687ecc48fb91cd3b",
+      "fixedRevision": "5bb85413854f2f4202bdc8e6026a3a856358b4d4",
+      "authority": "authored-contract",
+      "expectedIdentity": "flutter-settings:proxy-credentials-dropped-on-restart",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "flutter-settings:proxy-credentials-dropped-on-restart",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "flutter-settings:proxy-credentials-dropped-on-restart",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "flutter-settings:proxy-credentials-dropped-on-restart",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 21,
+        "replaySecondsP95": 64.482,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/gopeed-proxy-credentials-1180.json",
+        "validation/field/evidence/gopeed-proxy-credentials-1180.md"
+      ]
+    }
+  ]
+}
