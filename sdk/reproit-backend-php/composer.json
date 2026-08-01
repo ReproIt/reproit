@@ -19,7 +19,14 @@
     ]
   },
   "scripts": {
-    "test": "php test/trace_test.php && php test/capture_test.php && php test/psr15_test.php",
+    "test": [
+      "php test/trace_test.php",
+      "php test/capture_test.php",
+      "php test/instrument_test.php",
+      "php test/replay_test.php",
+      "php test/psr15_test.php",
+      "php test/behavior_vectors_test.php"
+    ],
     "test-e2e": "php test/e2e_test.php"
   }
 }

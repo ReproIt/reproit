@@ -152,6 +152,44 @@ function pythonSide() {
   return JSON.parse(lines[lines.length - 1]);
 }
 
+function phpSide() {
+  var script = [
+    '$raw = stream_get_contents(STDIN);',
+    '$tmp = tempnam(sys_get_temp_dir(), "reproit-parity-php");',
+    'file_put_contents($tmp, $raw);',
+    'require "reproit.php";',
+    '$session = \\ReproitBackend\\ReplaySession::load($tmp);',
+    '$served = \\ReproitBackend\\serve_http($session,',
+    '    ["method" => "GET", "url" => "http://llm.internal/stream"]);',
+    '$probe = ["method" => "POST", "url" => "http://llm.internal/v1/chat",',
+    '    "body" => ["messages" => [',
+    '        ["role" => "user", "content" => "hello"],',
+    '        ["role" => "assistant", "content" => "hi"],',
+    '        ["role" => "user", "content" => "DIFFERENT QUESTION"]]]];',
+    '$diverged = \\ReproitBackend\\serve_http($session, $probe);',
+    'unlink($tmp);',
+    'echo json_encode([',
+    '    "serve" => ["status" => $served["status"], "bodyText" => $served["body"],',
+    '        "chunks" => $served["chunks"]],',
+    '    "divergedBody" => $diverged["body"],',
+    '], JSON_UNESCAPED_SLASHES), "\\n";',
+  ].join('\n');
+  var result = child_process.spawnSync('php', ['-r', script], {
+    cwd: path.join(root, 'reproit-backend-php'),
+    input: JSON.stringify(CAPSULE),
+    encoding: 'utf8',
+  });
+  assert.strictEqual(result.status, 0, 'php side failed: ' + (result.error || result.stderr));
+  var lines = result.stdout.trim().split('\n');
+  var output = JSON.parse(lines[lines.length - 1]);
+  // The marker rides the php process's stderr; the SDK writes it raw so the
+  // line is exactly what a CLI parser would see.
+  output.marker = result.stderr.split('\n').find(function (line) {
+    return line.startsWith('REPROIT:DIVERGENCE ');
+  });
+  return output;
+}
+
 var node = nodeSide();
 var python = pythonSide();
 
@@ -174,3 +212,17 @@ assert.deepStrictEqual(report.bodyDelta, {
   liveMessages: 3,
 });
 console.log('PASS: python replay is byte-identical to the Node reference (serve, 599, marker)');
+
+var php = phpSide();
+assert.deepStrictEqual(php.serve, node.serve, 'php served SSE exchange must match byte for byte');
+assert.strictEqual(
+  php.divergedBody,
+  node.divergedBody,
+  'the php served 599 divergence body must match byte for byte',
+);
+assert.strictEqual(
+  php.marker,
+  node.marker,
+  'the php REPROIT:DIVERGENCE marker line must match byte for byte',
+);
+console.log('PASS: php replay is byte-identical to the Node reference (serve, 599, marker)');

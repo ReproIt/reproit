@@ -21,14 +21,25 @@ const MAX_EXCHANGE_BODY_BYTES = 8 * 1024;
 const MAX_EXCHANGE_HEADERS = 32;
 /** Rows recorded per database result; beyond it the result is truncated. */
 const MAX_DB_ROWS = 64;
+/**
+ * Stream chunk boundaries recorded per exchange (SSE / chunked responses,
+ * the LLM streaming shape). Beyond it the boundaries are marked truncated
+ * and replay fails closed rather than serve a wrong stream shape.
+ */
+const MAX_STREAM_CHUNKS = 128;
 
 /**
  * Bound one exchange body. Declared JSON is decoded so structural redaction
- * sees fields rather than text.
+ * sees fields rather than text. A BodyCollector that overflowed already
+ * reduced the body to provable identity (byte count + sha256); that identity
+ * array passes through untouched.
  */
-function bounded_body(?string $body, string $contentType): array
+function bounded_body(mixed $body, string $contentType): array
 {
-    if ($body === null || $body === '') {
+    if (\is_array($body) && ($body['truncated'] ?? false) === true) {
+        return $body;
+    }
+    if (!\is_string($body) || $body === '') {
         return [];
     }
     if (\strlen($body) > MAX_EXCHANGE_BODY_BYTES) {
@@ -65,13 +76,103 @@ function bounded_headers(array $headers): array
 }
 
 /**
- * @param array{method: string, url: string, headers: array, body: ?string,
+ * Collect a stream's chunks up to one byte past the inline budget; enough to
+ * know the true size class without holding unbounded memory. The sha256 runs
+ * over EVERY byte so truncated identity stays provable. Chunk boundaries are
+ * recorded as observed byte lengths, bounded by MAX_STREAM_CHUNKS;
+ * boundaries past the cap are counted, never guessed.
+ *
+ * PHP port of the Node reference's bodyCollector (instrument.js).
+ */
+final class BodyCollector
+{
+    private array $chunks = [];
+    private array $boundaries = [];
+    private int $bytes = 0;
+    private int $droppedBoundaries = 0;
+    private \HashContext $hash;
+
+    public function __construct()
+    {
+        $this->hash = hash_init('sha256');
+    }
+
+    public function push(string $chunk): void
+    {
+        $this->bytes += \strlen($chunk);
+        hash_update($this->hash, $chunk);
+        if (\count($this->boundaries) < MAX_STREAM_CHUNKS) {
+            $this->boundaries[] = \strlen($chunk);
+        } else {
+            $this->droppedBoundaries += 1;
+        }
+        if ($this->bytes <= MAX_EXCHANGE_BODY_BYTES) {
+            $this->chunks[] = $chunk;
+        }
+    }
+
+    /**
+     * The collected body: null when empty, provable identity (an array
+     * bounded_body passes through) when over budget, the raw bytes otherwise.
+     */
+    public function result(): string|array|null
+    {
+        if ($this->bytes === 0) {
+            return null;
+        }
+        if ($this->bytes > MAX_EXCHANGE_BODY_BYTES) {
+            return [
+                'bodyBytes' => $this->bytes,
+                'bodySha256' => hash_final(clone $this->hash),
+                'truncated' => true,
+            ];
+        }
+        return implode('', $this->chunks);
+    }
+
+    /**
+     * Chunk boundaries as observed byte lengths. Recorded when the response
+     * is a stream (SSE always; anything else only when it actually arrived
+     * in more than one chunk, since a single-chunk body replays identically
+     * without them).
+     */
+    public function stream(bool $isEventStream): ?array
+    {
+        if ($this->boundaries === []) {
+            return null;
+        }
+        if (!$isEventStream && \count($this->boundaries) < 2 && $this->droppedBoundaries === 0) {
+            return null;
+        }
+        if ($this->droppedBoundaries > 0) {
+            return ['chunks' => $this->boundaries, 'truncated' => true];
+        }
+        return ['chunks' => $this->boundaries];
+    }
+}
+
+/**
+ * @param array{method: string, url: string, headers: array, body: mixed,
  *              contentType: string} $request
- * @param array{status: int, headers: array, body: ?string,
- *              contentType: string} $response
+ * @param array{status: int, headers: array, body: mixed,
+ *              contentType: string, stream?: ?array} $response
  */
 function http_exchange(array $request, array $response): array
 {
+    $responseBody = bounded_body($response['body'], $response['contentType']);
+    $encoded = array_merge(
+        ['status' => $response['status']],
+        bounded_headers($response['headers']),
+        $responseBody
+    );
+    // Stream shape (SSE / chunked): observed chunk boundaries, so the whole
+    // stream is ONE logical exchange and replay can re-serve it chunk for
+    // chunk. A truncated inline body already fails closed, so boundaries are
+    // only kept for bodies recorded verbatim.
+    $stream = $response['stream'] ?? null;
+    if (\is_array($stream) && ($responseBody['truncated'] ?? false) !== true) {
+        $encoded['stream'] = $stream;
+    }
     return [
         'protocol' => 'http',
         'request' => array_merge(
@@ -79,11 +180,7 @@ function http_exchange(array $request, array $response): array
             bounded_headers($request['headers']),
             bounded_body($request['body'], $request['contentType'])
         ),
-        'response' => array_merge(
-            ['status' => $response['status']],
-            bounded_headers($response['headers']),
-            bounded_body($response['body'], $response['contentType'])
-        ),
+        'response' => $encoded,
     ];
 }
 
