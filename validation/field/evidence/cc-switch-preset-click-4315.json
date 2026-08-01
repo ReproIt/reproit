@@ -1,0 +1,55 @@
+{
+  "issue": "https://github.com/farion1231/cc-switch/issues/4302",
+  "affectedRevision": "caa912e3a39c60330fad641b295ae8b13cdea586",
+  "fixedRevision": "81d6002ace328cf74c9b63e32b15279a7c445812",
+  "identity": "preset-search:result-not-selected-by-pointer",
+  "memoryMeasurement": "unavailable",
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 16.674
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 19.432
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 16.511
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 16.549
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 16.596
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 16.789
+    }
+  ],
+  "neighboringLegalBehavior": "the same pointer press on a preset reached without the search still selects it",
+  "minimizedAction": "type kimi into the provider preset search and press the Kimi result once"
+}

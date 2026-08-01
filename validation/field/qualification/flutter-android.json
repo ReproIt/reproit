@@ -239,18 +239,32 @@
   ],
   "blockers": [
     {
-      "code": "unsupported-capability",
+      "code": "resolved-by-measurement",
       "kind": "runtime-observation-constraint",
-      "detail": "a Flutter release APK is AOT compiled with the Dart VM service removed, so the declared runtime bound 'Dart VM service' is not reachable from the artifact the release build produces. Both selected applications build a release APK on this host without any upstream signing secret, gopeed by falling back to debug signing and localsend with a locally generated throwaway keystore, but the campaign has to install profile-mode APKs and record explicitly that the observed artifact is the profile build and not the shipped release build",
-      "command": null,
-      "evidence": []
+      "detail": "the release-versus-profile question was measured rather than argued. LocalSend at 3ec2d77875fc31dab21548ae4966ca693e8b2733 was built both ways with Flutter 3.35.6 and launched on a reset ReproitValidation_API36 AVD. The profile APK announced 'The Dart VM service is listening on http://127.0.0.1:38635/1X8DUVPoS6I=/'; the release APK started, ran as pid 4917, and announced nothing. The resolution is both halves: campaigns observe profile-mode builds, and the support manifest now says so in the scope and in the runtime bound, which reads 'Dart VM service (profile-mode build)'. Campaigning on profile builds while the manifest implied release support was the outcome this measurement existed to prevent",
+      "command": "SERIAL=emulator-5560 APK=app-profile.apk bash measure-vmservice.sh",
+      "evidence": [
+        "validation/field/evidence/flutter-android-vm-service-profile-vs-release.json",
+        "validation/field/evidence/flutter-android-vm-service-profile-vs-release.md"
+      ]
     },
     {
       "code": "incomplete-evidence",
       "kind": "build-input-missing",
-      "detail": "no APK has been built at any selected revision yet. Every selectedDefects entry is qualification 'selected-not-executed'; the framework identity, the existence of both revisions, the issue titles, and the pull request merge parents are verified, the runtime behaviour is not",
+      "detail": "one APK pair now exists: LocalSend at the affected revision 3ec2d77875fc31dab21548ae4966ca693e8b2733 builds in both profile and release mode with Flutter 3.35.6, so the build recipe is proven. No fixed-revision build, no gopeed build, and no scenario has been executed, so every selectedDefects entry stays 'selected-not-executed'. Note that scripts/remove_proprietary_dependencies.sh needs GNU sed: run under BSD sed it deletes purchase_provider.dart without commenting out its call sites and the build fails with undefined-name errors that look like a Flutter version problem",
       "command": null,
-      "evidence": []
+      "evidence": [
+        "validation/field/evidence/flutter-android-vm-service-profile-vs-release.md"
+      ]
+    },
+    {
+      "code": "environment-unreachable",
+      "kind": "architecture-bound-unmet",
+      "detail": "the target's arch bound is x86_64, derived from the flutter-android native gate, but every Android system image installed on this host is arm64-v8a (android-30, android-34, android-36, android-37.0, all google_apis*/arm64-v8a). The measurement above therefore ran on arm64-v8a, which is correct for the build-mode question and not sufficient for a campaign that has to satisfy the declared architecture",
+      "command": "ls ~/Library/Android/sdk/system-images/*/*/",
+      "evidence": [
+        "validation/field/evidence/flutter-android-vm-service-profile-vs-release.md"
+      ]
     }
   ],
   "verification": {

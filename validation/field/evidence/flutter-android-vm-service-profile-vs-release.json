@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "kind": "runtime-bound-measurement",
+  "target": "flutter-android",
+  "question": "is the declared runtime bound 'Dart VM service' reachable from the artifact a Flutter release build produces, or only from a profile-mode build?",
+  "method": "build both modes from one pinned revision of one real campaign application, install each on a reset AVD, launch it, and read the Dart VM service announcement out of that launch's own logcat window",
+  "measuredAt": "2026-07-31",
+  "cliCommit": "79e178175a4de92f07eb4b7cb3c6714b0ec2f824",
+  "application": {
+    "id": "localsend",
+    "repository": "https://github.com/localsend/localsend",
+    "revision": "3ec2d77875fc31dab21548ae4966ca693e8b2733",
+    "package": "org.localsend.localsend_app",
+    "preparation": "sh scripts/remove_proprietary_dependencies.sh run under debian:bookworm-slim, because the script uses GNU sed -i and silently leaves a broken tree when run with BSD sed on macOS"
+  },
+  "toolchain": {
+    "flutter": "3.35.6",
+    "dart": "3.9.2",
+    "engine": "a5f2c36e367c13f868cfe98db5806f562c52c35e",
+    "host": "macOS arm64"
+  },
+  "device": {
+    "avd": "ReproitValidation_API36",
+    "serial": "emulator-5560",
+    "abi": "arm64-v8a",
+    "sdk": 36,
+    "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BP22.250325.006/13344233:user/release-keys",
+    "note": "no x86_64 Android system image exists on this host, so the measurement ran on arm64-v8a. The measurement is about the build mode, not the architecture, but the architecture is recorded because the target's declared arch bound is x86_64"
+  },
+  "runs": [
+    {
+      "mode": "profile",
+      "command": "flutter build apk --profile --target-platform android-arm64",
+      "apkSha256": "0c3136a9581e9aa2f287a73123da5e14dc3bcd09d58d1bbb2a8b7d2e1214dec7",
+      "libapp.soBytes": 18940848,
+      "launched": true,
+      "pid": 4589,
+      "vmServiceAnnounced": true,
+      "logcat": "I flutter : The Dart VM service is listening on http://127.0.0.1:38635/1X8DUVPoS6I=/"
+    },
+    {
+      "mode": "release",
+      "command": "flutter build apk --release --target-platform android-arm64",
+      "apkSha256": "a0375a212419b559ad0bae6112264cec5fcb7da673447e764385a07fe0c4d384",
+      "libapp.soBytes": 14549936,
+      "launched": true,
+      "pid": 4917,
+      "vmServiceAnnounced": false,
+      "logcat": "no Dart VM service, Observatory, or Dart VM line appears in the launch's logcat window",
+      "signing": "a throwaway keystore generated inside the work directory, so no upstream secret was needed"
+    }
+  ],
+  "result": {
+    "answer": "profile-only",
+    "statement": "the release APK of a real campaign application starts and runs, and publishes no Dart VM service. The declared runtime bound is reachable from a profile-mode build only",
+    "consequence": "a flutter-android campaign observes profile-mode builds, and the support claim must say so. The runtime bound is restated as 'Dart VM service (profile-mode build)' rather than left to imply that a shipped release APK is observable"
+  },
+  "artifacts": [
+    "reproit-lab/.work/flutter-campaign/measure-profile.txt",
+    "reproit-lab/.work/flutter-campaign/measure-release.txt",
+    "reproit-lab/.work/flutter-campaign/build-affected-profile.log",
+    "reproit-lab/.work/flutter-campaign/build-affected-release.log"
+  ]
+}

@@ -68,7 +68,9 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 ## Flutter Android
 
 - Maturity: Preview
-- Scope: Flutter on a reset Android emulator
+- Scope: Flutter profile-mode builds on a reset Android emulator. A release APK is AOT compiled with
+  no Dart VM service, which was measured rather than assumed, so it carries no observation channel
+  and is out of scope
 - Promotion standard: schema-3
 - Native gates: flutter-android
 - Field benchmark: incomplete
@@ -76,7 +78,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Production-to-local evidence: none
 - Operating systems: android-emulator
 - Architectures: x86_64
-- Runtimes: Dart VM service, flutter drive
+- Runtimes: Dart VM service (profile-mode build), flutter drive
 - Frameworks: Flutter
 - Qualifications:
   - cleanCorpus: missing
@@ -89,9 +91,11 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
     reproductions and three reached-observation fixed controls
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
-  - [unsupported-capability] a Flutter release APK is AOT compiled with the Dart VM service removed,
-    so the declared runtime bound is not reachable from the release artifact. The campaign must
-    either observe through a profile-mode build or the bound must be restated
+  - [environment-unreachable] the arch bound is x86_64 because the flutter-android native gate
+    declares x86_64, but every Android system image installed on the campaign host is arm64-v8a, so
+    an application campaign run here cannot satisfy the declared architecture. Either install an
+    x86_64 API 36 image and campaign on it, or run the campaign on the same x86_64 executor the gate
+    uses
 
 ## Flutter iOS
 
@@ -361,9 +365,12 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 3
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
+  - [incomplete-evidence] one of the two required independent application campaigns is executed. cc-
+    switch issue 4302 has three clean affected reproductions on one identity, three reached-
+    observation fixed controls, a minimized trigger, and both controls. The second application is
+    missing: readest needs a pnpm 11 workspace build with setup-vendors and a dotenv-driven Next.js
+    export before its Tauri artifact resolves offline, and note-gen cannot be used with this harness
+    because its selected defect observes a GTK file chooser rather than the webview DOM
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
 

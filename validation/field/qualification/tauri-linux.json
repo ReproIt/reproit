@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "tauri-linux",
   "gate": "S2-candidate-qualification",
-  "status": "harness-proven-campaigns-not-executed",
+  "status": "one-of-two-application-campaigns-executed",
   "declaredBounds": {
     "os": "linux",
     "arch": "x86_64"
@@ -228,17 +228,20 @@
       "affectedRevision": "caa912e3a39c60330fad641b295ae8b13cdea586",
       "fixedRevision": "81d6002ace328cf74c9b63e32b15279a7c445812",
       "whySuitable": "the click-outside handler is bound to a container ref that wraps only the search input row, not the result list below it, so pressing the mouse on a search result fires the outside-click path and clears the search before the click completes. The result is never selected. This can only be reproduced by a real pointer sequence, mousedown then mouseup on the result at its window coordinates. A single synthetic click event, or any harness that jumps straight to the element's click handler, will select the preset and show no defect, so the trigger is a direct test of whether the Tauri adapter delivers a genuine pointer sequence into the WebKitGTK webview. The observable is the provider form's preset field remaining unset",
-      "qualification": "selected-not-executed",
+      "qualification": "executed",
       "toolkitEvidence": {
         "file": "src-tauri/Cargo.toml at caa912e3a39c60330fad641b295ae8b13cdea586",
         "proof": "tauri = { version = \"2.8.2\", features = [\"tray-icon\", \"protocol-asset\", \"image-png\"] }"
       },
-      "remaining": [
-        "build the Tauri Linux artifact at both revisions",
-        "run the worker with HOME redirected into the disposable work directory so the application cannot touch a real ~/.claude or ~/.codex",
-        "reach the add-provider page without configuring any live provider, and confirm the preset list is bundled rather than fetched",
-        "prove the neighbouring legal behaviour: clicking a preset without first opening search selects it on the affected build"
-      ]
+      "executed": {
+        "benchmark": "validation/field/tauri-linux.json",
+        "evidence": "validation/field/evidence/cc-switch-preset-click-4315.json",
+        "affected": "three runs, each reaching observation with an empty provider name and identity preset-search:result-not-selected-by-pointer",
+        "fixed": "three runs, each reaching observation with provider name Kimi, the search still open, and no identity",
+        "control": "on the affected build after the trigger, the same pointer press on the Kimi For Coding preset with the search closed sets the provider name, so the harness can select a preset and only the search path is broken",
+        "containment": "the worker runs with HOME redirected to /tmp/home inside the container and with --network none, so no real ~/.claude or ~/.codex is reachable"
+      },
+      "remaining": []
     },
     {
       "id": "note-gen-export-filename-516",
@@ -271,13 +274,14 @@
     },
     {
       "code": "incomplete-evidence",
-      "detail": "the worker and the observation channel are proven, but no application campaign has run. Both selected applications need a real pointer sequence rather than a synthetic DOM click, since each defect is a hit-test failure that a synthetic click would not reproduce, so the scenarios must drive WebDriver pointer actions at window coordinates",
-      "command": "node src/electron-corpus.mjs style runner, not yet written for this target"
+      "kind": "second-application-missing",
+      "detail": "one of the two required independent applications is executed. The second is not. readest is the intended one and its build recipe is heavier than cc-switch's: a pnpm 11 workspace, a Next.js static export driven through dotenv -e .env.tauri, and a setup-vendors step that copies pdfjs, simplecc, and jieba into public/vendor before the Tauri build can produce an offline-resolvable frontend. note-gen is not usable with this harness at all: its selected defect observes a GTK file chooser window, and the Tauri probe observes through the WebDriver DOM channel, which cannot see a native window",
+      "command": "pnpm install && pnpm --filter @readest/readest-app setup-vendors && pnpm tauri build --debug --no-bundle"
     },
     {
-      "code": "incomplete-evidence",
+      "code": "resolved-by-evidence",
       "kind": "scenario-not-discriminating",
-      "detail": "the cc-switch scenario must not be used to produce evidence until it separates the two revisions. Both currently report the identity, which would have manufactured a false reproduction had the fixed control not been run first",
+      "detail": "RESOLVED. The cc-switch scenario used to report the identity on BOTH revisions. The cause was not coordinates and not the window size: the application raises two informational dialogs, a first-launch welcome and an About Common Config note on the add-provider form, and each renders a full-window overlay that absorbed the pointer press, so no run ever pressed the preset. The scenario now dismisses every open dialog and requires two consecutive clear polls, fixes the window at 1600x1100 so the preset grid is fully laid out, and refuses to press an element that is not the topmost element at its own centre. With that, the affected build observes an empty provider name and the fixed build observes Kimi",
       "command": "node /probe/probe-tauri.mjs ask observe, in the tauri worker"
     }
   ],
@@ -300,13 +304,18 @@
     "memoryMeasurement": "unavailable: WebKitGTK exposes no JS heap through WebDriver, so the campaign declares it unavailable rather than inventing a number",
     "scenarioStatus": {
       "scenario": "preset-pointer-select in reproit-cli/validation/field/probe-tauri.mjs",
-      "state": "executing, not yet discriminating, must not produce evidence",
-      "diagnosisSoFar": [
-        "pointer coordinates are NOT the problem: a WebDriver pointer press at (318, 239) delivered a mousedown at exactly (318, 239), confirmed by a capture-phase listener",
-        "the problem is element identity. The preset query matches two buttons, and getBoundingClientRect on the first returns a rect whose centre is occupied by a different element: document.elementFromPoint there returns a DIV reading 'About Common Config'",
-        "switching to WebDriver element clicks removed the coordinate maths but surfaced the real state: BOTH matching buttons report not displayed or not clickable, so the preset grid is overlaid or outside the scrollable area at the worker's window size"
+      "state": "discriminating, verified on the FIXED build first, then on the affected build",
+      "diagnosis": [
+        "pointer coordinates were never the problem: a WebDriver pointer press at (318, 239) delivered a mousedown at exactly (318, 239), confirmed by a capture-phase listener",
+        "the element that received that mousedown was a DIV reading 'About Common Config'. A screenshot of the webview showed why: an informational modal was open over the whole window, and its overlay absorbed every press. The preset grid was visible behind it",
+        "the first-launch welcome dialog does the same thing at launch, and it can appear after the readiness poll rather than before it, so a single dismissal is not enough"
       ],
-      "nextStep": "the worker window is 1280x800 with an inner viewport of 1000x650. Either enlarge the Xvfb screen and the window so the preset grid is fully visible, or scroll the preset container before selecting. Then re-verify on the FIXED build first: the scenario is only usable once the fixed build fills the provider name and the affected build does not",
+      "fix": [
+        "dismiss every visible [role=dialog] and require two consecutive clear polls, at launch and again after the add-provider form opens",
+        "set the window to 1600x1100 through WebDriver, on an Xvfb screen of 1920x1200, so the whole preset grid is laid out and the same preset is pressed at the same place every run",
+        "fail closed if the preset is not the topmost element at its own centre, so an overlay can never again be mistaken for the defect"
+      ],
+      "verification": "the FIXED build was run first, alone, before any affected run was trusted. It fills the provider name with Kimi and leaves the search open; the affected build leaves the provider name empty and closes the search",
       "memoryMeasurement": "unavailable: WebKitGTK exposes no JS heap through WebDriver"
     }
   }

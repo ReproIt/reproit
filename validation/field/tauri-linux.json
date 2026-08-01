@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 3,
+  "target": "tauri-linux",
+  "status": "pending",
+  "applications": [
+    {
+      "id": "cc-switch-preset-click-4315",
+      "repository": "https://github.com/farion1231/cc-switch",
+      "issueUrl": "https://github.com/farion1231/cc-switch/issues/4302",
+      "affectedRevision": "caa912e3a39c60330fad641b295ae8b13cdea586",
+      "fixedRevision": "81d6002ace328cf74c9b63e32b15279a7c445812",
+      "authority": "authored-contract",
+      "expectedIdentity": "preset-search:result-not-selected-by-pointer",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "preset-search:result-not-selected-by-pointer",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "preset-search:result-not-selected-by-pointer",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "preset-search:result-not-selected-by-pointer",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 942,
+        "replaySecondsP95": 19.432,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/cc-switch-preset-click-4315.json",
+        "validation/field/evidence/cc-switch-preset-click-4315.md"
+      ]
+    }
+  ]
+}
