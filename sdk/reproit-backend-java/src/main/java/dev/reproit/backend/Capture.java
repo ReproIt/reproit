@@ -398,19 +398,8 @@ public final class Capture implements TraceSink {
         // seed that makes REPLAY runs deterministic. Honesty note: the seed
         // does not reproduce the app's original randomness; it pins the
         // replay's.
-        Map<String, Object> attributes = new LinkedHashMap<>();
-        attributes.put(
-            "observedAtMs",
-            first.get("at") instanceof Number at ? at.longValue() : System.currentTimeMillis());
-        attributes.put("tz", java.util.TimeZone.getDefault().getID());
-        attributes.put("runtime", "java " + System.getProperty("java.version"));
-        attributes.put("os", System.getProperty("os.name"));
-        attributes.put("arch", System.getProperty("os.arch"));
-        attributes.put("replaySeed", replaySeed());
-        String imageDigest = System.getenv("REPROIT_IMAGE_DIGEST");
-        if (imageDigest != null && TOKEN.matcher(imageDigest).matches()) {
-            attributes.put("imageDigest", imageDigest);
-        }
+        Map<String, Object> attributes = determinismEnvelope(
+            first.get("at") instanceof Number at ? at.longValue() : null);
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put("kind", "checkpoint");
         envelope.put("name", "determinism-envelope");
@@ -510,6 +499,31 @@ public final class Capture implements TraceSink {
             batch.put("deployment", deployment);
         }
         return batch;
+    }
+
+    /**
+     * The determinism envelope: where and when the capture happened, and a
+     * fresh seed that makes REPLAY runs deterministic. Public so a file-sink
+     * fixture writing a version-2 capture payload records the same envelope
+     * production capture does. tz and locale are what replay re-pins; a
+     * field the platform cannot determine would be ABSENT, never guessed.
+     */
+    public static Map<String, Object> determinismEnvelope(Long observedAtMs) {
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put(
+            "observedAtMs",
+            observedAtMs != null ? observedAtMs : System.currentTimeMillis());
+        envelope.put("tz", java.util.TimeZone.getDefault().getID());
+        envelope.put("locale", java.util.Locale.getDefault().toLanguageTag());
+        envelope.put("runtime", "java " + System.getProperty("java.version"));
+        envelope.put("os", System.getProperty("os.name"));
+        envelope.put("arch", System.getProperty("os.arch"));
+        envelope.put("replaySeed", replaySeed());
+        String imageDigest = System.getenv("REPROIT_IMAGE_DIGEST");
+        if (imageDigest != null && TOKEN.matcher(imageDigest).matches()) {
+            envelope.put("imageDigest", imageDigest);
+        }
+        return envelope;
     }
 
     // 16 hex characters, the width the replay stream reads.

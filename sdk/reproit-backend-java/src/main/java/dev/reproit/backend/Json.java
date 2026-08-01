@@ -27,11 +27,22 @@ public final class Json {
 
     public static String canonicalJson(Object value) {
         StringBuilder out = new StringBuilder();
-        write(out, value);
+        write(out, value, true);
         return out.toString();
     }
 
-    private static void write(StringBuilder out, Object value) {
+    /**
+     * Compact JSON preserving map INSERTION order, byte-identical to the Node
+     * reference's JSON.stringify of the same structure. Divergence markers and
+     * body deltas are byte-compared across SDKs, so they must not re-sort.
+     */
+    public static String orderedJson(Object value) {
+        StringBuilder out = new StringBuilder();
+        write(out, value, false);
+        return out.toString();
+    }
+
+    private static void write(StringBuilder out, Object value, boolean sorted) {
         if (value == null) {
             out.append("null");
         } else if (value instanceof Boolean bool) {
@@ -44,25 +55,30 @@ public final class Json {
         } else if (value instanceof Number number) {
             out.append(number.longValue());
         } else if (value instanceof Map<?, ?> map) {
-            TreeMap<String, Object> sorted = new TreeMap<>();
+            Map<String, Object> entries;
+            if (sorted) {
+                entries = new TreeMap<>();
+            } else {
+                entries = new LinkedHashMap<>();
+            }
             for (Map.Entry<?, ?> entry : map.entrySet()) {
-                sorted.put(String.valueOf(entry.getKey()), entry.getValue());
+                entries.put(String.valueOf(entry.getKey()), entry.getValue());
             }
             out.append('{');
             boolean first = true;
-            for (Map.Entry<String, Object> entry : sorted.entrySet()) {
+            for (Map.Entry<String, Object> entry : entries.entrySet()) {
                 if (!first) out.append(',');
                 first = false;
                 writeString(out, entry.getKey());
                 out.append(':');
-                write(out, entry.getValue());
+                write(out, entry.getValue(), sorted);
             }
             out.append('}');
         } else if (value instanceof List<?> list) {
             out.append('[');
             for (int index = 0; index < list.size(); index++) {
                 if (index > 0) out.append(',');
-                write(out, list.get(index));
+                write(out, list.get(index), sorted);
             }
             out.append(']');
         } else {
