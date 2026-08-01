@@ -181,6 +181,14 @@ pub(crate) enum InternalCmd {
         /// Download and validate the occurrence without executing it.
         #[arg(long)]
         no_run: bool,
+        /// Hermetic boot override for an exchange-carrying capture. Without it
+        /// `backend.exec` from reproit.yaml supplies the recipe; a capture can
+        /// never supply the command.
+        #[arg(long)]
+        exec: Option<String>,
+        /// Headless: never hold the replayed app for inspection.
+        #[arg(long)]
+        auto: bool,
     },
     /// Create a bug report by demonstrating the problem in the configured app.
     /// Repro It preserves the immutable original without claiming an unverified

@@ -9,6 +9,14 @@ use crate::interface::junit;
 /// so an agent that claims "fixed" is checked against the exact recorded repro
 /// (batch, or one id at a time). A held finding is machine-checkable proof the
 /// defect is gone; a reproducing one exits non-zero, just like the CI gate.
+///
+/// Kept hermetic capture guards are part of the batch too, replayed by
+/// re-execution under `REPROIT_REPLAY` (no live dependency). They carry the
+/// fifth verdict, `diverged`: the code no longer makes the captured calls.
+/// Diverged is drift, reported in its own bucket; it never blocks and never
+/// certifies a fix. Every entry names its `mode` (`live-resend` for findings
+/// store artifacts, `hermetic-exec` for capture guards) so the two kinds of
+/// evidence are never conflated.
 pub async fn run(
     ctx: &Ctx,
     config_path: Option<&Path>,
@@ -34,11 +42,13 @@ pub async fn run(
     let wanted: BTreeSet<String> = ids.iter().map(|id| id.trim().to_string()).collect();
     let mut artifacts = collect_artifacts(&root)?;
     artifacts.sort();
+    let hermetic_guards = replay_command::hermetic_guards(&root);
 
     let mut held = Vec::new();
     let mut reproducing = Vec::new();
     let mut inconclusive = Vec::new();
     let mut retracted = Vec::new();
+    let mut diverged = Vec::new();
     let mut cases = Vec::new();
     for artifact_path in &artifacts {
         // Select before replaying. Naming ids must narrow the work, not just the
@@ -63,7 +73,7 @@ pub async fn run(
             .and_then(Value::as_str)
             .unwrap_or("operation")
             .to_string();
-        let entry = json!({ "id": id, "operation": operation });
+        let entry = json!({ "id": id, "operation": operation, "mode": "live-resend" });
         // One source for pass/fail: the verdict itself. The arms only choose
         // which bucket the entry lands in and how it reads.
         let passed = !outcome.verdict.blocks();
@@ -97,6 +107,81 @@ pub async fn run(
             message,
         });
     }
+    for (capture, recipe) in &hermetic_guards {
+        let raw_id = capture
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            .unwrap_or("unknown");
+        let id = repro::display_repro_id(raw_id);
+        if !wanted.is_empty() && !wanted.contains(raw_id) && !wanted.contains(&id) {
+            continue;
+        }
+        let Some(exec) = hermetic::guard_exec(recipe) else {
+            // No recipe means no re-execution: fails closed, like the gate.
+            let entry = json!({ "id": id, "operation": "unknown", "mode": "hermetic-exec" });
+            cases.push(junit::Case {
+                name: format!("hermetic guard [{id}]"),
+                passed: false,
+                time_s: 0.0,
+                message: format!("{id} inconclusive: hermetic.json has no `exec` command"),
+            });
+            inconclusive.push(entry);
+            continue;
+        };
+        let outcome = hermetic::run_hermetic(capture, &exec).await?;
+        let mut entry = json!({
+            "id": id,
+            "operation": outcome.operation,
+            "mode": "hermetic-exec",
+        });
+        let passed = matches!(
+            outcome.verdict,
+            hermetic::HermeticVerdict::Fixed | hermetic::HermeticVerdict::Diverged
+        );
+        let message = match outcome.verdict {
+            hermetic::HermeticVerdict::Fixed => {
+                let message = format!(
+                    "{id} held (hermetic re-execution clean) on {}",
+                    outcome.operation
+                );
+                held.push(entry);
+                message
+            }
+            hermetic::HermeticVerdict::Reproduced => {
+                let message =
+                    format!("{id} still reproduces hermetically on {}", outcome.operation);
+                reproducing.push(entry);
+                message
+            }
+            hermetic::HermeticVerdict::Inconclusive => {
+                let message = format!(
+                    "{id} inconclusive on {} (could not boot or answer)",
+                    outcome.operation
+                );
+                inconclusive.push(entry);
+                message
+            }
+            // Drift: the code no longer makes the captured calls. Reported,
+            // never blocking, and NEVER counted as held: a diverged run
+            // proves nothing about the fix.
+            hermetic::HermeticVerdict::Diverged => {
+                entry["divergences"] = Value::Array(outcome.divergences.clone());
+                let message = format!(
+                    "{id} diverged on {} (drift: the code no longer makes the captured calls)",
+                    outcome.operation
+                );
+                diverged.push(entry);
+                message
+            }
+        };
+        cases.push(junit::Case {
+            name: format!("hermetic guard {} [{id}]", outcome.operation),
+            passed,
+            time_s: 0.0,
+            message,
+        });
+    }
     let pruned = if prune_retracted {
         prune(ctx, &retracted)?
     } else {
@@ -118,12 +203,14 @@ pub async fn run(
         "reproducing": reproducing,
         "inconclusive": inconclusive,
         "retracted": retracted,
+        "diverged": diverged,
         "pruned": pruned,
         "counts": {
             "held": held.len(),
             "reproducing": reproducing.len(),
             "inconclusive": inconclusive.len(),
             "retracted": retracted.len(),
+            "diverged": diverged.len(),
         },
     });
     if ctx.json {
@@ -132,28 +219,32 @@ pub async fn run(
         && reproducing.is_empty()
         && inconclusive.is_empty()
         && retracted.is_empty()
+        && diverged.is_empty()
     {
         ctx.say("verify: no matching findings".to_string());
     } else {
         ctx.say(format!(
-            "verify: {} held, {} still reproducing, {} inconclusive, {} retracted",
+            "verify: {} held, {} still reproducing, {} inconclusive, {} retracted, {} diverged",
             held.len(),
             reproducing.len(),
             inconclusive.len(),
-            retracted.len()
+            retracted.len(),
+            diverged.len()
         ));
         for finding in &reproducing {
             ctx.say(format!(
-                "  {} still reproduces on {}",
+                "  {} still reproduces on {}{}",
                 finding["id"].as_str().unwrap_or(""),
-                finding["operation"].as_str().unwrap_or("")
+                finding["operation"].as_str().unwrap_or(""),
+                mode_suffix(finding)
             ));
         }
         for finding in &inconclusive {
             ctx.say(format!(
-                "  {} inconclusive (could not evaluate) on {}",
+                "  {} inconclusive (could not evaluate) on {}{}",
                 finding["id"].as_str().unwrap_or(""),
-                finding["operation"].as_str().unwrap_or("")
+                finding["operation"].as_str().unwrap_or(""),
+                mode_suffix(finding)
             ));
         }
         for finding in &retracted {
@@ -162,6 +253,14 @@ pub async fn run(
                 finding["id"].as_str().unwrap_or(""),
                 finding["operation"].as_str().unwrap_or(""),
                 finding["reason"].as_str().unwrap_or("")
+            ));
+        }
+        for guard in &diverged {
+            ctx.say(format!(
+                "  {} DIVERGED on {} (drift, quarantined: never proof, never a pass; \
+                 re-capture to re-arm)",
+                guard["id"].as_str().unwrap_or(""),
+                guard["operation"].as_str().unwrap_or("")
             ));
         }
         if !retracted.is_empty() {
@@ -178,12 +277,24 @@ pub async fn run(
     // and an inconclusive one means verify could not certify the fix, so it fails
     // closed rather than issuing a false all-clear. Retracted findings do not
     // block, because withdrawing a claim is an explicit schema edit that already
-    // makes `scan` stop reporting them.
+    // makes `scan` stop reporting them. Diverged guards do not block either
+    // (drift quarantine, same rule as the gate), but they are reported above
+    // and never counted as held.
     Ok(if reproducing.is_empty() && inconclusive.is_empty() {
         ExitCode::SUCCESS
     } else {
         Exit::Regression.code()
     })
+}
+
+/// The honest replay-mode suffix for one verify entry: hermetic re-execution
+/// and live-target re-send are different evidence and must read differently.
+fn mode_suffix(entry: &Value) -> &'static str {
+    match entry["mode"].as_str() {
+        Some("hermetic-exec") => " (hermetic re-execution)",
+        Some("live-resend") => " (live-target re-send)",
+        _ => "",
+    }
 }
 
 /// Delete the finding directories of retracted findings. The artifact is only
@@ -213,9 +324,12 @@ fn prune(ctx: &Ctx, retracted: &[Value]) -> Result<usize> {
 /// the replay is authenticated. No config or no auth is fine (a public target);
 /// a configured-but-failing login propagates as an error (fail closed).
 async fn install_identity_pool_for_verify(ctx: &Ctx, config_path: Option<&Path>) -> Result<()> {
-    let Some((_, config)) = crate::workflows::backend_target::resolve(config_path)? else {
+    // `find`, not `resolve`: the identity pool needs only auth + target, and
+    // a hermetic-guard-only project may legitimately declare no schemas.
+    let Some(project) = crate::workflows::backend_target::find(config_path)? else {
         return Ok(());
     };
+    let config = project.config;
     let Some(auth) = config.auth.as_ref() else {
         return Ok(());
     };
@@ -239,11 +353,14 @@ async fn install_identity_pool_for_verify(ctx: &Ctx, config_path: Option<&Path>)
     Ok(())
 }
 
-/// The nearest ancestor of the cwd that has a findings store.
+/// The nearest ancestor of the cwd that has replayable evidence: a findings
+/// store, or kept hermetic capture guards (which verify replays too).
 fn project_root_with_findings() -> Result<Option<PathBuf>> {
     let cwd = std::env::current_dir()?;
     for root in cwd.ancestors() {
-        if layout::findings_dir(root).is_dir() {
+        if layout::findings_dir(root).is_dir()
+            || !replay_command::hermetic_guards(root).is_empty()
+        {
             return Ok(Some(root.to_path_buf()));
         }
     }

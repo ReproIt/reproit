@@ -355,6 +355,16 @@ pub async fn check_capture_exec(
     Ok(verdict.exit())
 }
 
+/// The exec recipe a hermetic guard stores (hermetic.json). None when the
+/// recipe is unreadable or names no `exec` command; callers fail closed.
+pub(super) fn guard_exec(recipe: &Path) -> Option<String> {
+    serde_json::from_slice::<Value>(&std::fs::read(recipe).ok()?)
+        .ok()?
+        .get("exec")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
 /// `reproit check <guard-id>` routing: when the referenced repro directory
 /// holds a hermetic capture guard (capture.json + hermetic.json), replay it
 /// through the hermetic verdict path with the stored exec recipe. Returns
@@ -374,14 +384,7 @@ pub async fn try_replay_hermetic_guard(
     if !capture.is_file() || !recipe.is_file() {
         return Ok(None);
     }
-    let exec = serde_json::from_slice::<Value>(&std::fs::read(&recipe)?)
-        .ok()
-        .and_then(|recipe| {
-            recipe
-                .get("exec")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
+    let exec = guard_exec(&recipe)
         .with_context(|| format!("{} has no `exec` command", recipe.display()))?;
     let code = check_capture_exec(ctx, &capture, &exec, auto).await?;
     Ok(Some(code))

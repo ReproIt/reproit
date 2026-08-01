@@ -186,7 +186,12 @@ const VERIFY_DESCRIPTION: &str = concat!(
     "but it is not proof of anything either, so never present a retracted finding as a fix. ",
     "Retracting a claim is only correct when the schema was WRONG about the API; do not weaken a ",
     "contract to make a finding go away. Deterministic and network-only against the configured ",
-    "backend.target."
+    "backend.target for findings-store artifacts (each reported with mode `live-resend`). Kept ",
+    "hermetic capture guards are verified too, by RE-EXECUTION under REPROIT_REPLAY with no ",
+    "live dependency (mode `hermetic-exec`); they can additionally report the fifth verdict, ",
+    "DIVERGED: the code no longer makes the captured dependency calls. Diverged is drift, in ",
+    "its own bucket: it never blocks, and it is NEVER proof of a fix (re-capture to re-arm ",
+    "the guard)."
 );
 
 const ACCEPT_DESCRIPTION: &str = concat!(
@@ -744,24 +749,28 @@ fn call_tool(config: Option<&std::path::Path>, name: &str, args: &Value) -> (Str
     };
     match Command::new(exe).args(&argv).output() {
         Ok(out) => {
-            // `check` is a VERDICT command: fail(1)/flaky(2)/stale(3) are the CI
-            // exit contract, not tool failures. A check that produced a verdict
-            // is a SUCCESSFUL tool call, the agent must SEE the verdict (e.g.
-            // confirm a bug reproduces = a FAIL) rather than a tool error. Detect
-            // the verdict from the --json `outcome` field; only a check that
-            // produced NO verdict (bad config, repro not found) is a real error.
-            let is_error = if name == "reproit_check" {
-                !json_has_field(&out.stdout, "outcome")
+            // `check` and `reproduce` are VERDICT commands: fail(1)/flaky(2)/
+            // stale(3) are the CI exit contract, not tool failures. A call that
+            // produced a verdict is a SUCCESSFUL tool call, the agent must SEE
+            // the verdict (e.g. confirm a bug reproduces = a FAIL) rather than
+            // a tool error. Detect the verdict from the --json `outcome` field
+            // (`verdict` on the occurrence live-resend path); only a run that
+            // produced NO verdict (bad config, repro not found) is a real
+            // error.
+            let verdict_command = name == "reproit_check" || name == "reproit_reproduce";
+            let is_error = if verdict_command {
+                !json_has_field(&out.stdout, "outcome") && !json_has_field(&out.stdout, "verdict")
             } else {
                 !out.status.success()
             };
             let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-            // For a check that produced a verdict, prepend a one-line actionable
+            // For a run that produced a verdict, prepend a one-line actionable
             // gloss so the agent reads the outcome unambiguously without parsing
             // the enum: PASS / FAIL (reproduced) / FLAKY (race) / STALE (could not
-            // run, re-record). Without this the four outcomes are just bare
-            // strings in the JSON and a STALE can read like a soft pass.
-            if name == "reproit_check" && !is_error {
+            // run, re-record), plus the hermetic DIVERGED / INCONCLUSIVE forms.
+            // Without this the outcomes are just bare strings in the JSON and a
+            // STALE can read like a soft pass.
+            if verdict_command && !is_error {
                 if let Some(g) = check_gloss(&out.stdout) {
                     text = format!("{g}\n{text}");
                 }
@@ -798,6 +807,33 @@ fn call_tool(config: Option<&std::path::Path>, name: &str, args: &Value) -> (Str
 /// the caller already surfaces) or an unknown outcome string.
 fn check_gloss(stdout: &[u8]) -> Option<String> {
     let v = serde_json::from_slice::<serde_json::Value>(stdout).ok()?;
+    // A hermetic capture run carries its own five-way verdict under
+    // `capture.verdict`; its `outcome` folds diverged and inconclusive into
+    // "stale", which would gloss a real drift signal as "the UI path moved".
+    // Read the precise verdict first so the agent gets the honest words.
+    if let Some(verdict) = v.pointer("/capture/verdict").and_then(Value::as_str) {
+        let msg = match verdict {
+            "reproduced" => concat!(
+                "FAIL: the captured failure REPRODUCED from re-executed code (hermetic, ",
+                "recorded dependencies served in process). If you were confirming the bug, ",
+                "this is the expected signal; if you were verifying a fix, it did not hold."
+            ),
+            "fixed" => concat!(
+                "PASS: the operation now answers cleanly under hermetic re-execution -- ",
+                "machine-checkable proof of the fix."
+            ),
+            "diverged" => concat!(
+                "DIVERGED: the code no longer makes the captured dependency calls (drift). ",
+                "This is neither a reproduction nor proof of a fix; re-capture to re-arm."
+            ),
+            "inconclusive" => concat!(
+                "INCONCLUSIVE: the app did not boot or did not answer under hermetic replay. ",
+                "Failing closed: this is NOT a verdict on the bug."
+            ),
+            _ => return None,
+        };
+        return Some(msg.to_string());
+    }
     let outcome = v.get("outcome").and_then(Value::as_str)?;
     let msg = match outcome {
         "pass" => concat!(

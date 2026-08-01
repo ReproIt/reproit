@@ -292,6 +292,8 @@ pub(crate) async fn run_occurrence(
     config_path: Option<&Path>,
     reference: &str,
     no_run: bool,
+    exec_override: Option<&str>,
+    auto: bool,
 ) -> Result<ExitCode> {
     if find_occurrence(reference).is_none() {
         cloud::pull_cloud_occurrence(ctx, reference).await?;
@@ -356,29 +358,41 @@ pub(crate) async fn run_occurrence(
     let backend_capture = directory.join("backend-capture.json");
     if backend_capture.is_file() {
         // Hermetic re-execution when the capture recorded dependency
-        // exchanges AND the repo names a boot command. The exec recipe comes
-        // only from repo-local config (backend.exec in reproit.yaml); a
+        // exchanges AND a boot command exists: `--exec` wins, else
+        // `backend.exec` from reproit.yaml. Both are user-authored; a
         // capture can never supply a command.
         if super::backend_headless::capture_has_exchanges(&backend_capture) {
-            let exec = super::backend_target::find(config_path)?
-                .and_then(|project| project.config.exec.clone());
+            let exec = match exec_override {
+                Some(exec) => Some(exec.to_string()),
+                None => super::backend_target::find(config_path)?
+                    .and_then(|project| project.config.exec.clone()),
+            };
             if let Some(exec) = exec {
                 ctx.say("  replay:   hermetic re-execution with the recorded exchanges");
                 return super::backend_headless::check_capture_exec(
                     ctx,
                     &backend_capture,
                     &exec,
-                    false,
+                    auto,
                 )
                 .await;
             }
             ctx.say(
                 "  replay:   this capture carries recorded exchanges; set backend.exec in \
-                 reproit.yaml to re-execute it hermetically. Falling back to offline \
-                 re-evaluation",
+                 reproit.yaml (or pass --exec) to re-execute it hermetically. Falling back \
+                 to offline log re-evaluation",
             );
+        } else if let Some(exec) = exec_override {
+            // An explicit --exec on an exchange-less capture must fail closed
+            // with the named reason, never silently downgrade to a mode the
+            // caller did not ask for.
+            return super::backend_headless::check_capture_exec(ctx, &backend_capture, exec, auto)
+                .await;
         } else {
-            ctx.say("  replay:   re-evaluating the captured backend events offline");
+            ctx.say(
+                "  replay:   offline log re-evaluation of the recorded events (NOT hermetic \
+                 re-execution: this capture carries no recorded dependency exchanges)",
+            );
         }
         return super::backend_headless::check_capture(ctx, &backend_capture);
     }
@@ -404,6 +418,10 @@ pub(crate) async fn run_occurrence(
         }
     }
 
+    // The honest distinction, stated where the verdict is: a compiled plan
+    // re-executes against a LIVE target (dependencies really run), which is
+    // not the hermetic re-execution an exchange-carrying capture gets.
+    ctx.say("  replay:   live-target re-send through the compiled plan (not hermetic)");
     let run = crate::adapters::execution::execute(&root, &package).await?;
     let latest = directory.join("latest-run.json");
     std::fs::write(&latest, serde_json::to_vec_pretty(&run)?)
@@ -412,6 +430,7 @@ pub(crate) async fn run_occurrence(
         "command": "occurrence",
         "occurrenceId": package.occurrence.occurrence_id,
         "automaticPlanId": automatic_plan_id,
+        "mode": "live-resend",
         "verdict": run.verdict,
         "run": run,
     }));

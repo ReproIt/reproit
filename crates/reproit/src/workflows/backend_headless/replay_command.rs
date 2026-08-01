@@ -391,24 +391,41 @@ pub(super) fn find_artifact(raw_id: &str) -> Result<Option<PathBuf>> {
     Ok(None)
 }
 
+/// Every kept hermetic capture guard under `.reproit/repros/`: a capture plus
+/// the user-authored exec recipe (hermetic.json is repo config, like a
+/// package.json script; the capture itself never supplies the command).
+/// Sorted so batch reports are stable. Shared by the check gate and verify.
+pub(super) fn hermetic_guards(root: &Path) -> Vec<(PathBuf, PathBuf)> {
+    let mut guards = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(layout::repros_dir(root)) {
+        for entry in entries.flatten() {
+            let directory = entry.path();
+            let capture = directory.join("capture.json");
+            let recipe = directory.join("hermetic.json");
+            if capture.is_file() && recipe.is_file() {
+                guards.push((capture, recipe));
+            }
+        }
+    }
+    guards.sort();
+    guards
+}
+
 /// Replay every KEPT backend guard (`.reproit/repros/<id>/backend*.json`)
 /// against the live target: the committed regression suite behind `reproit
 /// check` in a backend project. Returns None when no backend guards are kept.
 /// A guard passes only on a proven Fixed (or an explicitly retracted claim);
 /// Reproduced means the bug is back and Inconclusive fails closed.
 pub async fn replay_kept_guards(ctx: &Ctx, root: &Path) -> Result<Option<ExitCode>> {
+    let hermetic_guards = hermetic_guards(root);
     let mut artifacts = Vec::new();
-    let mut hermetic_guards = Vec::new();
     if let Ok(entries) = std::fs::read_dir(layout::repros_dir(root)) {
         for entry in entries.flatten() {
             let directory = entry.path();
-            // Hermetic capture guard: a kept capture plus the user-authored
-            // exec recipe (hermetic.json is repo config, like a package.json
-            // script; the capture itself never supplies the command).
-            let capture = directory.join("capture.json");
-            let recipe = directory.join("hermetic.json");
-            if capture.is_file() && recipe.is_file() {
-                hermetic_guards.push((capture, recipe));
+            // A hermetic guard directory replays through its recipe above,
+            // never additionally as a live artifact.
+            if directory.join("capture.json").is_file() && directory.join("hermetic.json").is_file()
+            {
                 continue;
             }
             for name in ["backend.json", "backend-schema.json"] {
@@ -424,7 +441,6 @@ pub async fn replay_kept_guards(ctx: &Ctx, root: &Path) -> Result<Option<ExitCod
         return Ok(None);
     }
     artifacts.sort();
-    hermetic_guards.sort();
     let mut hermetic_failed = 0usize;
     let mut quarantined = 0usize;
     for (capture, recipe) in &hermetic_guards {
@@ -434,16 +450,7 @@ pub async fn replay_kept_guards(ctx: &Ctx, root: &Path) -> Result<Option<ExitCod
             .and_then(|name| name.to_str())
             .unwrap_or("unknown");
         let label = repro::display_repro_id(raw_id);
-        let exec = std::fs::read_to_string(recipe)
-            .ok()
-            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-            .and_then(|recipe| {
-                recipe
-                    .get("exec")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            });
-        let Some(exec) = exec else {
+        let Some(exec) = super::hermetic::guard_exec(recipe) else {
             hermetic_failed += 1;
             ctx.say(format!(
                 "  guard {label}: hermetic.json has no `exec` command; fails closed"
