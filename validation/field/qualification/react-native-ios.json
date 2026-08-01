@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "react-native-ios",
   "gate": "S2-candidate-qualification",
-  "status": "candidates-selected",
+  "status": "candidates-executed-none-qualified",
   "declaredBounds": {
     "os": "ios-simulator",
     "arch": "arm64",
@@ -182,13 +182,18 @@
         "verified": false
       },
       "whySuitable": "the trigger is Tools, then is it my address, typing an all-caps bech32 address into a React Native TextInput and pressing check. Text entered through XCUITest travels native keyboard to RCTUITextField to the Hermes side through onChangeText, is normalized by the wallet-matching logic there, and the result is rendered back into a native text view. That is exactly the react-native-ios adapter's full loop: the iOS text input surface plus the JS engine, and the defect is a casing normalization bug, so the precise bytes crossing the bridge decide the outcome. Fully offline: address matching is local",
-      "qualification": "selected-not-executed",
+      "qualification": "executed-unmaterializable",
       "remaining": [
         "build the affected and fixed revisions for the simulator with CODE_SIGNING_ALLOWED=NO and a scheme that excludes the watch, widgets and stickers targets, and record the exact command and result",
         "prove the Appium XCUITest session can reach the tools screen with the network blocked",
         "state the exact identity and authority for the observable, and minimize the trigger",
         "run three affected reproductions and three fixed controls on a reset simulator with reset evidence",
         "record neighboring legal behavior: the same address in lowercase must still match on the affected build"
+      ],
+      "executionOutcome": "disqualified: package.json pins rn-qr-generator to an exact commit of https://github.com/BlueWallet/rn-qr-generator, which returns 404 upstream, so npm install cannot resolve it and no working tree exists at this revision without substituting a pinned dependency",
+      "executionEvidence": [
+        "validation/field/evidence/react-native-ios-candidate-execution.json",
+        "validation/field/evidence/react-native-ios-candidate-execution.md"
       ]
     },
     {
@@ -206,13 +211,18 @@
         "verified": false
       },
       "whySuitable": "the trigger is add wallet, import, entering a single-threshold SLIP39 share into a multiline React Native TextInput and pressing import. It exercises the multiline iOS text adapter and the Hermes-side share parsing pipeline, and success is observed as a navigation transition to the wallet list rendered by native view controllers through react-native-screens. The parse failure happens before any Electrum call, so the trigger is offline",
-      "qualification": "selected-not-executed",
+      "qualification": "executed-unmaterializable",
       "remaining": [
         "confirm that the older React Native 0.72 toolchain, CocoaPods versions and Xcode requirements at this revision still resolve on the host, or drop this candidate for a newer one",
         "build both revisions for the simulator with DEVELOPMENT_TEAM forced empty and CODE_SIGNING_ALLOWED=NO",
         "state identity and authority, and minimize the trigger",
         "run three affected reproductions and three fixed controls with reset evidence",
         "record neighboring legal behavior: a multi-share SLIP39 set must still import on the affected build"
+      ],
+      "executionOutcome": "disqualified: package.json pins rn-qr-generator to an exact commit of https://github.com/BlueWallet/rn-qr-generator, which returns 404 upstream, so npm install cannot resolve it and no working tree exists at this revision without substituting a pinned dependency",
+      "executionEvidence": [
+        "validation/field/evidence/react-native-ios-candidate-execution.json",
+        "validation/field/evidence/react-native-ios-candidate-execution.md"
       ]
     },
     {
@@ -230,13 +240,18 @@
         "verified": false
       },
       "whySuitable": "the defect is defined by the offline path, so the containment this campaign already needs is the reproduction condition rather than a deviation from the real bug. The trigger is add wallet, import, entering a WIF key, import, with the network blocked; the failure is a native screen that never resolves because an asynchronous Hermes-side state machine waits on an Electrum call that cannot complete. Seeing it requires the JS engine and the iOS view controller stack together, which is precisely what this target's adapter owns",
-      "qualification": "selected-not-executed",
+      "qualification": "executed-unmaterializable",
       "remaining": [
         "decide how the campaign blocks network for the simulator process, and record that as environment rather than application mutation",
         "build both revisions for the simulator with CODE_SIGNING_ALLOWED=NO",
         "state identity and authority, and minimize the trigger; the observable must be a definite reached state, not a timeout",
         "run three affected reproductions and three fixed controls with reset evidence",
         "record neighboring legal behavior: the same import must complete on the affected build with the network reachable"
+      ],
+      "executionOutcome": "disqualified: package.json pins rn-qr-generator to an exact commit of https://github.com/BlueWallet/rn-qr-generator, which returns 404 upstream, so npm install cannot resolve it and no working tree exists at this revision without substituting a pinned dependency",
+      "executionEvidence": [
+        "validation/field/evidence/react-native-ios-candidate-execution.json",
+        "validation/field/evidence/react-native-ios-candidate-execution.md"
       ]
     },
     {
@@ -254,13 +269,18 @@
         "verified": false
       },
       "whySuitable": "this is the strongest adapter-level candidate in the set. The bug lives in the navigation stack: after the first wallet is deleted, an imperative popToTop leaves the native UINavigationController managed by react-native-screens out of sync with the JS navigation state, so the second delete does nothing until relaunch. Reproducing it needs a real multi-step XCUITest session that creates two wallets, enters details, deletes, re-enters and deletes again, and the failure is visible only as a native screen that does not pop. No pure-JS harness can observe it, so it separates this target from a Hermes-only oracle. Entirely offline",
-      "qualification": "selected-not-executed",
+      "qualification": "executed-unmaterializable",
       "remaining": [
         "build both revisions for the simulator with CODE_SIGNING_ALLOWED=NO",
         "prove wallet creation can be driven offline twice within one session and that the second delete is observable through the accessibility tree rather than pixels",
         "state identity and authority, and minimize the trigger",
         "run three affected reproductions and three fixed controls with reset evidence",
         "record neighboring legal behavior: the first delete must still succeed on the affected build"
+      ],
+      "executionOutcome": "disqualified: package.json pins rn-qr-generator to an exact commit of https://github.com/BlueWallet/rn-qr-generator, which returns 404 upstream, so npm install cannot resolve it and no working tree exists at this revision without substituting a pinned dependency",
+      "executionEvidence": [
+        "validation/field/evidence/react-native-ios-candidate-execution.json",
+        "validation/field/evidence/react-native-ios-candidate-execution.md"
       ]
     },
     {
@@ -278,13 +298,18 @@
         "verified": false
       },
       "whySuitable": "the trigger is offline, create a wallet then open receive, and the fix removes corner-radius and clipping styling from components/QRCode.tsx, so the defect is in how react-native-svg composites into the native iOS view hierarchy rather than in JS state. It is retained as the fifth candidate precisely so two candidates can fail without dropping the target below four",
-      "qualification": "selected-not-executed",
+      "qualification": "executed-unmaterializable",
       "caveat": "the user-visible symptom is that a third-party hardware scanner cannot read the code, so the observable is pixels. Unless a pixel oracle is accepted for this target, this candidate is the one to drop first",
       "remaining": [
         "decide whether a pixel oracle is admissible for react-native-ios; if it is not, drop this candidate",
         "build both revisions for the simulator with CODE_SIGNING_ALLOWED=NO",
         "state identity and authority, and minimize the trigger",
         "run three affected reproductions and three fixed controls with reset evidence"
+      ],
+      "executionOutcome": "disqualified: package.json pins rn-qr-generator to an exact commit of https://github.com/BlueWallet/rn-qr-generator, which returns 404 upstream, so npm install cannot resolve it and no working tree exists at this revision without substituting a pinned dependency",
+      "executionEvidence": [
+        "validation/field/evidence/react-native-ios-candidate-execution.json",
+        "validation/field/evidence/react-native-ios-candidate-execution.md"
       ]
     },
     {
@@ -307,13 +332,18 @@
         "verified": false
       },
       "whySuitable": "the strongest adapter-level candidate in this set. On the affected revision the row padding sits on the outer wrapper view rather than on the pressable, so the padded band around a note title is drawn but is not part of the hit area: a tap landing there is swallowed and the note does not open. The fix moves paddingLeft, paddingRight, paddingTop and paddingBottom onto the pressable. Nothing about this is visible to a JavaScript-only harness, because the styles are identical and only the native view that receives the touch differs; it can be seen only by sending a real coordinate tap through XCUITest into the RN view hierarchy and then asking the accessibility tree whether the note screen was pushed. That is precisely what the react-native-ios adapter owns. Entirely offline and needs no account",
-      "qualification": "selected-not-executed",
+      "qualification": "executed-build-failure",
       "remaining": [
         "build the affected and fixed revisions for the simulator with CODE_SIGNING_ALLOWED=NO and a scheme that excludes ShareExtension, and record the exact command and result",
         "state how the harness computes the padding coordinate from the row's accessibility frame, since a centre tap opens the note on both revisions and would not separate them",
         "state the exact identity and authority for the observable, and minimize the trigger",
         "run three affected reproductions and three fixed controls on a reset simulator with reset evidence",
         "record neighboring legal behavior: a tap on the note title itself must still open the note on the affected build"
+      ],
+      "executionOutcome": "the workspace installs, pod install completes, and every native pod and application source file compiles; the Bundle React Native code and images phase fails because Metro addresses packages/app-mobile/index.js through /tmp while its haste map holds the resolved /private/tmp path, so no archive exists at either revision and the hit-area observable was never read",
+      "executionEvidence": [
+        "validation/field/evidence/react-native-ios-candidate-execution.json",
+        "validation/field/evidence/react-native-ios-candidate-execution.md"
       ]
     },
     {
@@ -409,9 +439,12 @@
   "blockers": [
     {
       "code": "incomplete-evidence",
-      "detail": "no candidate has been built, from either application. Every simulatorBuildWithoutSigning entry is an inspection of project.pbxproj and the entitlements file at the affected revision, not an executed xcodebuild, so buildQualified is null for the whole pool",
+      "detail": "both applications have now been attempted. BlueWallet cannot be materialized at any candidate revision because a pinned dependency repository has been deleted upstream, and Joplin compiles but fails its React Native bundling phase under a build root reached through the /tmp symlink",
       "command": "xcodebuild -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO",
-      "evidence": []
+      "evidence": [
+        "validation/field/evidence/react-native-ios-candidate-execution.json",
+        "validation/field/evidence/react-native-ios-candidate-execution.md"
+      ]
     },
     {
       "code": "incomplete-evidence",

@@ -1,0 +1,158 @@
+{
+ "schemaVersion": 1,
+ "target": "swiftui-ios",
+ "campaign": "dime-numberpad-delete-zero-72",
+ "status": "campaign-complete",
+ "issue": "https://github.com/rafsoh/dimeApp/issues/72",
+ "pullRequest": "https://github.com/rafsoh/dimeApp/pull/77",
+ "affectedRevision": "c6d4fc0ad2a35591bd1269613d429d3e1a322a0e",
+ "fixedRevision": "0463cb8caba237de781ae02e70a2ec82ae900c67",
+ "identity": "delete-key-inert-while-decimal-pending-at-zero",
+ "authority": "authored-contract: pull request 77 widens the delete key's disabled condition in NumberPadTextView from price == 0 to price == 0 && !isEditingDecimal",
+ "memoryMeasurement": "unavailable",
+ "minimizedAction": "on Settings, Number Entry, with entry method Type 2 selected, tap the decimal key once, then tap the delete key once",
+ "neighboringLegalBehavior": "on the same affected build and the same pad, typing 5 and then tapping delete is legal behavior: the key is enabled and the amount goes from $5 to $0, so the observation does not simply report that the delete key exists",
+ "surface": "SettingsNumberEntryView hosts a live NumberPadTextView, which is the exact view the fix touches, and it needs no transaction, no category, and no account",
+ "observation": {
+  "automation": "Appium XCUITest",
+  "observable": "the enabled attribute of the delete.left.fill button and the text of the amount label",
+  "device": "iPhone 16 Pro",
+  "runtime": "iOS 26.2 (23C54)",
+  "affectedAmountAfterDecimal": "$0.",
+  "affectedDeleteEnabled": "false",
+  "affectedAmountAfterDelete": "$0.",
+  "fixedAmountAfterDecimal": "$0.",
+  "fixedDeleteEnabled": "true",
+  "fixedAmountAfterDelete": "$0"
+ },
+ "environment": {
+  "host": "darwin/arm64, macOS 26.1",
+  "xcode": "26.2 (17C52)",
+  "automation": "Appium 3.5.2 with the XCUITest driver 11.16.2",
+  "signing": "ad-hoc: CODE_SIGN_IDENTITY=-, CODE_SIGN_STYLE=Manual, DEVELOPMENT_TEAM and PROVISIONING_PROFILE_SPECIFIER blank, project entitlements retained",
+  "reset": "the application is terminated, uninstalled, and reinstalled before every run, so each run starts from a first-launch container",
+  "networkPolicy": "host network reachable during the benchmark; the corpus record drives the same oracles behind a deny-all proxy",
+  "bundleId": "com.rafaelsoh.dime"
+ },
+ "builds": {
+  "affected": {
+   "executableSha256": "sha256:2b12547aa6d429ee236eedd0649b64060333e3183f46ae37517715a633c1d033",
+   "command": "xcodebuild -project app/dime.xcodeproj -scheme dime -configuration Release -sdk iphonesimulator",
+   "result": "BUILD SUCCEEDED"
+  },
+  "fixed": {
+   "executableSha256": "sha256:bfe92a4792284c45b7ef4d33e98025dcf1e121d73e0f025e13d77a59d036b340",
+   "command": "xcodebuild -project app/dime.xcodeproj -scheme dime -configuration Release -sdk iphonesimulator",
+   "result": "BUILD SUCCEEDED"
+  }
+ },
+ "affected": [
+  {
+   "run": 1,
+   "cleanLaunch": true,
+   "exceptions": [],
+   "elapsedSeconds": 3.591,
+   "setupSeconds": 35.055,
+   "jsHeapMiB": null,
+   "sessionId": "94b6b81e-44bc-4b18-998b-bbe9b24f3f1f",
+   "identity": "delete-key-inert-while-decimal-pending-at-zero",
+   "observationReached": true,
+   "rawRecordSha256": "sha256:29d3eb0fe0a1cdeb485d4bf99901677e2a91ef6b15112568eb78f2cf09691f1c",
+   "amountBeforeDelete": "$0.",
+   "deleteEnabledBeforeTap": "false",
+   "amountAfterDelete": "$0."
+  },
+  {
+   "run": 2,
+   "cleanLaunch": true,
+   "exceptions": [],
+   "elapsedSeconds": 3.65,
+   "setupSeconds": 36.294,
+   "jsHeapMiB": null,
+   "sessionId": "6d7c9081-647b-44f3-9982-8c6ac14bba0a",
+   "identity": "delete-key-inert-while-decimal-pending-at-zero",
+   "observationReached": true,
+   "rawRecordSha256": "sha256:b8549140f44269742e8d4eeb9c862e180cbbba5ce6ce17bcb59c8b833def3b2c",
+   "amountBeforeDelete": "$0.",
+   "deleteEnabledBeforeTap": "false",
+   "amountAfterDelete": "$0."
+  },
+  {
+   "run": 3,
+   "cleanLaunch": true,
+   "exceptions": [],
+   "elapsedSeconds": 3.578,
+   "setupSeconds": 36.21,
+   "jsHeapMiB": null,
+   "sessionId": "d8d71656-adf6-4665-81f4-235039aef604",
+   "identity": "delete-key-inert-while-decimal-pending-at-zero",
+   "observationReached": true,
+   "rawRecordSha256": "sha256:7de7f45022b0ff72f194910db469bfa5e94bb652787970cd1f26d1230fe3ee9a",
+   "amountBeforeDelete": "$0.",
+   "deleteEnabledBeforeTap": "false",
+   "amountAfterDelete": "$0."
+  }
+ ],
+ "fixed": [
+  {
+   "run": 1,
+   "cleanLaunch": true,
+   "exceptions": [],
+   "elapsedSeconds": 3.538,
+   "setupSeconds": 37.27,
+   "jsHeapMiB": null,
+   "sessionId": "575766ae-8a61-4747-b703-ce154e845692",
+   "identity": null,
+   "observationReached": true,
+   "rawRecordSha256": "sha256:09ce71e9e34904519ced72c688d0a0f6232113b1e6eceff306d04687887f0e80",
+   "amountBeforeDelete": "$0.",
+   "deleteEnabledBeforeTap": "true",
+   "amountAfterDelete": "$0"
+  },
+  {
+   "run": 2,
+   "cleanLaunch": true,
+   "exceptions": [],
+   "elapsedSeconds": 3.596,
+   "setupSeconds": 33.29,
+   "jsHeapMiB": null,
+   "sessionId": "bbb30039-425a-465f-9b0d-cd98e6664861",
+   "identity": null,
+   "observationReached": true,
+   "rawRecordSha256": "sha256:e12a9815d0a43b1badce05e393edccd774c56dd9e04eb697df149e2e05fb5230",
+   "amountBeforeDelete": "$0.",
+   "deleteEnabledBeforeTap": "true",
+   "amountAfterDelete": "$0"
+  },
+  {
+   "run": 3,
+   "cleanLaunch": true,
+   "exceptions": [],
+   "elapsedSeconds": 3.558,
+   "setupSeconds": 32.888,
+   "jsHeapMiB": null,
+   "sessionId": "3b84b6c3-9550-4bc6-847a-a23c8671bd50",
+   "identity": null,
+   "observationReached": true,
+   "rawRecordSha256": "sha256:cf7f1ddf9f63c92e8891d9b802bdba2811981dc3fd643fa064008f377ee4ec53",
+   "amountBeforeDelete": "$0.",
+   "deleteEnabledBeforeTap": "true",
+   "amountAfterDelete": "$0"
+  }
+ ],
+ "neighboringControlRun": {
+  "tag": "dime-affected-neighbor",
+  "udid": "F77BFFC8-A1A0-4AF9-B883-9563456E3AB2",
+  "neighbor": true,
+  "sessionId": "bbd3e3c5-e4c3-4fd0-b7a4-f514dd655359",
+  "cleanLaunch": true,
+  "setupSeconds": 34.851,
+  "amountBeforeDelete": "$5",
+  "deleteEnabledBeforeTap": "true",
+  "amountAfterDelete": "$0",
+  "replaySeconds": 3.199,
+  "identity": null,
+  "status": "not_reproduced",
+  "observationReached": true
+ }
+}

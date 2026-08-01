@@ -1,0 +1,128 @@
+{
+ "schemaVersion": 1,
+ "target": "swiftui-ios",
+ "worker": {
+  "image": "xcode-26.2-ios-26.2-simulator:swiftui-ios-e375447407e0",
+  "platform": "ios-simulator/arm64",
+  "network": "none"
+ },
+ "cleanCases": 2,
+ "adversarialCases": 2,
+ "confirmedFalsePositives": 0,
+ "unreachedObservations": 0,
+ "containersRemaining": 0,
+ "cases": [
+  {
+   "id": "dime-fixed-decimal-clean",
+   "kind": "clean",
+   "application": "dimeApp",
+   "repository": "https://github.com/rafsoh/dimeApp",
+   "revision": "0463cb8caba237de781ae02e70a2ec82ae900c67",
+   "fixture": "validation/field/apple/swiftui_ios_corpus.py",
+   "variant": "fixed revision, first-launch container, exact defect trigger",
+   "why": "the fixed application is a clean subject driven through the exact decimal-then-delete trigger, so the delete key must be live and the amount must fall back to $0 without the oracle naming the defect",
+   "observationReached": true,
+   "identity": null,
+   "falsePositive": false,
+   "observation": {
+    "observable": "the enabled state of the delete key and the amount label",
+    "amountBeforeDelete": "$0.",
+    "deleteEnabledBeforeTap": "true",
+    "amountAfterDelete": "$0",
+    "identity": null,
+    "observationReached": true,
+    "cleanLaunch": true,
+    "network": {
+     "policy": "deny non-loopback HTTP(S) and ALL proxy at 127.0.0.1:9",
+     "proxyEnvironmentPresent": true,
+     "observedIpEndpoints": [],
+     "externalEstablishedConnections": []
+    }
+   }
+  },
+  {
+   "id": "dime-fixed-nonzero-clean",
+   "kind": "clean",
+   "application": "dimeApp",
+   "repository": "https://github.com/rafsoh/dimeApp",
+   "revision": "0463cb8caba237de781ae02e70a2ec82ae900c67",
+   "fixture": "validation/field/apple/swiftui_ios_corpus.py",
+   "variant": "fixed revision, first-launch container, an ordinary nonzero amount",
+   "why": "ordinary use of the same control on the fixed build: the amount is 5, no decimal is pending, and deleting is the plainest legal action the pad supports",
+   "observationReached": true,
+   "identity": null,
+   "falsePositive": false,
+   "observation": {
+    "observable": "the enabled state of the delete key and the amount label",
+    "amountBeforeDelete": "$5",
+    "deleteEnabledBeforeTap": "true",
+    "amountAfterDelete": "$0",
+    "identity": null,
+    "observationReached": true,
+    "cleanLaunch": true,
+    "network": {
+     "policy": "deny non-loopback HTTP(S) and ALL proxy at 127.0.0.1:9",
+     "proxyEnvironmentPresent": true,
+     "observedIpEndpoints": [],
+     "externalEstablishedConnections": []
+    }
+   }
+  },
+  {
+   "id": "dime-affected-nonzero-adversarial",
+   "kind": "adversarial",
+   "application": "dimeApp",
+   "repository": "https://github.com/rafsoh/dimeApp",
+   "revision": "c6d4fc0ad2a35591bd1269613d429d3e1a322a0e",
+   "fixture": "validation/field/apple/swiftui_ios_corpus.py",
+   "variant": "affected revision, first-launch container, a nonzero amount before the same delete tap",
+   "why": "the same defective build drives the same delete key on the same pad, so it superficially matches the defect, but with a nonzero amount the key is legally enabled and must not be classified as the inert-delete failure",
+   "observationReached": true,
+   "identity": null,
+   "falsePositive": false,
+   "observation": {
+    "observable": "the enabled state of the delete key and the amount label",
+    "amountBeforeDelete": "$5",
+    "deleteEnabledBeforeTap": "true",
+    "amountAfterDelete": "$0",
+    "identity": null,
+    "observationReached": true,
+    "cleanLaunch": true,
+    "network": {
+     "policy": "deny non-loopback HTTP(S) and ALL proxy at 127.0.0.1:9",
+     "proxyEnvironmentPresent": true,
+     "observedIpEndpoints": [],
+     "externalEstablishedConnections": []
+    }
+   }
+  },
+  {
+   "id": "dime-affected-decimal-digit-adversarial",
+   "kind": "adversarial",
+   "application": "dimeApp",
+   "repository": "https://github.com/rafsoh/dimeApp",
+   "revision": "c6d4fc0ad2a35591bd1269613d429d3e1a322a0e",
+   "fixture": "validation/field/apple/swiftui_ios_corpus.py",
+   "variant": "affected revision, first-launch container, a decimal followed by a digit before the same delete tap",
+   "why": "the sharpest adversarial subject: the defective build is in the very state the defect lives in, a decimal pending on the same key, but price is no longer zero so the disabled condition legally does not fire and the delete must be reported as ordinary behavior",
+   "observationReached": true,
+   "identity": null,
+   "falsePositive": false,
+   "observation": {
+    "observable": "the enabled state of the delete key and the amount label",
+    "amountBeforeDelete": "$0.5",
+    "deleteEnabledBeforeTap": "true",
+    "amountAfterDelete": "$0.",
+    "identity": null,
+    "observationReached": true,
+    "cleanLaunch": true,
+    "network": {
+     "policy": "deny non-loopback HTTP(S) and ALL proxy at 127.0.0.1:9",
+     "proxyEnvironmentPresent": true,
+     "observedIpEndpoints": [],
+     "externalEstablishedConnections": []
+    }
+   }
+  }
+ ]
+}

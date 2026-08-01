@@ -123,6 +123,7 @@ qualification levels.
 - Electron Linux: already satisfies every recorded qualification slot
 - Flutter iOS: already satisfies every recorded qualification slot
 - Linux Qt Widgets: already satisfies every recorded qualification slot
+- SwiftUI iOS: already satisfies every recorded qualification slot
 - Terminal UI: already satisfies every recorded qualification slot
 - Web Chromium: already satisfies every recorded qualification slot
 - Web Firefox: already satisfies every recorded qualification slot
@@ -315,8 +316,13 @@ complete target-specific record validates.
 - Field benchmark to create: `validation/field/react-native-android.json`
 - Open blockers:
   - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 3
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
+    application(s) are qualified with verified revisions. The campaign module and its container
+    entry point existed with no committed caller at all; the bounded remote field runner is now
+    committed and drives the campaign over the same zgx gateway to strix route the Android release
+    gates use, because every locally installed Android system image is arm64-v8a and this target's
+    bound is android-emulator/x86_64. What remains is four application archives, an affected and a
+    fixed APK for joplin and the same pair for MissingCore/Music; none was built in this session, so
+    the runner is committed unexercised
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
 - Promotion gate:
@@ -341,44 +347,20 @@ complete target-specific record validates.
     ```
 - Field benchmark to create: `validation/field/react-native-ios.json`
 - Open blockers:
-  - [incomplete-evidence] no application campaign has been executed. 9 candidate defects across 2
-    independent applications (BlueWallet, Joplin) are qualified with verified revisions, but neither
-    has three clean affected reproductions and three reached-observation fixed controls
+  - [incomplete-evidence] no application campaign has been executed, and the qualified pool is now
+    down to one buildable application. All five BlueWallet candidates are disqualified outright:
+    package.json pins rn-qr-generator to an exact commit of https://github.com/BlueWallet/rn-qr-
+    generator, which returns 404 upstream, so no working tree exists at any candidate revision
+    without substituting a pinned dependency. Joplin installs, resolves its pods and compiles every
+    native and application source file, but the Bundle React Native code and images phase fails
+    because Metro addresses packages/app-mobile/index.js through /tmp while its haste map holds the
+    resolved /private/tmp path; a build root outside that symlink is the only remaining input for an
+    archive. Even with Joplin building, a second independent application is required and none is
+    qualified
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
 - Promotion gate:
   - Set `react-native-ios.maturity` to `stable` only after the benchmark,
-    qualification slots, required-CI gates, and blockers validate together.
-- Qualification dependency:
-  - After Stable, run the target-specific fixture chain and then a distinct
-    independent application chain. Retain and validate both records.
-
-### SwiftUI iOS
-
-- Target id: `swiftui-ios`
-- Current maturity: Preview
-- Environment: ios-simulator; arm64
-- Runtime bound: Swift runtime, Appium XCUITest
-- Framework bound: SwiftUI
-- Native gates:
-  - `swiftui-ios`: required-ci in .github/workflows/native-gates.yml job `macos-swiftui`
-    ```sh
-    bash validation/backends/with-appium.sh bash validation/backends/with-ios-simulator.sh \
-    bash .github/scripts/appium-ios-swiftui-smoke.sh
-    ```
-- Field benchmark to create: `validation/field/swiftui-ios.json`
-- Open blockers:
-  - [incomplete-evidence] no application campaign has been executed. 10 candidate defects across 6
-    independent applications are qualified with verified revisions. Four applications have now been
-    built and driven on disposable simulators: damus and Aidoku return the fixed behavior on their
-    affected revisions on both installed runtimes and are excluded, IceCubesApp does not build under
-    the Xcode 26.2 Swift compiler, and dimeApp has a proven ad-hoc signed launch recipe but no
-    executed trigger. Both kiwix-apple candidates remain unbuilt. No application has three clean
-    affected reproductions and three reached-observation fixed controls
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
-- Promotion gate:
-  - Set `swiftui-ios.maturity` to `stable` only after the benchmark,
     qualification slots, required-CI gates, and blockers validate together.
 - Qualification dependency:
   - After Stable, run the target-specific fixture chain and then a distinct
@@ -432,7 +414,7 @@ when this plan was generated. Each row is complete only at `IndependentQualified
 | `macos-ax` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `react-native-android` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `react-native-ios` | Preview | Unqualified | Stable + `IndependentQualified` |
-| `swiftui-ios` | Preview | Unqualified | Stable + `IndependentQualified` |
+| `swiftui-ios` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `tauri-linux` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `tui` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `web-chromium` | Stable | FixtureQualified | Stable + `IndependentQualified` |

@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+# Remote half of the React Native Android field campaign runner.
+#
+# Runs on the native x86_64 host reached through the zgx gateway. It verifies
+# the uploaded source and payload, builds the pinned Android worker image, and
+# runs one bounded container with Docker network mode none and KVM exposed.
+set -u -o pipefail
+
+BASE="$1"
+MODE="$2"
+COMMIT="$3"
+ARCHIVE_SHA256="$4"
+PAYLOAD_SHA256="$5"
+APPLICATION="$6"
+RUNS="$7"
+WITH_CORPUS="$8"
+AFFECTED_SHA256="$9"
+FIXED_SHA256="${10}"
+
+OWNED='^\.cache/reproit-android-validation/reproit-rn-field-[0-9]{8}T[0-9]{6}Z-[0-9]+$'
+if [[ ! "$BASE" =~ $OWNED ]]; then
+  echo "invalid owned remote directory: $BASE" >&2
+  exit 2
+fi
+case "$APPLICATION" in
+  joplin|music) ;;
+  *)
+    echo "unsupported React Native application: $APPLICATION" >&2
+    exit 2
+    ;;
+esac
+[[ "$RUNS" =~ ^[1-3]$ ]] || {
+  echo "runs must be 1, 2, or 3" >&2
+  exit 2
+}
+[[ "$WITH_CORPUS" =~ ^[01]$ ]] || {
+  echo "corpus flag must be 0 or 1" >&2
+  exit 2
+}
+
+BASE="$HOME/$BASE"
+SOURCE="$BASE/source"
+EVIDENCE="$BASE/evidence"
+PAYLOAD="$BASE/payload"
+RESULT="$BASE/result.tar.gz"
+IMAGE=""
+RUN_CONTAINER="reproit-rn-field-run-${ARCHIVE_SHA256:0:12}-$$"
+OWNERSHIP_CONTAINER="reproit-rn-field-owner-${ARCHIVE_SHA256:0:12}-$$"
+SDK_ROOT="/home/black/reproit-validation/android-sdk"
+CACHE="/home/black/reproit-validation/cache/android-x86"
+AVD="$BASE/avd"
+OVERALL=0
+
+cleanup() {
+  docker rm -f "$RUN_CONTAINER" "$OWNERSHIP_CONTAINER" >/dev/null 2>&1 || true
+  if [[ -n "$IMAGE" ]] && docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    docker run --rm \
+      --network none \
+      --volume "$BASE:/owned:Z" \
+      "$IMAGE" \
+      rm -rf /owned/source /owned/avd /owned/payload >/dev/null 2>&1 || true
+  else
+    rm -rf "$SOURCE" "$AVD" "$PAYLOAD"
+  fi
+}
+trap cleanup EXIT INT TERM
+
+mkdir -p "$SOURCE" "$EVIDENCE" "$CACHE" "$AVD" "$PAYLOAD"
+tar -xzf "$BASE/payload.tar.gz" -C "$PAYLOAD"
+ACTUAL_ARCHIVE_SHA256="$(sha256sum "$BASE/source.tar.gz" | awk '{print $1}')"
+if [[ "$ACTUAL_ARCHIVE_SHA256" != "$ARCHIVE_SHA256" ]]; then
+  echo "uploaded source digest mismatch" >&2
+  exit 2
+fi
+ACTUAL_PAYLOAD_SHA256="$(sha256sum "$BASE/payload.tar.gz" | awk '{print $1}')"
+if [[ "$ACTUAL_PAYLOAD_SHA256" != "$PAYLOAD_SHA256" ]]; then
+  echo "uploaded payload digest mismatch" >&2
+  exit 2
+fi
+if [[ "$(sha256sum "$PAYLOAD/affected.apk" | awk '{print $1}')" != "$AFFECTED_SHA256" ]]; then
+  echo "affected application archive digest mismatch" >&2
+  exit 2
+fi
+if [[ "$(sha256sum "$PAYLOAD/fixed.apk" | awk '{print $1}')" != "$FIXED_SHA256" ]]; then
+  echo "fixed application archive digest mismatch" >&2
+  exit 2
+fi
+if [[ "$AFFECTED_SHA256" == "$FIXED_SHA256" ]]; then
+  echo "the two application archives are identical, so no pair is under test" >&2
+  exit 2
+fi
+if [[ "$APPLICATION" == music && ! -d "$PAYLOAD/fixtures" ]]; then
+  echo "the music campaign requires a fixture directory in the payload" >&2
+  exit 2
+fi
+
+DOCKERFILE_SHA256="$(
+  sha256sum "$SOURCE/validation/release/android-x86/Dockerfile" | awk '{print $1}'
+)"
+IMAGE="reproit-android-x86-${DOCKERFILE_SHA256:0:20}"
+if [[ "$(git -C "$SOURCE" rev-parse HEAD)" != "$COMMIT" ]]; then
+  echo "source commit mismatch" >&2
+  exit 2
+fi
+if [[ "$MODE" == exact && -n "$(git -C "$SOURCE" status --porcelain=v1)" ]]; then
+  echo "remote exact source is not clean" >&2
+  exit 2
+fi
+if [[ "$(uname -m)" != x86_64 ]]; then
+  echo "remote host is not native x86_64" >&2
+  exit 2
+fi
+if [[ "$(docker info --format '{{.Architecture}}/{{.OSType}}')" != x86_64/linux ]]; then
+  echo "remote Docker engine is not native x86_64 Linux" >&2
+  exit 2
+fi
+if [[ ! -c /dev/kvm ]]; then
+  echo "remote host does not expose KVM" >&2
+  exit 2
+fi
+
+python3 - "$EVIDENCE/run-metadata.json" "$MODE" "$COMMIT" "$ARCHIVE_SHA256" \
+  "$PAYLOAD_SHA256" "$APPLICATION" "$RUNS" "$AFFECTED_SHA256" "$FIXED_SHA256" <<'PY'
+import datetime
+import json
+import platform
+import socket
+import subprocess
+import sys
+
+(path, mode, commit, archive_sha256, payload_sha256, application, runs,
+ affected_sha256, fixed_sha256) = sys.argv[1:]
+metadata = {
+    "schema": 1,
+    "lane": "react-native-android-field",
+    "route": "black@zgx-5a09.local -> strix",
+    "host": socket.gethostname(),
+    "hostOs": platform.system().lower(),
+    "hostArchitecture": platform.machine().lower(),
+    "docker": subprocess.check_output(
+        ["docker", "info", "--format", "{{.Architecture}}/{{.OSType}}"],
+        text=True,
+        timeout=20,
+    ).strip(),
+    "sourceMode": mode,
+    "baseCommit": commit,
+    "sourceArchiveSha256": archive_sha256,
+    "payloadArchiveSha256": payload_sha256,
+    "application": application,
+    "runsPerRevision": int(runs),
+    "affectedApkSha256": affected_sha256,
+    "fixedApkSha256": fixed_sha256,
+    "startedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "processOwnership": "one bounded named container and one run-scoped AVD directory",
+    "readiness": "archive, payload, application pair, source, host, Docker, and KVM",
+    "reset": "new run-scoped AVD plus -wipe-data and -no-snapshot per reproduction",
+    "networkPolicy": "Docker network none for the whole campaign",
+    "cleanup": "container, emulator, ADB, Xvfb, AVD, and remote run-directory traps",
+}
+with open(path, "w", encoding="utf-8") as output:
+    json.dump(metadata, output, indent=2)
+    output.write("\n")
+PY
+
+docker build \
+  --tag "$IMAGE" \
+  --file "$SOURCE/validation/release/android-x86/Dockerfile" \
+  "$SOURCE/validation/release/android-x86" \
+  2>&1 | tee "$EVIDENCE/image-build.log" || OVERALL=1
+
+if ((OVERALL == 0)); then
+  docker image inspect "$IMAGE" --format '{{.Id}}' >"$EVIDENCE/image-id.txt"
+  DEVICE_ARGS=(--device /dev/kvm)
+  if [[ -c /dev/dri/renderD128 ]]; then
+    DEVICE_ARGS+=(--device /dev/dri/renderD128)
+  fi
+  if [[ -c /dev/dri/card1 ]]; then
+    DEVICE_ARGS+=(--device /dev/dri/card1)
+  fi
+  docker run --rm \
+    --name "$RUN_CONTAINER" \
+    --network none \
+    "${DEVICE_ARGS[@]}" \
+    --env ANDROID_AVD_HOME=/android-avd \
+    --env ANDROID_HOME=/android-sdk \
+    --env ANDROID_SDK_ROOT=/android-sdk \
+    --env REPROIT_CONTAINER_NETWORK=none \
+    --env REPROIT_FIELD_AFFECTED_APK=/payload/affected.apk \
+    --env REPROIT_FIELD_APPLICATION="$APPLICATION" \
+    --env REPROIT_FIELD_AVD_HOME=/android-avd \
+    --env REPROIT_FIELD_CLI_COMMIT="$COMMIT" \
+    --env REPROIT_FIELD_EVIDENCE=/evidence \
+    --env REPROIT_FIELD_FIXED_APK=/payload/fixed.apk \
+    --env REPROIT_FIELD_FIXTURE_DIRECTORY=/payload/fixtures \
+    --env REPROIT_FIELD_RUNS="$RUNS" \
+    --env REPROIT_FIELD_WITH_CORPUS="$WITH_CORPUS" \
+    --env REPROIT_HOST_GID="$(id -g)" \
+    --env REPROIT_HOST_UID="$(id -u)" \
+    --env REPROIT_OFFLINE=1 \
+    --env REPROIT_SOURCE_ROOT=/repo \
+    --volume "$SOURCE:/repo:Z" \
+    --volume "$EVIDENCE:/evidence:Z" \
+    --volume "$PAYLOAD:/payload:ro,Z" \
+    --volume "$SDK_ROOT:/android-sdk:ro,Z" \
+    --volume "$CACHE:/cache:Z" \
+    --volume "$AVD:/android-avd:Z" \
+    "$IMAGE" \
+    bash /repo/validation/field/android/run_react_native_android_field_driver.sh \
+    2>&1 | tee "$EVIDENCE/field-worker.log" || OVERALL=1
+  docker run --rm \
+    --name "$OWNERSHIP_CONTAINER" \
+    --network none \
+    --volume "$EVIDENCE:/owned:Z" \
+    "$IMAGE" \
+    chown -R "$(id -u):$(id -g)" /owned || OVERALL=1
+fi
+
+python3 - "$EVIDENCE/run-metadata.json" "$OVERALL" <<'PY'
+import datetime
+import json
+import sys
+
+path, status = sys.argv[1:]
+with open(path, encoding="utf-8") as source:
+    metadata = json.load(source)
+metadata["finishedAt"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+metadata["outcome"] = "passed" if status == "0" else "failed"
+with open(path, "w", encoding="utf-8") as output:
+    json.dump(metadata, output, indent=2)
+    output.write("\n")
+PY
+tar -czf "$RESULT" -C "$EVIDENCE" .
+exit "$OVERALL"

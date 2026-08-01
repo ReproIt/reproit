@@ -1,0 +1,157 @@
+{
+ "schemaVersion": 1,
+ "target": "swiftui-ios",
+ "campaign": "kiwix-ipad-no-zim-sidebar-1607",
+ "status": "campaign-complete",
+ "issue": "https://github.com/kiwix/kiwix-apple/issues/1607",
+ "pullRequest": "https://github.com/kiwix/kiwix-apple/pull/1608",
+ "affectedRevision": "f3686fe4b47b2c2f87e77145f3dd1f678cbd806f",
+ "fixedRevision": "6f4b760c12a3d7585be0993d35faec8de4a42713",
+ "identity": "ipad-sidebar-collapses-on-selection-without-zim-archive",
+ "authority": "authored-contract: pull request 1608 deletes updateColumnVisibility, which forced the split view back to detailOnly on every navigation.currentItem change while hasZimFiles was false",
+ "memoryMeasurement": "unavailable",
+ "minimizedAction": "with no ZIM archive present, tap Show Sidebar, then tap New Tab, which is the one control that changes navigation.currentItem",
+ "neighboringLegalBehavior": "on the same affected build, opening the sidebar and then selecting the Bookmarks entry leaves the sidebar open, because that path changes only the list selection and never navigation.currentItem, so the observation does not simply report that the sidebar can be hidden",
+ "surface": "SplitViewForiPad is the NavigationSplitView the fix rewrites, and the trigger needs no ZIM archive, no import, and no account",
+ "observation": {
+  "automation": "Appium XCUITest",
+  "observable": "whether the split view still exposes the Hide Sidebar control after the tab action",
+  "device": "iPad Pro 11-inch (M4)",
+  "runtime": "iOS 26.2 (23C54)",
+  "affectedAfterToggle": "shown",
+  "affectedAfterNewTab": "hidden",
+  "fixedAfterToggle": "shown",
+  "fixedAfterNewTab": "shown"
+ },
+ "environment": {
+  "host": "darwin/arm64, macOS 26.1",
+  "xcode": "26.2 (17C52)",
+  "automation": "Appium 3.5.2 with the XCUITest driver 11.16.2",
+  "signing": "ad-hoc: CODE_SIGN_IDENTITY=-, CODE_SIGN_STYLE=Manual, DEVELOPMENT_TEAM and PROVISIONING_PROFILE_SPECIFIER blank, project entitlements retained",
+  "reset": "the application is terminated, uninstalled, and reinstalled before every run, so each run starts from a first-launch container",
+  "networkPolicy": "host network reachable during the benchmark; the corpus record drives the same oracles behind a deny-all proxy",
+  "bundleId": "self.Kiwix",
+  "projectGeneration": "XcodeGen 2.46.0 over project.yml, localizations.py generate, and the libkiwix_xcframework-14.2.1-2 slice pinned by the Brewfile at both revisions"
+ },
+ "builds": {
+  "affected": {
+   "executableSha256": "sha256:f139d6980fa687c805afc3cbcfa53bc1fbd46d964d16a799d37073ad64b14f51",
+   "command": "xcodebuild -project Kiwix.xcodeproj -scheme Kiwix -configuration Release -sdk iphonesimulator",
+   "result": "BUILD SUCCEEDED"
+  },
+  "fixed": {
+   "executableSha256": "sha256:ef04a6fb49bc1d7ded665620fb52ddbe8a2f5f62f374185a06942730fde1df96",
+   "command": "xcodebuild -project Kiwix.xcodeproj -scheme Kiwix -configuration Release -sdk iphonesimulator",
+   "result": "BUILD SUCCEEDED"
+  }
+ },
+ "affected": [
+  {
+   "run": 1,
+   "cleanLaunch": true,
+   "exceptions": [],
+   "elapsedSeconds": 11.478,
+   "setupSeconds": 22.237,
+   "jsHeapMiB": null,
+   "sessionId": "39762b5a-48a5-4f7f-af2c-875cba13f2f9",
+   "identity": "ipad-sidebar-collapses-on-selection-without-zim-archive",
+   "observationReached": true,
+   "rawRecordSha256": "sha256:6806f4ee41c0f5f72bcf15148c36c0736226b67e929af95400b7ca594cbba626",
+   "stateAtLaunch": "hidden",
+   "stateAfterToggle": "shown",
+   "stateAfterSelection": "hidden"
+  },
+  {
+   "run": 2,
+   "cleanLaunch": true,
+   "exceptions": [],
+   "elapsedSeconds": 11.654,
+   "setupSeconds": 33.109,
+   "jsHeapMiB": null,
+   "sessionId": "cc2f2fc9-09e1-4e7f-ba59-81ed10dde178",
+   "identity": "ipad-sidebar-collapses-on-selection-without-zim-archive",
+   "observationReached": true,
+   "rawRecordSha256": "sha256:b027e5ef998192be2cdaf104cc99de987dd04ebe428fd3ad331a6ddb335f4c90",
+   "stateAtLaunch": "hidden",
+   "stateAfterToggle": "shown",
+   "stateAfterSelection": "hidden"
+  },
+  {
+   "run": 3,
+   "cleanLaunch": true,
+   "exceptions": [],
+   "elapsedSeconds": 11.521,
+   "setupSeconds": 27.497,
+   "jsHeapMiB": null,
+   "sessionId": "54f56fea-62ea-4a78-9ca3-792a41b83ad5",
+   "identity": "ipad-sidebar-collapses-on-selection-without-zim-archive",
+   "observationReached": true,
+   "rawRecordSha256": "sha256:2a7b1f7ca9d92040ec2428a1604c0943ff8a3c179ab047efa622ce8821f946b0",
+   "stateAtLaunch": "hidden",
+   "stateAfterToggle": "shown",
+   "stateAfterSelection": "hidden"
+  }
+ ],
+ "fixed": [
+  {
+   "run": 1,
+   "cleanLaunch": true,
+   "exceptions": [],
+   "elapsedSeconds": 11.382,
+   "setupSeconds": 18.926,
+   "jsHeapMiB": null,
+   "sessionId": "92ca35b7-97c7-41af-951d-b7ccd0829fae",
+   "identity": null,
+   "observationReached": true,
+   "rawRecordSha256": "sha256:094cb68e34cc27d4b63960e3c0ff723cc80038ab11861b7f85d265f0587b4d4d",
+   "stateAtLaunch": "hidden",
+   "stateAfterToggle": "shown",
+   "stateAfterSelection": "shown"
+  },
+  {
+   "run": 2,
+   "cleanLaunch": true,
+   "exceptions": [],
+   "elapsedSeconds": 11.691,
+   "setupSeconds": 29.989,
+   "jsHeapMiB": null,
+   "sessionId": "2bd33c5b-689f-4c87-9dc4-012e637ee87b",
+   "identity": null,
+   "observationReached": true,
+   "rawRecordSha256": "sha256:0722916475660b633076f37ec4c6751d7334f3c780da6c7aac83989e6d1a67f8",
+   "stateAtLaunch": "hidden",
+   "stateAfterToggle": "shown",
+   "stateAfterSelection": "shown"
+  },
+  {
+   "run": 3,
+   "cleanLaunch": true,
+   "exceptions": [],
+   "elapsedSeconds": 11.481,
+   "setupSeconds": 31.86,
+   "jsHeapMiB": null,
+   "sessionId": "f5ff68e2-7be7-4a17-b636-d6e4a9925ed6",
+   "identity": null,
+   "observationReached": true,
+   "rawRecordSha256": "sha256:15d7b113ab77d60c9645328f897175c602bcb62be628f8d3e60869791bc32dbb",
+   "stateAtLaunch": "hidden",
+   "stateAfterToggle": "shown",
+   "stateAfterSelection": "shown"
+  }
+ ],
+ "neighboringControlRun": {
+  "tag": "kiwix-affected-neighbor",
+  "udid": "303C7CC5-7619-4824-9B3F-E7F3B1009147",
+  "neighbor": true,
+  "sessionId": "5a6124a1-7eb6-4c30-b5e6-14265f47e622",
+  "stateAtLaunch": "hidden",
+  "cleanLaunch": true,
+  "setupSeconds": 18.844,
+  "stateAfterToggle": "shown",
+  "stateAfterSelection": "shown",
+  "replaySeconds": 9.831,
+  "identity": null,
+  "status": "not_reproduced",
+  "observationReached": true
+ }
+}

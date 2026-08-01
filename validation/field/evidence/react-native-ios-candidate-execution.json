@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "target": "react-native-ios",
+  "gate": "S3-candidate-execution",
+  "status": "candidates-executed-none-qualified",
+  "recordedAt": "2026-08-01T10:20:00Z",
+  "runtime": {
+    "host": "darwin/arm64, macOS 26.1",
+    "xcode": "26.2 (17C52)",
+    "node": "26.5.0",
+    "cocoapods": "present on PATH",
+    "simulatorRuntimes": [
+      "com.apple.CoreSimulator.SimRuntime.iOS-26-2 (23C54)",
+      "com.apple.CoreSimulator.SimRuntime.iOS-18-5 (22F77)"
+    ]
+  },
+  "summary": "Both qualified applications were attempted for the first time. BlueWallet cannot be materialized at any of its five candidate revisions, and Joplin installs and compiles but its React Native bundling phase fails, so neither application produced an affected observation and the target stays Preview.",
+  "candidates": [
+    {
+      "id": "bluewallet-uppercase-bech32-7888",
+      "application": "BlueWallet",
+      "repository": "https://github.com/BlueWallet/BlueWallet",
+      "affectedRevision": "2dfb59e3814059126aba5655e97a3962aa28177c",
+      "fixedRevision": "b6270394d788913ddcc3416ad9139e54443aed53",
+      "buildOutcome": "cannot be materialized: npm install fails resolving the pinned dependency rn-qr-generator",
+      "buildRecipe": "git clone, git checkout, npm install --legacy-peer-deps, then pod install",
+      "dependencyDetail": "package.json pins rn-qr-generator to https://github.com/BlueWallet/rn-qr-generator.git#731ed8eb445f65f3a659632232e18ff7e1ce56d6 and package-lock.json resolves the same pin over git+ssh. That repository no longer exists: both https://github.com/BlueWallet/rn-qr-generator and https://api.github.com/repos/BlueWallet/rn-qr-generator return 404. Rewriting ssh to https for the process only, so the user's global git config was untouched, changed the failure from a public-key denial to the repository being absent, which is the real state.",
+      "triggerExecuted": false,
+      "verdict": "disqualified-unmaterializable",
+      "verdictDetail": "no BlueWallet working tree can be produced at any candidate revision without substituting a dependency the application pins by exact commit, which would change the subject under test"
+    },
+    {
+      "id": "bluewallet-slip39-threshold-6417",
+      "application": "BlueWallet",
+      "repository": "https://github.com/BlueWallet/BlueWallet",
+      "affectedRevision": "69f4225595fdd422f285f6bbdfef9d9e6f4d31e0",
+      "fixedRevision": "e0f553a3a8e1a89d111c8c9e11d15bdb3a9ec475",
+      "triggerExecuted": false,
+      "verdict": "disqualified-unmaterializable",
+      "verdictDetail": "same missing rn-qr-generator pin; the dependency is in package.json across the whole candidate range"
+    },
+    {
+      "id": "bluewallet-offline-import-7099",
+      "application": "BlueWallet",
+      "repository": "https://github.com/BlueWallet/BlueWallet",
+      "affectedRevision": "a23d1a9398a83e1ab38744dc74e0b2df0a9ac243",
+      "fixedRevision": "219130a5e8e885430b4ab2b88281275fd63c7e76",
+      "triggerExecuted": false,
+      "verdict": "disqualified-unmaterializable",
+      "verdictDetail": "same missing rn-qr-generator pin"
+    },
+    {
+      "id": "bluewallet-delete-second-wallet-7839",
+      "application": "BlueWallet",
+      "repository": "https://github.com/BlueWallet/BlueWallet",
+      "affectedRevision": "5c80b856786e33eb0a601a3abaa43fb700c78919",
+      "fixedRevision": "932ea28389089aa72af63acf6683d0d1dbb431d0",
+      "triggerExecuted": false,
+      "verdict": "disqualified-unmaterializable",
+      "verdictDetail": "same missing rn-qr-generator pin"
+    },
+    {
+      "id": "bluewallet-qr-rounded-corners-8627",
+      "application": "BlueWallet",
+      "repository": "https://github.com/BlueWallet/BlueWallet",
+      "affectedRevision": "926a863d27831f8f80d75ac2638959526120c63c",
+      "fixedRevision": "a4e224ec96552750bdbc0e074c08f9e8c5d8f4bd",
+      "triggerExecuted": false,
+      "verdict": "disqualified-unmaterializable",
+      "verdictDetail": "same missing rn-qr-generator pin"
+    },
+    {
+      "id": "joplin-note-row-touch-target-15972",
+      "application": "Joplin",
+      "repository": "https://github.com/laurent22/joplin",
+      "affectedRevision": "7d90db0bf68c7ea2803227f9e6277bb3cf697fb3",
+      "fixedRevision": "2fa45a5a05daa597d52b73fce120e9242a6c6860",
+      "buildOutcome": "the workspace installs, pod install completes, and every native pod and application source file compiles; the build fails in the Bundle React Native code and images phase",
+      "buildRecipe": "git clone, git checkout, yarn install --inline-builds, pod install --repo-update in packages/app-mobile/ios, then xcodebuild -workspace Joplin.xcworkspace -scheme Joplin -configuration Release -sdk iphonesimulator with ad-hoc signing and the team blanked",
+      "bundlingFailure": "metro DependencyGraph.getOrComputeSha1 raises Failed to get the SHA-1 for packages/app-mobile/index.js. The phase script addresses the entry file through /tmp while Metro's haste map holds the resolved /private/tmp path, so the entry file is not in the watched set. The working tree was under the /tmp symlink; the remaining input is a build root that is not reached through a symlink.",
+      "triggerExecuted": false,
+      "verdict": "unexecuted-bundling-failure",
+      "verdictDetail": "no application archive exists at either revision, so the note-row hit-area observable was never read"
+    }
+  ],
+  "missingInput": "two independent React Native applications that can be built for an iOS simulator on this toolchain. BlueWallet is excluded outright at every candidate revision because a pinned dependency repository has been deleted upstream. Joplin needs one thing only: a build root outside the /tmp symlink so Metro's entry-file path matches its haste map. Even with Joplin building, the target needs a second independent application, and the qualified pool contains none."
+}
