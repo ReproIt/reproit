@@ -251,7 +251,7 @@
     {
       "code": "incomplete-evidence",
       "kind": "build-input-missing",
-      "detail": "one APK pair now exists: LocalSend at the affected revision 3ec2d77875fc31dab21548ae4966ca693e8b2733 builds in both profile and release mode with Flutter 3.35.6, so the build recipe is proven. No fixed-revision build, no gopeed build, and no scenario has been executed, so every selectedDefects entry stays 'selected-not-executed'. Note that scripts/remove_proprietary_dependencies.sh needs GNU sed: run under BSD sed it deletes purchase_provider.dart without commenting out its call sites and the build fails with undefined-name errors that look like a Flutter version problem",
+      "detail": "both LocalSend profile APKs exist at the verified revisions on the x86_64 executor (affected 15d50ed5..., fixed c093cebac...), so the build input is closed for the first application. What remains is the campaign runner on that executor and a scenario whose observable the profile channel can actually show: the profile VM service registers 26 extension RPCs including debugDumpApp, debugDumpRenderTree and the semantics dumps, has no widget inspector, and refuses evaluate with 'Debugger is disabled in AOT mode'. gopeed is untouched",
       "command": null,
       "evidence": [
         "validation/field/evidence/flutter-android-vm-service-profile-vs-release.md"
@@ -260,9 +260,10 @@
     {
       "code": "environment-unreachable",
       "kind": "architecture-bound-unmet",
-      "detail": "the target's arch bound is x86_64, derived from the flutter-android native gate, but every Android system image installed on this host is arm64-v8a (android-30, android-34, android-36, android-37.0, all google_apis*/arm64-v8a). The measurement above therefore ran on arm64-v8a, which is correct for the build-mode question and not sufficient for a campaign that has to satisfy the declared architecture",
+      "detail": "RESOLVED as a route, not as a restatement. The macOS campaign host has only arm64-v8a images, so the x86_64 bound is met on the lane's own executor: black@zgx-5a09.local then strix, native x86_64 with KVM. Both LocalSend revisions build profile APKs for android-x64 inside the lane worker image, and the lane's AVD recipe boots an x86_64 API 36 emulator there. Two traps were fixed on the way: the Gradle build needs ndk;27.0.12077973, which was installed into the lane SDK, and cargokit expects rustup under $HOME/.cargo while the image keeps it in /usr/local",
       "command": "ls ~/Library/Android/sdk/system-images/*/*/",
       "evidence": [
+        "validation/field/evidence/flutter-android-vm-service-profile-vs-release.json",
         "validation/field/evidence/flutter-android-vm-service-profile-vs-release.md"
       ]
     }

@@ -10,21 +10,21 @@
       "cleanLaunch": true,
       "exceptions": [],
       "jsHeapMiB": null,
-      "elapsedSeconds": 16.674
+      "elapsedSeconds": 16.712
     },
     {
       "run": 2,
       "cleanLaunch": true,
       "exceptions": [],
       "jsHeapMiB": null,
-      "elapsedSeconds": 19.432
+      "elapsedSeconds": 16.627
     },
     {
       "run": 3,
       "cleanLaunch": true,
       "exceptions": [],
       "jsHeapMiB": null,
-      "elapsedSeconds": 16.511
+      "elapsedSeconds": 16.585
     }
   ],
   "fixed": [
@@ -33,21 +33,21 @@
       "cleanLaunch": true,
       "exceptions": [],
       "jsHeapMiB": null,
-      "elapsedSeconds": 16.549
+      "elapsedSeconds": 16.371
     },
     {
       "run": 2,
       "cleanLaunch": true,
       "exceptions": [],
       "jsHeapMiB": null,
-      "elapsedSeconds": 16.596
+      "elapsedSeconds": 16.664
     },
     {
       "run": 3,
       "cleanLaunch": true,
       "exceptions": [],
       "jsHeapMiB": null,
-      "elapsedSeconds": 16.789
+      "elapsedSeconds": 16.301
     }
   ],
   "neighboringLegalBehavior": "the same pointer press on a preset reached without the search still selects it",

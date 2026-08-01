@@ -69,8 +69,9 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 
 - Maturity: Preview
 - Scope: Flutter profile-mode builds on a reset Android emulator. A release APK is AOT compiled with
-  no Dart VM service, which was measured rather than assumed, so it carries no observation channel
-  and is out of scope
+  no Dart VM service, and a profile APK exposes the service for tree dumps and IO profiles but
+  neither expression evaluation nor the widget inspector. Both facts were measured rather than
+  assumed
 - Promotion standard: schema-3
 - Native gates: flutter-android
 - Field benchmark: incomplete
@@ -78,7 +79,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Production-to-local evidence: none
 - Operating systems: android-emulator
 - Architectures: x86_64
-- Runtimes: Dart VM service (profile-mode build), flutter drive
+- Runtimes: Dart VM service (profile-mode build, dump and profile RPCs only), flutter drive
 - Frameworks: Flutter
 - Qualifications:
   - cleanCorpus: missing
@@ -86,16 +87,19 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 2
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
+  - [incomplete-evidence] no application campaign has been executed. Both revisions of LocalSend now
+    build profile APKs on the x86_64 executor and the profile observation channel is measured, but
+    no scenario, no three affected reproductions and no three fixed controls exist. The scenario
+    must observe through a tree dump or an IO profile: the profile build registers 26 extension RPCs
+    including debugDumpApp, debugDumpRenderTree and the semantics dumps, exposes no widget
+    inspector, and refuses evaluate with 'Debugger is disabled in AOT mode'
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
-  - [environment-unreachable] the arch bound is x86_64 because the flutter-android native gate
-    declares x86_64, but every Android system image installed on the campaign host is arm64-v8a, so
-    an application campaign run here cannot satisfy the declared architecture. Either install an
-    x86_64 API 36 image and campaign on it, or run the campaign on the same x86_64 executor the gate
-    uses
+  - [environment-unreachable] the campaign host has no x86_64 Android system image, so the arch
+    bound is satisfied only on the lane's own x86_64 executor (black@zgx-5a09.local then strix).
+    That executor is now proven for this target: both LocalSend revisions build profile APKs for
+    android-x64 there and the lane's AVD recipe boots an x86_64 API 36 emulator inside the worker
+    image. What is not yet built there is the campaign runner itself, so no scenario has run
 
 ## Flutter iOS
 
@@ -360,19 +364,20 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Runtimes: WebKitGTK, tauri-driver
 - Frameworks: Tauri
 - Qualifications:
-  - cleanCorpus: missing
-  - adversarialCorpus: missing
+  - cleanCorpus: evidence
+  - adversarialCorpus: evidence
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
   - [incomplete-evidence] one of the two required independent application campaigns is executed. cc-
     switch issue 4302 has three clean affected reproductions on one identity, three reached-
-    observation fixed controls, a minimized trigger, and both controls. The second application is
-    missing: readest needs a pnpm 11 workspace build with setup-vendors and a dotenv-driven Next.js
-    export before its Tauri artifact resolves offline, and note-gen cannot be used with this harness
-    because its selected defect observes a GTK file chooser rather than the webview DOM
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
+    observation fixed controls, a minimized trigger, and both controls, and the clean and
+    adversarial corpus now measures the oracle on known-good subjects. The second application is
+    missing for a measured reason, not an untried one: this probe observes only the WebKitGTK
+    webview DOM, and readest and note-gen both need a native GTK window, readest to seed a library
+    and note-gen to observe a file chooser. readest builds in the worker and its argv path was
+    measured to open books transiently without importing them, so its library cannot be seeded
+    through this channel
 
 ## Terminal UI
 

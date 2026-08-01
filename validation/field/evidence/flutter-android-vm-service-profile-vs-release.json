@@ -60,5 +60,45 @@
     "reproit-lab/.work/flutter-campaign/measure-release.txt",
     "reproit-lab/.work/flutter-campaign/build-affected-profile.log",
     "reproit-lab/.work/flutter-campaign/build-affected-release.log"
-  ]
+  ],
+  "x86_64Round": {
+    "executor": "black@zgx-5a09.local -> strix, native x86_64 with KVM, inside the lane worker image reproit-android-x86-07cae9bc60e8a40263ee",
+    "avd": "created per run with avdmanager from system-images;android-36;google_apis;x86_64, device pixel_6, booted with -wipe-data -no-snapshot -no-window -gpu host -feature -Vulkan",
+    "abi": "x86_64",
+    "builds": [
+      {
+        "revision": "3ec2d77875fc31dab21548ae4966ca693e8b2733",
+        "role": "affected",
+        "mode": "profile",
+        "targetPlatform": "android-x64",
+        "apkSha256": "15d50ed57cf714b4fcaa123bd62b13c657934ff00f510d555d6819f638ec6e6e"
+      },
+      {
+        "revision": "9e4a5985b5fd1377f7c4c1fa9127a00b8fc9abff",
+        "role": "fixed",
+        "mode": "profile",
+        "targetPlatform": "android-x64",
+        "apkSha256": "c093cebaccf080849953516b658baa32c7e883f3ae7ca589111cbfa8f020dfbc"
+      }
+    ],
+    "buildTraps": [
+      "the Gradle build requires ndk;27.0.12077973; the lane SDK carried only 28.2.13676358 and the missing NDK was installed",
+      "cargokit resolves rustup under $HOME/.cargo while the worker image keeps the toolchain in /usr/local, which fails as 'rustup is not installed at /root/.cargo'"
+    ],
+    "serviceProbe": {
+      "vmVersion": "3.9.2 (stable) on android_x64",
+      "isolates": 6,
+      "extensionCount": 26,
+      "hasInspector": false,
+      "evaluate": "refused: error 113 Expression compilation error, 'Debugger is disabled in AOT mode.'",
+      "usableObservables": [
+        "ext.flutter.debugDumpApp",
+        "ext.flutter.debugDumpRenderTree",
+        "ext.flutter.debugDumpSemanticsTreeInTraversalOrder",
+        "ext.dart.io.getHttpProfile",
+        "ext.dart.io.getSocketProfile"
+      ]
+    },
+    "conclusion": "on the declared x86_64 architecture the profile build exposes a dump-and-profile observation channel, not an evaluate-and-inspect one. A scenario must state an observable a tree dump or an IO profile can show"
+  }
 }

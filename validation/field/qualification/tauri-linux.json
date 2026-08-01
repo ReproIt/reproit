@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "tauri-linux",
   "gate": "S2-candidate-qualification",
-  "status": "one-of-two-application-campaigns-executed",
+  "status": "one-of-two-application-campaigns-executed-second-blocked-on-a-native-window-channel",
   "declaredBounds": {
     "os": "linux",
     "arch": "x86_64"
@@ -165,7 +165,7 @@
       "affectedRevision": "54ad2e9166c54fa3a4956961bb4991fc2bbc22d2",
       "fixedRevision": "09548d998f16be10315d988176a2e7acddce3473",
       "whySuitable": "the fixed select-mode action bar overlays the bottom of the shelf because the virtualised list reserves a constant 34px footer regardless of the bar's real height, so the last book row sits underneath it. That makes the trigger a hit test rather than a state assertion: a click has to be delivered at the last row's real window coordinates through the WebKitGTK webview, and on the affected build the action bar receives it instead of the book. Dispatching a synthetic DOM click on the row element would hit the row and would not reproduce, which is exactly the distinction the Tauri adapter exists to make. The observable is the selected-count in the action bar, which does not increment on the affected build",
-      "qualification": "selected-not-executed",
+      "qualification": "disqualified-for-this-harness",
       "toolkitEvidence": {
         "file": "apps/readest-app/src-tauri/Cargo.toml at 54ad2e9166c54fa3a4956961bb4991fc2bbc22d2",
         "proof": "tauri = { version = \"2\", features = [ \"protocol-asset\" ] }"
@@ -175,7 +175,9 @@
         "seed a deterministic library of enough local epub files that the last row falls under the action bar at the worker's fixed window size",
         "pin the window geometry, because the defect depends on the last row being within the bar's height of the viewport bottom",
         "prove the neighbouring legal behaviour: selecting a non-last book with the same click path succeeds on the affected build"
-      ]
+      ],
+      "disqualification": "this probe observes only the WebKitGTK webview DOM. note-gen's selected defect observes a GTK file chooser, and every readest selection needs a seeded library, which only a native chooser can produce: readest's argv path was measured to open books transiently without importing them, on the fixed build and again on a second launch",
+      "disqualificationEvidence": "validation/field/evidence/tauri-linux-second-application-seeding.md"
     },
     {
       "id": "readest-deleted-highlight-4779",
@@ -186,7 +188,7 @@
       "affectedRevision": "cecb1c53126280009a95d3ce04b24062eaec7b5b",
       "fixedRevision": "0589cb4f4aa8c0578fb41b870ed7f06f36ae0bb4",
       "whySuitable": "the annotation index is memoized, so a highlight deleted in place still sits in its section bucket and is re-drawn as an orphaned overlay on the next render pass. Reproducing it needs a real text selection inside the foliate iframe, that is a press, drag, and release across glyph coordinates in the rendered book view rather than a programmatic Range, then the popup's highlight and delete actions in quick succession. The overlay is drawn by the reader, not by the DOM the host controls, so the observable is a rendered annotation overlay that persists after deletion. This exercises the Tauri adapter's pointer-drag path and its ability to observe inside a nested browsing context",
-      "qualification": "selected-not-executed",
+      "qualification": "disqualified-for-this-harness",
       "toolkitEvidence": {
         "file": "apps/readest-app/src-tauri/Cargo.toml at cecb1c53126280009a95d3ce04b24062eaec7b5b",
         "proof": "tauri = { version = \"2\", features = [ \"protocol-asset\" ] }"
@@ -196,7 +198,9 @@
         "seed a fixed epub and a fixed reading position so the same glyph range is selectable every run",
         "establish that the delete must land before the index is rebuilt, and decide whether that ordering is deterministic enough for a three-run reproduction or whether it needs an explicit wait",
         "confirm the orphaned overlay is observable without instrumenting the application, otherwise record the observation method as a corpus property"
-      ]
+      ],
+      "disqualification": "this probe observes only the WebKitGTK webview DOM. note-gen's selected defect observes a GTK file chooser, and every readest selection needs a seeded library, which only a native chooser can produce: readest's argv path was measured to open books transiently without importing them, on the fixed build and again on a second launch",
+      "disqualificationEvidence": "validation/field/evidence/tauri-linux-second-application-seeding.md"
     },
     {
       "id": "readest-stale-nav-cache-5311",
@@ -207,7 +211,7 @@
       "affectedRevision": "5e2836b0839e60aab841c6a38a7e70e2accb7b4d",
       "fixedRevision": "79b75e17dd155360be0cd4d6b105d673b8a997c7",
       "whySuitable": "a persisted nav cache written by an older build stores the ampersand chapter's TOC href percent-encoded, which no longer resolves against the decoded manifest, so clicking that TOC entry silently does nothing. The fix bumps BOOK_NAV_VERSION so the stale cache is recomputed. This is a persisted-state defect across an application lifecycle rather than an input path, which makes it complementary to the other two readest selections: it exercises the Tauri adapter's ownership of the application data directory between launches, and the observable is the reader's section indicator failing to change after a real click on a TOC row",
-      "qualification": "selected-not-executed",
+      "qualification": "disqualified-for-this-harness",
       "toolkitEvidence": {
         "file": "apps/readest-app/src-tauri/Cargo.toml at 5e2836b0839e60aab841c6a38a7e70e2accb7b4d",
         "proof": "tauri = { version = \"2\", features = [ \"protocol-asset\" ] }"
@@ -217,7 +221,9 @@
         "author an epub containing a chapter whose href carries a reserved character, and confirm the encoded form is what the affected build persists",
         "produce the pre-fix cache honestly: open the book once on the affected build to write the version 3 cache, then relaunch, rather than hand-writing a cache file",
         "decide whether the fixed control needs the same seeded stale cache, since the fix is precisely the invalidation of it"
-      ]
+      ],
+      "disqualification": "this probe observes only the WebKitGTK webview DOM. note-gen's selected defect observes a GTK file chooser, and every readest selection needs a seeded library, which only a native chooser can produce: readest's argv path was measured to open books transiently without importing them, on the fixed build and again on a second launch",
+      "disqualificationEvidence": "validation/field/evidence/tauri-linux-second-application-seeding.md"
     },
     {
       "id": "cc-switch-preset-click-4315",
@@ -239,7 +245,10 @@
         "affected": "three runs, each reaching observation with an empty provider name and identity preset-search:result-not-selected-by-pointer",
         "fixed": "three runs, each reaching observation with provider name Kimi, the search still open, and no identity",
         "control": "on the affected build after the trigger, the same pointer press on the Kimi For Coding preset with the search closed sets the provider name, so the harness can select a preset and only the search path is broken",
-        "containment": "the worker runs with HOME redirected to /tmp/home inside the container and with --network none, so no real ~/.claude or ~/.codex is reachable"
+        "containment": "the worker runs with HOME redirected to /tmp/home inside the container and with --network none, so no real ~/.claude or ~/.codex is reachable",
+        "oracle": "the identity requires BOTH an empty provider name and an unselected pressed preset. Keying on the name alone was a false positive waiting to happen: the Custom Configuration preset legitimately leaves the name empty, which the adversarial corpus now exercises on the fixed build",
+        "corpus": "validation/field/corpus/tauri-linux.json",
+        "worker": "reproit-field-tauri-linux:amd64, rebuilt on Rust 1.90; the campaign was re-run end to end after the oracle was tightened so the retained runs and the shipped probe agree"
       },
       "remaining": []
     },
@@ -252,7 +261,7 @@
       "affectedRevision": "844b0195472c933de9dcedbf01633cbc250f5913",
       "fixedRevision": "52b6e1b5a6a998e77025796fb14633d470ed36c7",
       "whySuitable": "the export handler passes a hardcoded defaultPath of \"123.<ext>\" to the Tauri dialog plugin's save(), so the native save dialog opens pre-filled with the filename 123 instead of one derived from the note's heading. The fix derives the name from the markdown content. This is the only selected defect whose observable lives outside the webview entirely: the filename entry belongs to a GTK file chooser window that Tauri opened, not to any DOM. It therefore exercises the part of the Tauri adapter that has to follow the process out of the webview and observe a separate native window, which no webview-only harness can do",
-      "qualification": "selected-not-executed",
+      "qualification": "disqualified-for-this-harness",
       "toolkitEvidence": {
         "file": "src-tauri/Cargo.toml at 844b0195472c933de9dcedbf01633cbc250f5913",
         "proof": "tauri = { version = \"2\", features = [ \"protocol-asset\", \"image-png\", \"devtools\"] }"
@@ -263,7 +272,9 @@
         "seed a note whose first line is a markdown heading so the fixed build has a distinct expected filename",
         "reach the export menu without configuring any AI provider or sync target, keeping the run offline",
         "decide whether to observe the dialog's filename entry through AT-SPI or to accept the written file's name as the observable, and record which"
-      ]
+      ],
+      "disqualification": "this probe observes only the WebKitGTK webview DOM. note-gen's selected defect observes a GTK file chooser, and every readest selection needs a seeded library, which only a native chooser can produce: readest's argv path was measured to open books transiently without importing them, on the fixed build and again on a second launch",
+      "disqualificationEvidence": "validation/field/evidence/tauri-linux-second-application-seeding.md"
     }
   ],
   "blockers": [
@@ -275,8 +286,11 @@
     {
       "code": "incomplete-evidence",
       "kind": "second-application-missing",
-      "detail": "one of the two required independent applications is executed. The second is not. readest is the intended one and its build recipe is heavier than cc-switch's: a pnpm 11 workspace, a Next.js static export driven through dotenv -e .env.tauri, and a setup-vendors step that copies pdfjs, simplecc, and jieba into public/vendor before the Tauri build can produce an offline-resolvable frontend. note-gen is not usable with this harness at all: its selected defect observes a GTK file chooser window, and the Tauri probe observes through the WebDriver DOM channel, which cannot see a native window",
-      "command": "pnpm install && pnpm --filter @readest/readest-app setup-vendors && pnpm tauri build --debug --no-bundle"
+      "detail": "one of the two required independent applications is executed. The second is blocked on a measured harness limit rather than on effort: readest builds in the worker (the recipe is committed as stage-readest.sh and the binary was produced at the fixed revision), but its library can only be seeded through a native GTK chooser, and note-gen's defect is observed in one. The smallest unblocking change is a second observation channel for native windows, which the worker's at-spi2-core already makes possible and which must be proven on a fixture first",
+      "command": "node validation/field/tauri-linux/campaign.mjs <application-id>",
+      "evidence": [
+        "validation/field/evidence/tauri-linux-second-application-seeding.md"
+      ]
     },
     {
       "code": "resolved-by-evidence",

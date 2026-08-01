@@ -58,8 +58,8 @@
       ],
       "manualReview": "confirmed-target-bug",
       "metrics": {
-        "setupSeconds": 942,
-        "replaySecondsP95": 19.432,
+        "setupSeconds": 880,
+        "replaySecondsP95": 16.712,
         "peakMemoryMiB": null,
         "memoryMeasurement": "unavailable"
       },
