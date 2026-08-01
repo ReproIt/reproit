@@ -502,6 +502,26 @@ Restoring makes those equal again, which is the same condition that draws the
 floating save button, so the save button goes away with it and the only way off
 the screen is back. That is what the subject does.
 
+### The runner could not ship the checkout it was started from
+
+The first attempt to run the notesnook benchmark never reached the worker. The
+host half packed `.git` alongside the tracked files, which is a directory in an
+ordinary checkout and a FILE naming an absolute path in a linked git worktree,
+so the worker unpacked a pointer to a path that does not exist on it and its
+first command answered `fatal: not a git repository: (null)`, followed by
+`source commit mismatch`. Every campaign started from a worktree, which is how
+this repository is worked in, would have stopped there.
+
+A depth-1 clone fixes the shape but not the size: this repository's history is
+about 800 MiB against a 512 MiB archive bound, and `git clone` from this
+checkout did not finish inside ten minutes on the development Mac in any case.
+What the runner stages instead is a one-commit repository: the objects
+`git rev-list --objects --no-walk HEAD` names, packed, a `shallow` marker, a
+ref at the commit, and the files. The worker's own checks then mean more than
+they did, not less. index-pack verifies those objects against the commit, and
+the emptiness of `git status` proves the files it received really are that
+commit's tree rather than merely being labelled with its number.
+
 A one-run smoke of the committed campaign module, driven through Appium inside
 the pinned worker image with a recreated `pixel_6` AVD per observation, was run
 before the benchmark: affected reproduced

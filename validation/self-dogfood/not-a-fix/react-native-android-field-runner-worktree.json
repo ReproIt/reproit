@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "react-native-android-field-runner-worktree",
+  "changeType": "tooling",
+  "detail": "The react-native-android field runner could not ship the checkout it was started from. Its host half packed .git alongside the tracked files, which is a directory in an ordinary checkout and a file naming an absolute path in a linked git worktree, so the worker unpacked a pointer to a path that does not exist on it, answered fatal: not a git repository (null), and refused the run with source commit mismatch. This was found by running it: the first attempt at the notesnook benchmark never reached the worker at all, and every campaign started from a worktree would have stopped in the same place. A depth-1 clone fixes the shape but not the size, because this repository's history is about 800 MiB against the runner's own 512 MiB archive bound, and git clone from this checkout did not finish inside ten minutes on the development Mac in any case. The runner now stages a one-commit repository instead: the objects git rev-list --objects --no-walk HEAD names, packed, a shallow marker, a ref at the commit, the files for the requested mode, and an index read from the commit's tree. The worker's checks then assert more than they did before rather than less, because index-pack verifies those objects against the commit and the emptiness of git status proves the files it received are that commit's tree rather than merely being labelled with its number. The host half also verifies both of those before it uploads anything.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/react-native-android-field-runner.md",
+      "sha256": "sha256:422bb4937d484f1268f92f2dd08728f2e112ee831c85be6e44af94b0b2a172a9"
+    }
+  ]
+}

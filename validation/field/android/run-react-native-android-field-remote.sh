@@ -171,11 +171,46 @@ cleanup() {
 }
 trap cleanup EXIT
 
-git -C "$ROOT" ls-files -co --exclude-standard -z >"$WORK/files"
+# The worker verifies the commit and, in exact mode, the cleanliness of what it
+# received, so the archive has to carry a working repository and not only the
+# files. Packing this checkout's own .git cannot do that from a linked git
+# worktree, where .git is a FILE naming an absolute path that does not exist on
+# the worker, and the worker's first act is then "fatal: not a git repository".
+# A depth-1 clone would fix the shape but not the size: this repository's
+# history is over 512 MiB, which is the archive bound.
+#
+# What is staged instead is a one-commit repository holding exactly the objects
+# HEAD names. index-pack verifies those objects against the commit on the
+# worker, and the emptiness of `git status` there proves the files it received
+# are that commit's tree, which is what the mode was ever asserting.
+STAGE="$WORK/source"
+mkdir -p "$STAGE"
+git -C "$STAGE" init --quiet
+mkdir -p "$STAGE/.git/objects/pack"
+git -C "$ROOT" rev-list --objects --no-walk HEAD |
+  git -C "$ROOT" pack-objects --quiet "$STAGE/.git/objects/pack/snapshot"
+printf '%s\n' "$COMMIT" >"$STAGE/.git/shallow"
+git -C "$STAGE" update-ref refs/heads/staged "$COMMIT"
+git -C "$STAGE" symbolic-ref HEAD refs/heads/staged
+if [[ "$SOURCE_MODE" == current-tree ]]; then
+  git -C "$ROOT" ls-files -co --exclude-standard -z >"$WORK/files"
+else
+  git -C "$ROOT" ls-files -z >"$WORK/files"
+fi
 (
   cd "$ROOT"
-  COPYFILE_DISABLE=1 tar --no-xattrs --null -T "$WORK/files" -czf "$ARCHIVE" .git
-)
+  COPYFILE_DISABLE=1 tar --no-xattrs --null -T "$WORK/files" -cf -
+) | tar -xf - -C "$STAGE"
+git -C "$STAGE" read-tree HEAD
+if [[ "$(git -C "$STAGE" rev-parse HEAD)" != "$COMMIT" ]]; then
+  echo "staged source is not at the requested commit" >&2
+  exit 2
+fi
+if [[ "$SOURCE_MODE" == exact && -n "$(git -C "$STAGE" status --porcelain=v1)" ]]; then
+  echo "staged exact source does not match its commit" >&2
+  exit 2
+fi
+COPYFILE_DISABLE=1 tar --no-xattrs -C "$STAGE" -czf "$ARCHIVE" .
 ARCHIVE_BYTES="$(wc -c <"$ARCHIVE" | tr -d ' ')"
 if ((ARCHIVE_BYTES > MAX_ARCHIVE_BYTES)); then
   echo "source archive exceeds the 512 MiB bound" >&2
