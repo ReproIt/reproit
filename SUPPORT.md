@@ -20,9 +20,9 @@ this section by hand cannot promote a target.
 
 <!-- generated:support-claim -->
 
-Stable (13): Backend contracts, Jetpack Compose Android, Electron Linux, Flutter iOS, Linux Qt Widgets, Linux wxWidgets, Terminal UI, Web Chromium, Web Firefox, Web WebKit, Windows Avalonia, Windows WinUI 3, Windows WPF.
+Stable (14): Backend contracts, Jetpack Compose Android, Electron Linux, Flutter iOS, Linux GTK, Linux Qt Widgets, Linux wxWidgets, Terminal UI, Web Chromium, Web Firefox, Web WebKit, Windows Avalonia, Windows WinUI 3, Windows WPF.
 
-Preview (8): Flutter Android, Linux GTK, Linux Qt Quick/QML, macOS Accessibility, React Native Android, React Native iOS, SwiftUI iOS, Tauri Linux.
+Preview (7): Flutter Android, Linux Qt Quick/QML, macOS Accessibility, React Native Android, React Native iOS, SwiftUI iOS, Tauri Linux.
 
 Production-to-local qualified: Web Chromium, Web Firefox, Web WebKit.
 

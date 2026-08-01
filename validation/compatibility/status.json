@@ -12,8 +12,8 @@
     "grandfatheredStableTargets": []
   },
   "counts": {
-    "stable": 13,
-    "preview": 8,
+    "stable": 14,
+    "preview": 7,
     "experimental": 0
   },
   "productionToLocalCounts": {
@@ -220,16 +220,16 @@
       "id": "linux-gtk",
       "displayName": "Linux GTK",
       "family": "desktop",
-      "maturity": "preview",
+      "maturity": "stable",
       "scope": "x86_64 Linux container with AT-SPI on GTK",
       "nativeGates": [
         "linux-atspi-gtk"
       ],
       "promotionStandard": "schema-3",
-      "fieldBenchmark": null,
+      "fieldBenchmark": "validation/field/linux-gtk.json",
       "qualifications": {
-        "cleanCorpus": "missing",
-        "adversarialCorpus": "missing",
+        "cleanCorpus": "evidence",
+        "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
         "manualReview": "field-benchmark"
       },
@@ -251,20 +251,7 @@
       },
       "productionToLocal": "Unqualified",
       "productionToLocalEvidence": null,
-      "promotionBlockers": [
-        {
-          "code": "incomplete-evidence",
-          "detail": "no application campaign has been executed. 5 candidate defects across 4 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls"
-        },
-        {
-          "code": "incomplete-evidence",
-          "detail": "only one of the five qualified candidates is admissible to the benchmark record. validation/field/check-benchmark.py accepts a GitHub HTTPS repository and a GitHub issue URL and nothing else, and four of the five candidates live on gitlab.gnome.org. rnote is the single GitHub-hosted subject, so a second GitHub-hosted GTK 4 application with a verified affected and fixed pair must be mined, or the benchmark and corpus validators must be extended to accept a named set of additional forges"
-        },
-        {
-          "code": "incomplete-evidence",
-          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
-        }
-      ]
+      "promotionBlockers": []
     },
     {
       "id": "linux-qt-quick",

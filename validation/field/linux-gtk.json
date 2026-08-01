@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 3,
+  "target": "linux-gtk",
+  "status": "complete",
+  "applications": [
+    {
+      "id": "gnome-text-editor-search-entry-a11y-771",
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-text-editor",
+      "issueUrl": "https://gitlab.gnome.org/GNOME/gnome-text-editor/-/issues/771",
+      "affectedRevision": "8732544897aada0500e32df6dba1a7259f9ddc7b",
+      "fixedRevision": "bf3a1414dc8ab39349c1d24beec89ea417a058b0",
+      "authority": "platform",
+      "expectedIdentity": "accessibility:search-and-replace-entries-unlabeled",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "accessibility:search-and-replace-entries-unlabeled",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "accessibility:search-and-replace-entries-unlabeled",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "accessibility:search-and-replace-entries-unlabeled",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 220,
+        "replaySecondsP95": 1.249,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/gnome-text-editor-search-entry-a11y-771.json",
+        "validation/field/evidence/gnome-text-editor-search-entry-a11y-771.md",
+        "validation/field/evidence/gnome-text-editor-search-entry-a11y-771-runs.jsonl"
+      ]
+    },
+    {
+      "id": "gnome-clocks-world-dialog-default-focus-393",
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-clocks",
+      "issueUrl": "https://gitlab.gnome.org/GNOME/gnome-clocks/-/issues/393",
+      "affectedRevision": "1283eb4668d83fd710e9b272abca1443f96ff21f",
+      "fixedRevision": "6055f282826d3ac817697e33697142899989c269",
+      "authority": "platform",
+      "expectedIdentity": "dialog-focus:initial-focus-on-cancel-instead-of-entry",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "dialog-focus:initial-focus-on-cancel-instead-of-entry",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "dialog-focus:initial-focus-on-cancel-instead-of-entry",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "dialog-focus:initial-focus-on-cancel-instead-of-entry",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 220,
+        "replaySecondsP95": 3.716,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/gnome-clocks-world-dialog-default-focus-393.json",
+        "validation/field/evidence/gnome-clocks-world-dialog-default-focus-393.md",
+        "validation/field/evidence/gnome-clocks-world-dialog-default-focus-393-runs.jsonl"
+      ]
+    }
+  ]
+}

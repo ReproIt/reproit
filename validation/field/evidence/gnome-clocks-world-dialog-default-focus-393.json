@@ -1,0 +1,55 @@
+{
+  "issue": "https://gitlab.gnome.org/GNOME/gnome-clocks/-/issues/393",
+  "affectedRevision": "1283eb4668d83fd710e9b272abca1443f96ff21f",
+  "fixedRevision": "6055f282826d3ac817697e33697142899989c269",
+  "identity": "dialog-focus:initial-focus-on-cancel-instead-of-entry",
+  "memoryMeasurement": "unavailable",
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 3.716
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 3.7
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 3.71
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 3.048
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 2.954
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 2.946
+    }
+  ],
+  "neighboringLegalBehavior": "one Tab moves focus to the location entry on the affected build, so the entry is focusable and the dialog's focus chain is sound; only the initial assignment is wrong",
+  "minimizedAction": "activate Add World Clock and read which object holds the AT-SPI focused state once the dialog has mapped, before any input"
+}

@@ -122,6 +122,7 @@ qualification levels.
 - Jetpack Compose Android: already satisfies every recorded qualification slot
 - Electron Linux: already satisfies every recorded qualification slot
 - Flutter iOS: already satisfies every recorded qualification slot
+- Linux GTK: already satisfies every recorded qualification slot
 - Linux Qt Widgets: already satisfies every recorded qualification slot
 - Linux wxWidgets: already satisfies every recorded qualification slot
 - Terminal UI: already satisfies every recorded qualification slot
@@ -163,38 +164,6 @@ complete target-specific record validates.
     uses
 - Promotion gate:
   - Set `flutter-android.maturity` to `stable` only after the benchmark,
-    qualification slots, required-CI gates, and blockers validate together.
-- Qualification dependency:
-  - After Stable, run the target-specific fixture chain and then a distinct
-    independent application chain. Retain and validate both records.
-
-### Linux GTK
-
-- Target id: `linux-gtk`
-- Current maturity: Preview
-- Environment: linux-container; x86_64
-- Runtime bound: AT-SPI 2, GLib main loop
-- Framework bound: GTK 3, GTK 4
-- Native gates:
-  - `linux-atspi-gtk`: required-ci in .github/workflows/native-gates.yml job `linux-containers`
-    ```sh
-    bash .github/scripts/atspi-scenario-e2e.sh
-    ```
-- Field benchmark to create: `validation/field/linux-gtk.json`
-- Open blockers:
-  - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 4
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
-  - [incomplete-evidence] only one of the five qualified candidates is admissible to the benchmark
-    record. validation/field/check-benchmark.py accepts a GitHub HTTPS repository and a GitHub issue
-    URL and nothing else, and four of the five candidates live on gitlab.gnome.org. rnote is the
-    single GitHub-hosted subject, so a second GitHub-hosted GTK 4 application with a verified
-    affected and fixed pair must be mined, or the benchmark and corpus validators must be extended
-    to accept a named set of additional forges
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
-- Promotion gate:
-  - Set `linux-gtk.maturity` to `stable` only after the benchmark,
     qualification slots, required-CI gates, and blockers validate together.
 - Qualification dependency:
   - After Stable, run the target-specific fixture chain and then a distinct
@@ -384,7 +353,7 @@ when this plan was generated. Each row is complete only at `IndependentQualified
 | `electron-linux` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `flutter-android` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `flutter-ios` | Stable | Unqualified | Stable + `IndependentQualified` |
-| `linux-gtk` | Preview | Unqualified | Stable + `IndependentQualified` |
+| `linux-gtk` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `linux-qt-quick` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `linux-qt-widgets` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `linux-wxwidgets` | Stable | Unqualified | Stable + `IndependentQualified` |

@@ -120,11 +120,11 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 
 ## Linux GTK
 
-- Maturity: Preview
+- Maturity: Stable
 - Scope: x86_64 Linux container with AT-SPI on GTK
 - Promotion standard: schema-3
 - Native gates: linux-atspi-gtk
-- Field benchmark: incomplete
+- Field benchmark: validation/field/linux-gtk.json
 - Production-to-local: Unqualified
 - Production-to-local evidence: none
 - Operating systems: linux-container
@@ -132,22 +132,12 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Runtimes: AT-SPI 2, GLib main loop
 - Frameworks: GTK 3, GTK 4
 - Qualifications:
-  - cleanCorpus: missing
-  - adversarialCorpus: missing
+  - cleanCorpus: evidence
+  - adversarialCorpus: evidence
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 4
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
-  - [incomplete-evidence] only one of the five qualified candidates is admissible to the benchmark
-    record. validation/field/check-benchmark.py accepts a GitHub HTTPS repository and a GitHub issue
-    URL and nothing else, and four of the five candidates live on gitlab.gnome.org. rnote is the
-    single GitHub-hosted subject, so a second GitHub-hosted GTK 4 application with a verified
-    affected and fixed pair must be mined, or the benchmark and corpus validators must be extended
-    to accept a named set of additional forges
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
+  - None
 
 ## Linux Qt Quick/QML
 

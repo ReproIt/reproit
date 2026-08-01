@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "linux-gtk-field-campaign",
+  "changeType": "tooling",
+  "detail": "Executes the Linux GTK field campaign on the native x86_64 worker and promotes the target on the evidence it produced. gnome-text-editor and gnome-clocks are built from source at both revisions in one offline linux/amd64 trixie container, each into its own prefix so the two revisions never share a schema or a resource bundle. Three affected reproductions per application land on one identity and three fixed controls reach observation without one, and four corpus subjects on the fixed revisions report nothing. The Document Type candidate for gnome-text-editor was discarded before any run was spent on it: GTK 4 popover menus expose no menu items at all over AT-SPI, so the dialog cannot be opened through the accessibility tree, and the search-bar labelling candidate for the same application was executed instead. check-corpus.py now borrows the benchmark validator's forge allowlist rather than restating a GitHub-only pattern, which is why every non-GitHub corpus record failed while its benchmark passed. No runtime product behavior changes.",
+  "evidence": [
+    {
+      "path": "validation/field/linux-gtk.json",
+      "sha256": "sha256:f9aed2ab785fa81de2acdbc27f4e2bf20bcb668895a280a083d8df7f528b1468"
+    },
+    {
+      "path": "validation/field/corpus/linux-gtk.json",
+      "sha256": "sha256:22c205457ea62e8fa41d745e92601b3473c980151125a9458c80e6c4c364befa"
+    }
+  ]
+}
