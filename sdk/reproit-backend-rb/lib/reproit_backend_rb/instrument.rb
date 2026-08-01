@@ -168,6 +168,22 @@ module ReproitBackendRb
       served["headers"].each { |name, value| response[name.to_s] = value.to_s }
       response.instance_variable_set(:@body, served["body"])
       response.instance_variable_set(:@read, true)
+      chunks = served["chunks"]
+      if chunks.is_a?(Array)
+        # Recorded stream shape (SSE / chunked): a block-consuming reader
+        # observes the recorded chunk boundaries, chunk for chunk.
+        response.define_singleton_method(:read_body) do |dest = nil, &chunk_block|
+          if chunk_block
+            chunks.each { |chunk| chunk_block.call(chunk) }
+            @body
+          elsif dest
+            chunks.each { |chunk| dest << chunk }
+            @body
+          else
+            @body
+          end
+        end
+      end
       response
     end
 
@@ -175,9 +191,27 @@ module ReproitBackendRb
     module NetHttpHook
       def request(request_object, body = nil, &block)
         session = Instrument.session
-        return Instrument.__replay_request(self, request_object, body) unless session.nil?
+        unless session.nil?
+          return Instrument.__replay_request(self, request_object, body, &block)
+        end
         trace = Instrument.current_trace
         return super unless trace
+        if block
+          # Streaming consumer (`request { |res| res.read_body { ... } }`,
+          # the SSE shape): recording TEES the chunks the app itself
+          # consumes, so observed chunk boundaries are preserved and the
+          # exchange lands at EOF of the body, never by draining a stream
+          # the app still needs. A body the app abandons is drained by
+          # Net::HTTP itself after the block, so it records as one chunk.
+          return super(request_object, body) do |response|
+            begin
+              Instrument.__attach_tee(self, request_object, body, response, trace)
+            rescue StandardError
+              Instrument.count(:failed_captures)
+            end
+            block.call(response)
+          end
+        end
         response = super
         begin
           Instrument.__record_request(self, request_object, body, response)
@@ -224,7 +258,6 @@ module ReproitBackendRb
 
     # Internal: record one live Net::HTTP exchange.
     def __record_request(http, request_object, body, response)
-      request_body = body || request_object.body
       # A streaming response consumed by a caller block leaves `body` nil;
       # the exchange is recorded without content rather than half-guessed.
       response_body = begin
@@ -232,6 +265,23 @@ module ReproitBackendRb
       rescue StandardError
         nil
       end
+      content_type = response["content-type"].to_s
+      # This path drains in one read, so the observed stream shape is
+      # coarse: SSE records its boundaries as one drained chunk. Fine
+      # boundaries live on the tee path (a block-consuming caller).
+      stream = nil
+      if content_type.include?("text/event-stream") && response_body.is_a?(String) &&
+         !response_body.empty?
+        collector = Exchange::BodyCollector.new
+        collector.push(response_body)
+        stream = collector.stream(true)
+      end
+      __record_exchange(http, request_object, body, response, response_body, stream)
+    end
+
+    # Internal: the shared tail of both capture paths.
+    def __record_exchange(http, request_object, body, response, response_body, stream)
+      request_body = body || request_object.body
       exchange = Exchange.http(
         {
           method: request_object.method.to_s.upcase,
@@ -245,12 +295,62 @@ module ReproitBackendRb
           headers: response_headers(response),
           body: response_body,
           content_type: response["content-type"].to_s,
+          stream: stream,
         }
       )
+      count(:truncated_bodies) if exchange["response"]["truncated"] == true
       record("call", http.address.to_s, "#{request_object.method} #{request_object.path}", exchange)
     end
 
-    # Internal: serve one recorded exchange, opening no socket.
+    # Internal: tee a block-consumed response body. The prepended singleton
+    # module records at EOF with the chunk boundaries the app observed; a
+    # body that is never read past records nothing beyond what Net::HTTP
+    # itself drains after the caller's block.
+    def __attach_tee(http, request_object, body, response, trace)
+      collector = Exchange::BodyCollector.new
+      content_type = response["content-type"].to_s
+      finish = lambda do
+        stream = collector.stream(content_type.include?("text/event-stream"))
+        with_trace(trace) do
+          __record_exchange(http, request_object, body, response, collector.result, stream)
+        end
+      end
+      tee = Module.new do
+        define_method(:read_body) do |dest = nil, &chunk_block|
+          if instance_variable_get(:@reproit_teed)
+            next chunk_block ? super(dest, &chunk_block) : super(dest)
+          end
+          instance_variable_set(:@reproit_teed, true)
+          result =
+            if chunk_block
+              super(dest) do |chunk|
+                begin
+                  collector.push(chunk)
+                rescue StandardError
+                  Instrument.count(:failed_captures)
+                end
+                chunk_block.call(chunk)
+              end
+            else
+              drained = super(dest)
+              collector.push(drained) if dest.nil? && drained.is_a?(String)
+              drained
+            end
+          # EOF: the app has seen the whole body; record exactly once.
+          begin
+            finish.call
+          rescue StandardError
+            Instrument.count(:failed_captures)
+          end
+          result
+        end
+      end
+      response.singleton_class.prepend(tee)
+      nil
+    end
+
+    # Internal: serve one recorded exchange, opening no socket. Mirrors
+    # Net::HTTP#request's block form: the synthesized response is yielded.
     def __replay_request(http, request_object, body)
       handle = session
       request_body = body || request_object.body
@@ -261,7 +361,9 @@ module ReproitBackendRb
       unless request_body.nil? || request_body.to_s.empty?
         probe["body"] = Replay.try_json(request_body.to_s, request_object["content-type"].to_s)
       end
-      synthesize_response(Replay.serve_http(handle, probe))
+      response = synthesize_response(Replay.serve_http(handle, probe))
+      yield response if block_given?
+      response
     end
   end
 end
