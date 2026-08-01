@@ -6,17 +6,30 @@ is answered in process from the recorded exchanges, and the generic database
 hook returns recorded results, so the application code re-executes against
 exactly what production saw, with no live dependencies.
 
-Determinism is a contract here, not a similarity score. Matching is strict:
-the next unconsumed exchange of the same protocol, compared on method and
-path plus query (recorded `$reproit` redaction placeholders match any value
-at their position). The first unmatched call is a DIVERGENCE: it is reported
-as a structured `REPROIT:DIVERGENCE` line on stderr and the call fails with
-status 599 (HTTP) or a raised error (database), never a fuzzy match.
+Determinism is a contract here, not a similarity score. Matching is strict
+per-operation ordinals: within one operation (method plus path for HTTP,
+statement text for the database) exchanges are consumed in recorded order, so
+pooled database clients and LLM tool-call loops that interleave operations
+still match exactly. Recorded `$reproit` redaction placeholders match any
+value at their position; nothing else is tolerated. The first unmatched call
+is a DIVERGENCE: it is reported as a structured `REPROIT:DIVERGENCE` line on
+stderr (with a `bodyDelta` naming WHERE the bodies differ; chat-shaped bodies
+name the first differing message index) and the call fails with status 599
+(HTTP) or a raised error (database), never a fuzzy match.
 
-The envelope pins the replay's determinism: `TZ` from the capture, and
-`random` seeded from `replaySeed`. Honesty note: the seed makes REPLAY runs
-deterministic; it does not reproduce the randomness the app drew in
-production.
+The envelope pins the replay's determinism: `TZ` from the capture, the clock
+(`time.time`) offset to the capture moment, and `random` seeded from
+`replaySeed`. Honesty note: the seed makes REPLAY runs deterministic; it does
+not reproduce the randomness the app drew in production.
+
+Replay honesty note, inherited from the Node reference: replayed JSON bodies
+are re-serialized from the canonically stored capture (recursively sorted
+keys), so an app that re-serializes a PARSED response into a later request
+body can emit different bytes than production did and diverge at that later
+call. The divergence is real (the app's request depends on serialization
+order); the fix is matching on structure, which the matcher already does for
+JSON bodies. Only apps comparing raw response TEXT against later raw request
+text observe the reordering.
 
 Python port of sdk/reproit-backend-node/replay.js.
 """
@@ -62,40 +75,134 @@ class ReplaySession:
         self.diverged = False
 
     def match(self, protocol, probe):
-        """Strict next-unconsumed match. Returns the exchange or None."""
+        """Strict per-operation ordinal match. Returns the exchange or None
+        (divergence)."""
         matcher = _http_request_matcher if protocol == "http" else _db_request_matcher
+        key = operation_key(protocol, probe)
         for entry in self.exchanges:
             if entry["consumed"] or entry["exchange"].get("protocol") != protocol:
+                continue
+            if operation_key(protocol, entry["exchange"].get("request") or {}) != key:
                 continue
             if matcher(entry["exchange"].get("request") or {}, probe):
                 entry["consumed"] = True
                 return entry["exchange"]
-            # Strict ordering within a protocol: the first unconsumed
-            # exchange is the only candidate; skipping it would be a fuzzy
-            # match.
+            # Strict ordinal within an operation: the next unconsumed exchange
+            # of THIS operation is the only candidate; skipping it silently
+            # would be a fuzzy match. Other operations' exchanges may
+            # interleave (database pooling, tool-call loops), which is why the
+            # key filters above.
             break
         self.diverge(protocol, probe)
         return None
 
     def diverge(self, protocol, probe):
         self.diverged = True
+        key = operation_key(protocol, probe)
+        candidates = [
+            entry
+            for entry in self.exchanges
+            if not entry["consumed"] and entry["exchange"].get("protocol") == protocol
+        ]
         expected = next(
             (
-                entry["exchange"].get("request")
-                for entry in self.exchanges
-                if not entry["consumed"] and entry["exchange"].get("protocol") == protocol
+                entry
+                for entry in candidates
+                if operation_key(protocol, entry["exchange"].get("request") or {}) == key
             ),
-            None,
+            candidates[0] if candidates else None,
         )
+        # Field order mirrors the Node reference so the marker line is
+        # byte-comparable across SDKs; compact separators for the same reason.
         report = {
             "protocol": protocol,
             "got": probe,
-            "expected": expected,
+            "expected": (expected["exchange"].get("request") if expected else None),
             "consumed": sum(1 for entry in self.exchanges if entry["consumed"]),
             "total": len(self.exchanges),
         }
-        sys.stderr.write(DIVERGENCE_MARKER + json.dumps(report, sort_keys=True) + "\n")
+        # Prompt drift: when the recorded and live bodies both exist and
+        # differ, name WHERE they differ. Chat-shaped bodies (OpenAI or
+        # Anthropic messages arrays) name the first differing message index;
+        # unknown shapes fall back to the byte offset of the first differing
+        # byte.
+        delta = (
+            body_delta(
+                (expected["exchange"].get("request") or {}).get("body", _ABSENT),
+                probe.get("body", _ABSENT),
+            )
+            if expected
+            else None
+        )
+        if delta is not None:
+            report["bodyDelta"] = delta
+        sys.stderr.write(DIVERGENCE_MARKER + json.dumps(report, separators=(",", ":")) + "\n")
         sys.stderr.flush()
+
+
+_ABSENT = object()
+
+
+def operation_key(protocol, request):
+    """One operation's identity for ordinal matching: HTTP is method plus
+    path and query, database is the exact statement text."""
+    if protocol == "http":
+        return str(request.get("method") or "") + " " + url_path_and_query(request.get("url"))
+    return str(request.get("text") or "")
+
+
+def _chat_messages(body):
+    """The messages array of an OpenAI/Anthropic-shaped chat body, else None."""
+    if isinstance(body, dict) and isinstance(body.get("messages"), list):
+        return body["messages"]
+    return None
+
+
+def _delta_bytes(value):
+    if isinstance(value, str):
+        return value.encode("utf-8")
+    return json.dumps(value, separators=(",", ":")).encode("utf-8")
+
+
+def body_delta(recorded, live):
+    """Locate the first difference between a recorded request body and a live
+    one, modulo redaction placeholders. None when there is nothing to report
+    (either body missing, or no difference the matcher would object to)."""
+    if recorded is _ABSENT or live is _ABSENT:
+        return None
+    if matches(recorded, live):
+        return None
+    recorded_messages = _chat_messages(recorded)
+    live_messages = _chat_messages(live)
+    if recorded_messages is not None and live_messages is not None:
+        bound = min(len(recorded_messages), len(live_messages))
+        index = None
+        for i in range(bound):
+            if not matches(recorded_messages[i], live_messages[i]):
+                index = i
+                break
+        # All shared indexes match: the drift is a longer or shorter
+        # conversation, and the first differing message is the first unshared
+        # one. If lengths also agree the drift is outside `messages`; fall
+        # through to bytes.
+        if index is None and len(recorded_messages) != len(live_messages):
+            index = bound
+        if index is not None:
+            return {
+                "kind": "message",
+                "firstDifferingMessage": index,
+                "recordedMessages": len(recorded_messages),
+                "liveMessages": len(live_messages),
+            }
+    recorded_bytes = _delta_bytes(recorded)
+    live_bytes = _delta_bytes(live)
+    bound = min(len(recorded_bytes), len(live_bytes))
+    offset = bound
+    for i in range(bound):
+        if recorded_bytes[i] != live_bytes[i]:
+            offset = i
+            break
+    return {"kind": "byte", "offset": offset}
 
 
 def matches(recorded, live):
@@ -174,11 +281,40 @@ def serve_http(session, probe):
         body_text = body
     else:
         body_text = json.dumps(body)
-    return {
+    served = {
         "status": response.get("status") or 200,
         "headers": headers,
         "body_text": body_text,
     }
+    stream = response.get("stream")
+    if isinstance(stream, dict) and isinstance(stream.get("chunks"), list):
+        if stream.get("truncated") is True:
+            # The capture kept the body but not every chunk boundary; serving
+            # a guessed stream shape would be a silent lie. Fail closed with
+            # the named reason.
+            diverged_probe = dict(probe)
+            diverged_probe["streamBoundariesTruncated"] = True
+            session.diverge("http", diverged_probe)
+            return _diverged_599("truncated-stream-boundaries")
+        served["chunks"] = split_chunks(body_text, stream["chunks"])
+    return served
+
+
+def split_chunks(body_text, lengths):
+    """Split a replayed body at the recorded chunk boundaries (byte lengths).
+    Redaction can change body byte counts, so lengths are clamped and the
+    last chunk absorbs any remainder: the CHUNK COUNT (the stream shape the
+    app observed) is preserved exactly, the recorded content never padded."""
+    raw = body_text.encode("utf-8")
+    chunks = []
+    offset = 0
+    for index, length in enumerate(lengths):
+        last = index == len(lengths) - 1
+        size = length if isinstance(length, int) and length > 0 else 0
+        end = len(raw) if last else min(offset + size, len(raw))
+        chunks.append(raw[offset:end])
+        offset = end
+    return chunks
 
 
 def _diverged_599(reason):
@@ -241,6 +377,17 @@ def pin_envelope(envelope):
         os.environ["TZ"] = timezone
         if hasattr(time, "tzset"):
             time.tzset()
+    observed_at_ms = envelope.get("observedAtMs")
+    if isinstance(observed_at_ms, (int, float)) and not isinstance(observed_at_ms, bool):
+        # Pin the process clock to the capture moment, the analogue of the
+        # Node reference offsetting Date.now. Named limitation, same as Node:
+        # only the module functions rebind, so datetime.datetime.now (a C
+        # accessor) still reads the real clock.
+        real_time = time.time
+        real_time_ns = time.time_ns
+        offset = observed_at_ms / 1000.0 - real_time()
+        time.time = lambda: real_time() + offset
+        time.time_ns = lambda: real_time_ns() + int(offset * 1_000_000_000)
     seed_hex = envelope.get("replaySeed")
     if isinstance(seed_hex, str) and seed_hex:
         try:

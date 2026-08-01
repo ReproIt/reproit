@@ -33,10 +33,13 @@ Homepage = "https://reproit.com"
 Repository = "https://github.com/reproit/reproit-cli"
 
 [dependency-groups]
-# httpx is a TEST-only dependency: the SDK hooks it when the host app has it
-# installed, and never imports it otherwise, so the runtime stays stdlib pure.
-test = ["pytest>=8", "httpx>=0.27"]
-e2e = ["pytest>=8", "httpx>=0.27", "fastapi>=0.115", "uvicorn>=0.30"]
+# httpx and aiohttp are TEST-only dependencies: the SDK hooks them when the
+# host app has them installed, and never imports them otherwise, so the
+# runtime stays stdlib pure. psycopg unit tests run against a driver-shaped
+# fake (the wrap patches whatever module is handed to it), so no libpq is
+# needed here.
+test = ["pytest>=8", "httpx>=0.27", "aiohttp>=3.9"]
+e2e = ["pytest>=8", "httpx>=0.27", "aiohttp>=3.9", "fastapi>=0.115", "uvicorn>=0.30"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["reproit_backend_py"]
