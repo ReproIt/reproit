@@ -186,6 +186,21 @@ class BackendTrace {
     this._push('effect', fields);
   }
 
+  // Mark an agent oracle on the trace: an authored assertion that this
+  // operation violated its own contract (response content/shape, guardrail,
+  // loop bound). The marker rides as an `emit` effect so the wire vocabulary
+  // is unchanged; capture mode always uploads a marked operation and its
+  // failure observation carries the marked id. Unknown ids are rejected so a
+  // typo cannot mint an oracle category.
+  oracle(id, detail) {
+    if (!capture.AGENT_ORACLES.includes(id)) throw new TraceError('InvalidOperation');
+    this.effect('emit', {
+      resource: capture.ORACLE_MARKER_RESOURCE,
+      key: id,
+      ...(detail === undefined || detail === null ? {} : { detail: { payload: detail } }),
+    });
+  }
+
   finish(output, status, success, effectsComplete) {
     if (this._finished) throw new TraceError('AlreadyFinished');
     this._push('return', {
@@ -314,4 +329,9 @@ module.exports = {
   CAPTURE_FORMAT: capture.CAPTURE_FORMAT,
   CAPTURE_VERSION: capture.CAPTURE_VERSION,
   SERVER_ERROR_ORACLE: capture.SERVER_ERROR_ORACLE,
+  AGENT_RESPONSE_ORACLE: capture.AGENT_RESPONSE_ORACLE,
+  AGENT_GUARDRAIL_ORACLE: capture.AGENT_GUARDRAIL_ORACLE,
+  AGENT_LOOP_BOUND_ORACLE: capture.AGENT_LOOP_BOUND_ORACLE,
+  AGENT_ORACLES: capture.AGENT_ORACLES,
+  markedOracle: capture.markedOracle,
 };

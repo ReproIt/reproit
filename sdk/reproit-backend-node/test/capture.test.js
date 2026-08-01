@@ -5,7 +5,16 @@
 const assert = require('node:assert');
 const test = require('node:test');
 
-const { BackendTrace, Capture, CAPTURE_FORMAT, SERVER_ERROR_ORACLE } = require('../index.js');
+const {
+  BackendTrace,
+  Capture,
+  CAPTURE_FORMAT,
+  SERVER_ERROR_ORACLE,
+  AGENT_GUARDRAIL_ORACLE,
+  AGENT_LOOP_BOUND_ORACLE,
+  markedOracle,
+  TraceError,
+} = require('../index.js');
 
 // Keep this suite hermetic against the runner. resolveCommit falls back to
 // REPROIT_COMMIT then GITHUB_SHA, which is correct, but a GitHub runner always
@@ -135,6 +144,53 @@ test('record ignores unfinished traces and healthy traces when sampling is off',
   failed.finish(null, 200, false, true);
   capture.record(failed);
   assert.strictEqual(capture.stats().capturedOperations, 1);
+});
+
+test('agent oracle markers ride the trace and reject unknown ids', () => {
+  const capture = Capture.create({
+    endpoint: 'http://c/v1/capture-batches',
+    apiKey: 'sk',
+    appId: 'app',
+  });
+  const trace = BackendTrace.begin(capture.context(), 'POST /assist', { input: null });
+  assert.throws(() => trace.oracle('made-up-oracle'), TraceError);
+  trace.oracle(AGENT_GUARDRAIL_ORACLE, { tool: 'delete_order' });
+  trace.finish({ error: 'guardrail' }, 500, false, true);
+  assert.strictEqual(markedOracle(trace.events()), AGENT_GUARDRAIL_ORACLE);
+});
+
+test('a marked agent operation is captured even without a 5xx', () => {
+  const capture = Capture.create({
+    endpoint: 'http://c/v1/capture-batches',
+    apiKey: 'sk',
+    appId: 'app',
+  });
+  const trace = BackendTrace.begin(capture.context(), 'POST /assist', { input: null });
+  trace.oracle(AGENT_LOOP_BOUND_ORACLE, { iterations: 9, bound: 4 });
+  trace.finish({ note: 'gave up' }, 200, true, true);
+  capture.record(trace);
+  assert.strictEqual(capture.stats().capturedOperations, 1);
+});
+
+test('a marked failure observation carries the agent oracle id', () => {
+  const capture = Capture.create({
+    endpoint: 'http://c/v1/capture-batches',
+    apiKey: 'sk',
+    appId: 'app-demo',
+  });
+  const trace = BackendTrace.begin(capture.context(), 'POST /assist', { input: null });
+  trace.oracle(AGENT_GUARDRAIL_ORACLE, { tool: 'delete_order' });
+  trace.finish({ error: 'guardrail' }, 500, false, true);
+  const batch = capture._buildBatch([
+    { operation: 'POST /assist', status: 500, events: trace.events().slice() },
+  ]);
+  const observation = batch.events.at(-1).event;
+  assert.strictEqual(observation.kind, 'observation');
+  assert.strictEqual(
+    observation.failure.signature,
+    AGENT_GUARDRAIL_ORACLE + ':POST /assist',
+  );
+  assert.strictEqual(observation.failure.observation, 'contract-violation');
 });
 
 test('queue overflow drops the oldest operation', () => {

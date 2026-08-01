@@ -69,7 +69,7 @@ mod tests {
         // A generated table cannot disagree with the registry, but a mass
         // deletion in the registry would silently shrink the product
         // surface, so the count stays a deliberate ratchet.
-        assert_eq!(ORACLES.len(), 60, "row count tracks oracle-registry.json");
+        assert_eq!(ORACLES.len(), 63, "row count tracks oracle-registry.json");
         let mut ids = BTreeSet::new();
         let mut invariants = BTreeSet::new();
         let mut kinds = BTreeSet::new();
