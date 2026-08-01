@@ -1,0 +1,55 @@
+{
+  "issue": "https://github.com/vslavik/poedit/issues/900",
+  "affectedRevision": "c4fe890ef72c8c8cbc6b9b8cc1784dba10447798",
+  "fixedRevision": "f261986fe726a5c2a0ca0717179740c31875de57",
+  "identity": "source-reference:line-less-reference-not-resolved",
+  "memoryMeasurement": "unavailable",
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 6.532
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 6.529
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 6.706
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 6.456
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 6.461
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 6.526
+    }
+  ],
+  "neighboringLegalBehavior": "the second entry references the same file with a line number and resolves on the affected build, so the viewer, the file and the base path are all sound and only the missing line number breaks it",
+  "minimizedAction": "open a catalog whose first entry references a source file with no line number, activate Show Code Occurrences, and read the code occurrence viewer back"
+}

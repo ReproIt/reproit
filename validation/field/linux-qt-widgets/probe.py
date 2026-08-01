@@ -31,6 +31,7 @@ from atspi_helpers import (
 )
 
 WAIT_SECONDS = 40
+LAUNCH_ATTEMPTS = 3
 
 
 def run_command(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -333,14 +334,12 @@ def probe_qview_nonmax_target(
     home = run_root / "neighbor-home"
     home.mkdir(parents=True)
     write_qview_config(home)
-    process = launch(binary, [str(image)], home)
+    process, application, window, window_id, attempts = launch_qview_with_window(
+        binary,
+        image,
+        home,
+    )
     try:
-        application = find_application(r"qview")
-        window = find_node(application, {"frame"}, r".+")
-        window_id = wait_until(
-            lambda: process_main_window_id(process.pid, "qview"),
-            "visible neighboring qView X11 window",
-        )
         run_command(
             [
                 "wmctrl",
@@ -373,9 +372,47 @@ def probe_qview_nonmax_target(
                 "_NET_WM_STATE_MAXIMIZED_VERT" not in states
                 and "_NET_WM_STATE_MAXIMIZED_HORZ" not in states
             ),
+            "launchAttempts": attempts,
         }
     finally:
         stop(process)
+
+
+def launch_qview_with_window(
+    binary: str,
+    image: pathlib.Path,
+    home: pathlib.Path,
+) -> tuple[subprocess.Popen[str], object, object, str, list[str]]:
+    """Launch qView until its own X11 window is mapped, bounded to three tries.
+
+    Under worker contention the AT-SPI application appeared while no mapped X11
+    window yet carried its pid. A longer single wait only hides that; a bounded
+    relaunch that records what was on screen on every failed attempt does not,
+    so a real regression still shows up as three recorded failures.
+    """
+    attempts: list[str] = []
+    for attempt in range(1, LAUNCH_ATTEMPTS + 1):
+        process = launch(binary, [str(image)], home)
+        try:
+            application = find_application(r"qview")
+            window = find_node(application, {"frame"}, r".+")
+            window_id = wait_until(
+                lambda: process_main_window_id(process.pid, "qview"),
+                "visible process-owned qView X11 window",
+            )
+            attempts.append(f"attempt {attempt}: window {window_id}")
+            return process, application, window, str(window_id), attempts
+        except RuntimeError as error:
+            attempts.append(
+                f"attempt {attempt}: {error}; pid={process.pid} "
+                f"poll={process.poll()} windows={x11_window_survey()}"
+            )
+            stop(process)
+            wait_until(
+                lambda: application_absent(r"qview"),
+                "qView exit before relaunch",
+            )
+    raise RuntimeError(f"qView never mapped its window: {'; '.join(attempts)}")
 
 
 def probe_qview_maximized(
@@ -386,20 +423,12 @@ def probe_qview_maximized(
     home = run_root / "home"
     home.mkdir(parents=True, exist_ok=True)
     write_qview_config(home)
-    process = launch(binary, [str(image)], home)
+    process, application, window, window_id, attempts = launch_qview_with_window(
+        binary,
+        image,
+        home,
+    )
     try:
-        application = find_application(r"qview")
-        window = find_node(application, {"frame"}, r".+")
-        try:
-            window_id = wait_until(
-                lambda: process_main_window_id(process.pid, "qview"),
-                "visible process-owned qView X11 window",
-            )
-        except RuntimeError as error:
-            raise RuntimeError(
-                f"{error}; pid={process.pid} poll={process.poll()} "
-                f"windows={x11_window_survey()}"
-            ) from error
         maximize_click_point = maximize_with_titlebar(
             process.pid,
             str(window_id),
@@ -422,6 +451,7 @@ def probe_qview_maximized(
             "maximizeClickPoint": maximize_click_point,
             "maximizedExtents": maximized_extents,
             "roundtrip": roundtrip,
+            "launchAttempts": attempts,
         }
     finally:
         process_record = stop(process)

@@ -69,6 +69,7 @@ archive_revision() {
 }
 
 WXMAXIMA_REPOSITORY="${REPROIT_WXMAXIMA_REPOSITORY:?set REPROIT_WXMAXIMA_REPOSITORY}"
+POEDIT_REPOSITORY="${REPROIT_POEDIT_REPOSITORY:?set REPROIT_POEDIT_REPOSITORY}"
 if [[ -e "$OUTPUT" ]]; then
   [[ -d "$OUTPUT" ]]
   [[ -z "$(find "$OUTPUT" -mindepth 1 -print -quit)" ]]
@@ -84,6 +85,14 @@ archive_revision \
   "$WXMAXIMA_REPOSITORY" \
   684d2ed4e106fc0fc174f5537129bfd13ba68b93 \
   "$WORK/wxmaxima-fixed"
+archive_revision \
+  "$POEDIT_REPOSITORY" \
+  c4fe890ef72c8c8cbc6b9b8cc1784dba10447798 \
+  "$WORK/poedit-affected"
+archive_revision \
+  "$POEDIT_REPOSITORY" \
+  f261986fe726a5c2a0ca0717179740c31875de57 \
+  "$WORK/poedit-fixed"
 cp "$HERE/Dockerfile" "$WORK/Dockerfile"
 cp "$HERE/probe.py" "$WORK/probe.py"
 cp "$HERE/atspi_helpers.py" "$WORK/atspi_helpers.py"
@@ -95,6 +104,8 @@ COPYFILE_DISABLE=1 tar -C "$WORK" -cf - \
   probe.py \
   wxmaxima-affected \
   wxmaxima-fixed \
+  poedit-affected \
+  poedit-fixed \
   | ssh "${SSH_OPTIONS[@]}" "$GATEWAY" \
     "ssh -o BatchMode=yes -o ConnectTimeout=10 \
       -o ServerAliveInterval=15 -o ServerAliveCountMax=4 '$STRIX' \
@@ -121,22 +132,30 @@ bounded_run() {
       $* --output '/output/$file'"
 }
 
-for revision in affected fixed; do
-  for run in 1 2 3; do
-    bounded_run \
-      "${CONTAINER_PREFIX}-wxmaxima-${revision}-${run}" \
-      "wxmaxima-${revision}-${run}.json" \
-      "--application wxmaxima --revision '$revision' --run '$run'"
+for application in wxmaxima poedit; do
+  for revision in affected fixed; do
+    for run in 1 2 3; do
+      bounded_run \
+        "${CONTAINER_PREFIX}-${application}-${revision}-${run}" \
+        "${application}-${revision}-${run}.json" \
+        "--application '$application' --revision '$revision' --run '$run'"
+    done
   done
 done
 
 # Corpus subjects. Every case runs the fixed revision, so a reported identity
 # would be a false positive rather than the campaign defect.
-for variant in default neighboring-panes; do
+for subject in \
+  "wxmaxima default" \
+  "wxmaxima neighboring-panes" \
+  "poedit default" \
+  "poedit missing-source"; do
+  # shellcheck disable=SC2086
+  set -- $subject
   bounded_run \
-    "${CONTAINER_PREFIX}-corpus-wxmaxima-$variant" \
-    "corpus-wxmaxima-$variant.json" \
-    "--application wxmaxima --revision fixed --run 1 --variant '$variant'"
+    "${CONTAINER_PREFIX}-corpus-$1-$2" \
+    "corpus-$1-$2.json" \
+    "--application '$1' --revision fixed --run 1 --variant '$2'"
 done
 
 on_strix 120 \

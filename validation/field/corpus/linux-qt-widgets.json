@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "linux-qt-widgets",
   "worker": {
-    "image": "sha256:e39f915ebb6d3ed347583ce85a862d172e3af2db2b0fd798c2d6d4003614771a",
+    "image": "sha256:68a93f1dee3a9f2efd4bd9d961ea1e24af11a0032dbf1eeaf374a1dbad1e4641",
     "platform": "linux/amd64",
     "network": "none"
   },
@@ -32,7 +32,7 @@
         "exceptions": [],
         "memoryMeasurement": "unavailable",
         "jsHeapMiB": null,
-        "elapsedSeconds": 0.951,
+        "elapsedSeconds": 0.903,
         "atspiApplication": "qView",
         "atspiWindow": {
           "role": "frame",
@@ -197,7 +197,10 @@
             "exitAction": "Press"
           },
           "geometryPreserved": true,
-          "nonMaximizedPreserved": true
+          "nonMaximizedPreserved": true,
+          "launchAttempts": [
+            "attempt 1: window 4194310"
+          ]
         },
         "maximizedPathDiagnostic": {
           "result": "non-separating on Debian Bookworm with Openbox",
@@ -233,7 +236,7 @@
         "exceptions": [],
         "memoryMeasurement": "unavailable",
         "jsHeapMiB": null,
-        "elapsedSeconds": 0.934,
+        "elapsedSeconds": 0.906,
         "atspiApplication": "qView",
         "atspiWindow": {
           "role": "frame",
@@ -398,7 +401,10 @@
             "exitAction": "Press"
           },
           "geometryPreserved": true,
-          "nonMaximizedPreserved": true
+          "nonMaximizedPreserved": true,
+          "launchAttempts": [
+            "attempt 1: window 4194310"
+          ]
         },
         "maximizedPathDiagnostic": {
           "result": "non-separating on Debian Bookworm with Openbox",
@@ -434,7 +440,7 @@
         "exceptions": [],
         "memoryMeasurement": "unavailable",
         "jsHeapMiB": null,
-        "elapsedSeconds": 4.548,
+        "elapsedSeconds": 3.866,
         "atspiApplication": "KeePassXC",
         "generatedPasswordField": {
           "role": "password text",
@@ -524,7 +530,7 @@
         "exceptions": [],
         "memoryMeasurement": "unavailable",
         "jsHeapMiB": null,
-        "elapsedSeconds": 4.371,
+        "elapsedSeconds": 3.9,
         "atspiApplication": "KeePassXC",
         "generatedPasswordField": {
           "role": "password text",

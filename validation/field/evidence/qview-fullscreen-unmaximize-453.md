@@ -7,8 +7,8 @@
 - Expected identity: window-state:resized-after-fullscreen-round-trip
 - Minimized action: open the View menu, click Enter Full Screen, then activate Exit Full Screen, and read the frame extents back before and after the round trip
 - Neighboring legal behavior: the same full-screen round trip performed from a maximized window restores both the maximized geometry and the X11 maximized state on the affected build, so only the window-size restore path is wrong
-- Worker image digest: sha256:e39f915ebb6d3ed347583ce85a862d172e3af2db2b0fd798c2d6d4003614771a
-- Worker image assembly: 183 s of wall time on the worker for the whole image, both applications and both revisions. The worker reuses any layer it already holds, so this is not a cold-build cost
+- Worker image digest: sha256:68a93f1dee3a9f2efd4bd9d961ea1e24af11a0032dbf1eeaf374a1dbad1e4641
+- Worker image assembly: 6 s of wall time on the worker for the whole image, every application and both revisions. The worker reuses any layer it already holds, so this is not a cold-build cost
 - Worker: linux/amd64 container on the native x86_64 host, --network none
 - Seconds below are the probe's own trigger-to-observation time inside an already-running container, not the container lifetime
 
@@ -19,9 +19,9 @@ Observed difference, affected run 1 versus fixed run 1:
 
 | Revision | Run | Identity | Observation reached | Clean launch | Seconds |
 |---|---|---|---|---|---|
-| affected | 1 | window-state:resized-after-fullscreen-round-trip | true | true | 0.937 |
-| affected | 2 | window-state:resized-after-fullscreen-round-trip | true | true | 0.92 |
-| affected | 3 | window-state:resized-after-fullscreen-round-trip | true | true | 0.937 |
-| fixed | 1 | none | true | true | 0.936 |
-| fixed | 2 | none | true | true | 0.929 |
-| fixed | 3 | none | true | true | 0.931 |
+| affected | 1 | window-state:resized-after-fullscreen-round-trip | true | true | 41.119 |
+| affected | 2 | window-state:resized-after-fullscreen-round-trip | true | true | 0.908 |
+| affected | 3 | window-state:resized-after-fullscreen-round-trip | true | true | 0.918 |
+| fixed | 1 | none | true | true | 0.92 |
+| fixed | 2 | none | true | true | 0.904 |
+| fixed | 3 | none | true | true | 0.923 |

@@ -73,7 +73,7 @@ no target's recorded state moves because of it.
 
 <!-- generated:promotion-state -->
 
-Stable atomic targets: 11. Preview: 10. Experimental: 0.
+Stable atomic targets: 13. Preview: 8. Experimental: 0.
 
 | Target | Maturity | Standard | OS | Architectures | Blockers |
 |---|---|---|---|---|---|
@@ -85,7 +85,7 @@ Stable atomic targets: 11. Preview: 10. Experimental: 0.
 | Linux GTK | Preview | schema-3 | linux-container | x86_64 | 3 |
 | Linux Qt Quick/QML | Preview | schema-3 | linux-container | x86_64 | 3 |
 | Linux Qt Widgets | Stable | schema-3 | linux-container | x86_64 | 0 |
-| Linux wxWidgets | Preview | schema-3 | linux-container | x86_64 | 4 |
+| Linux wxWidgets | Stable | schema-3 | linux-container | x86_64 | 0 |
 | macOS Accessibility | Preview | schema-3 | macos | arm64 | 2 |
 | React Native Android | Preview | schema-3 | android-emulator | x86_64 | 2 |
 | React Native iOS | Preview | schema-3 | ios-simulator | arm64 | 2 |

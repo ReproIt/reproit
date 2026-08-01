@@ -1,32 +1,32 @@
 {
   "schemaVersion": 3,
-  "target": "linux-qt-widgets",
+  "target": "linux-wxwidgets",
   "status": "complete",
   "applications": [
     {
-      "id": "qview-fullscreen-unmaximize-453",
-      "repository": "https://github.com/jurplel/qView",
-      "issueUrl": "https://github.com/jurplel/qView/issues/453",
-      "affectedRevision": "9f6c225451bb060af8fafd948839432a6de32f4a",
-      "fixedRevision": "e28cbe7b8521959777f40ad6a43b62b4ee243b28",
+      "id": "wxmaxima-greek-pane-1276",
+      "repository": "https://github.com/wxMaxima-developers/wxmaxima",
+      "issueUrl": "https://github.com/wxMaxima-developers/wxmaxima/issues/1276",
+      "affectedRevision": "e5c410e884c3f1b24c54ac1179c16c3cf0283247",
+      "fixedRevision": "684d2ed4e106fc0fc174f5537129bfd13ba68b93",
       "authority": "standard",
-      "expectedIdentity": "window-state:resized-after-fullscreen-round-trip",
+      "expectedIdentity": "aui-perspective:greek-pane-forced-open-on-launch",
       "affectedReproductions": [
         {
           "status": "reproduced",
-          "identity": "window-state:resized-after-fullscreen-round-trip",
+          "identity": "aui-perspective:greek-pane-forced-open-on-launch",
           "cleanLaunch": true,
           "observationReached": true
         },
         {
           "status": "reproduced",
-          "identity": "window-state:resized-after-fullscreen-round-trip",
+          "identity": "aui-perspective:greek-pane-forced-open-on-launch",
           "cleanLaunch": true,
           "observationReached": true
         },
         {
           "status": "reproduced",
-          "identity": "window-state:resized-after-fullscreen-round-trip",
+          "identity": "aui-perspective:greek-pane-forced-open-on-launch",
           "cleanLaunch": true,
           "observationReached": true
         }
@@ -58,41 +58,41 @@
       ],
       "manualReview": "confirmed-target-bug",
       "metrics": {
-        "setupSeconds": 6,
-        "replaySecondsP95": 41.119,
+        "setupSeconds": 449,
+        "replaySecondsP95": 0.537,
         "peakMemoryMiB": null,
         "memoryMeasurement": "unavailable"
       },
       "evidence": [
-        "validation/field/evidence/qview-fullscreen-unmaximize-453.json",
-        "validation/field/evidence/qview-fullscreen-unmaximize-453.md",
-        "validation/field/evidence/qview-fullscreen-unmaximize-453-runs.jsonl"
+        "validation/field/evidence/wxmaxima-greek-pane-1276.json",
+        "validation/field/evidence/wxmaxima-greek-pane-1276.md",
+        "validation/field/evidence/wxmaxima-greek-pane-1276-runs.jsonl"
       ]
     },
     {
-      "id": "keepassxc-autogenerate-charset-13073",
-      "repository": "https://github.com/keepassxreboot/keepassxc",
-      "issueUrl": "https://github.com/keepassxreboot/keepassxc/issues/13073",
-      "affectedRevision": "caa7d1476134d86c1cf769081d8460933f4cd11c",
-      "fixedRevision": "58a2919650f814e042daf0f51fe7c76705f0288c",
-      "authority": "authored-contract",
-      "expectedIdentity": "generator-settings:new-entry-password-ignores-saved-length",
+      "id": "poedit-source-view-no-line-900",
+      "repository": "https://github.com/vslavik/poedit",
+      "issueUrl": "https://github.com/vslavik/poedit/issues/900",
+      "affectedRevision": "c4fe890ef72c8c8cbc6b9b8cc1784dba10447798",
+      "fixedRevision": "f261986fe726a5c2a0ca0717179740c31875de57",
+      "authority": "standard",
+      "expectedIdentity": "source-reference:line-less-reference-not-resolved",
       "affectedReproductions": [
         {
           "status": "reproduced",
-          "identity": "generator-settings:new-entry-password-ignores-saved-length",
+          "identity": "source-reference:line-less-reference-not-resolved",
           "cleanLaunch": true,
           "observationReached": true
         },
         {
           "status": "reproduced",
-          "identity": "generator-settings:new-entry-password-ignores-saved-length",
+          "identity": "source-reference:line-less-reference-not-resolved",
           "cleanLaunch": true,
           "observationReached": true
         },
         {
           "status": "reproduced",
-          "identity": "generator-settings:new-entry-password-ignores-saved-length",
+          "identity": "source-reference:line-less-reference-not-resolved",
           "cleanLaunch": true,
           "observationReached": true
         }
@@ -124,15 +124,15 @@
       ],
       "manualReview": "confirmed-target-bug",
       "metrics": {
-        "setupSeconds": 6,
-        "replaySecondsP95": 3.937,
+        "setupSeconds": 449,
+        "replaySecondsP95": 6.706,
         "peakMemoryMiB": null,
         "memoryMeasurement": "unavailable"
       },
       "evidence": [
-        "validation/field/evidence/keepassxc-autogenerate-charset-13073.json",
-        "validation/field/evidence/keepassxc-autogenerate-charset-13073.md",
-        "validation/field/evidence/keepassxc-autogenerate-charset-13073-runs.jsonl"
+        "validation/field/evidence/poedit-source-view-no-line-900.json",
+        "validation/field/evidence/poedit-source-view-no-line-900.md",
+        "validation/field/evidence/poedit-source-view-no-line-900-runs.jsonl"
       ]
     }
   ]

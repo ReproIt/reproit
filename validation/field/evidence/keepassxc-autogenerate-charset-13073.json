@@ -10,21 +10,21 @@
       "cleanLaunch": true,
       "exceptions": [],
       "jsHeapMiB": null,
-      "elapsedSeconds": 4.386
+      "elapsedSeconds": 3.937
     },
     {
       "run": 2,
       "cleanLaunch": true,
       "exceptions": [],
       "jsHeapMiB": null,
-      "elapsedSeconds": 4.301
+      "elapsedSeconds": 3.875
     },
     {
       "run": 3,
       "cleanLaunch": true,
       "exceptions": [],
       "jsHeapMiB": null,
-      "elapsedSeconds": 4.478
+      "elapsedSeconds": 3.85
     }
   ],
   "fixed": [
@@ -33,21 +33,21 @@
       "cleanLaunch": true,
       "exceptions": [],
       "jsHeapMiB": null,
-      "elapsedSeconds": 4.493
+      "elapsedSeconds": 3.943
     },
     {
       "run": 2,
       "cleanLaunch": true,
       "exceptions": [],
       "jsHeapMiB": null,
-      "elapsedSeconds": 3.973
+      "elapsedSeconds": 3.891
     },
     {
       "run": 3,
       "cleanLaunch": true,
       "exceptions": [],
       "jsHeapMiB": null,
-      "elapsedSeconds": 5.761
+      "elapsedSeconds": 3.908
     }
   ],
   "neighboringLegalBehavior": "the same stored configuration used through the explicit Tools then Password Generator dialog is honoured on the affected build, so the settings write itself is not what fails",
