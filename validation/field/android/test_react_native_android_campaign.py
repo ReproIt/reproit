@@ -206,5 +206,43 @@ class NodeAddressingTest(unittest.TestCase):
             find_node(self.BOUNDLESS, "Welcome!")
 
 
+class WelcomeNotebookPresenceTest(unittest.TestCase):
+    """The trigger cannot continue while the notebook it deleted is still there.
+
+    An executed run passed this check with the notebook still listed, because
+    it compared one exact attribute string against the raw dump and the row had
+    gained a nesting suffix. Presence is read from the parsed tree by prefix.
+    """
+
+    PREFIX = MODULE.SIDEBAR_NOTEBOOK
+
+    def sidebar(self, *descriptions: str) -> str:
+        rows = "".join(f'<node content-desc="{value}"/>' for value in descriptions)
+        return f"<hierarchy><node>{rows}</node></hierarchy>"
+
+    def test_the_row_is_seen_through_its_nesting_suffix(self) -> None:
+        source = self.sidebar(f"{self.PREFIX}  (level 1)")
+
+        self.assertTrue(MODULE.welcome_notebook_present(source))
+
+    def test_the_row_is_seen_without_a_suffix(self) -> None:
+        self.assertTrue(MODULE.welcome_notebook_present(self.sidebar(self.PREFIX)))
+
+    def test_a_deleted_notebook_is_absent(self) -> None:
+        source = self.sidebar("All notes", "Trash", "Configuration")
+
+        self.assertFalse(MODULE.welcome_notebook_present(source))
+
+    def test_either_spelling_of_the_sync_section_is_the_settings_screen(self) -> None:
+        for label in ("Synchronisation", "Synchronization"):
+            with self.subTest(label=label):
+                self.assertTrue(
+                    MODULE.configuration_screen_shown(f"Configuration {label}")
+                )
+
+    def test_the_sidebar_alone_is_not_the_settings_screen(self) -> None:
+        self.assertFalse(MODULE.configuration_screen_shown("Configuration Trash"))
+
+
 if __name__ == "__main__":
     unittest.main()

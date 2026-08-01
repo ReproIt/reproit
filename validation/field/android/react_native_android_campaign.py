@@ -59,10 +59,16 @@ MUSIC_ISSUE = "https://github.com/MissingCore/Music/issues/220"
 MUSIC_AFFECTED_REVISION = "cdd2305aa0ae3bb5dcefe0691090a1d57cf53cb3"
 MUSIC_FIXED_REVISION = "5c86ff15ee99ac8f77abc19b9e58b98a705a9951"
 MUSIC_IDENTITY = "react-native-state:album-split-by-inconsistent-release-year"
-# The sidebar notebook row, addressed by the attribute only it carries. The
-# note list header repeats the same title with an emoji prefix and no
-# content-desc, so matching on the bare title alone is ambiguous.
-SIDEBAR_WELCOME = 'content-desc="Welcome!"'
+# The sidebar notebook row, addressed by the one string only it carries. The
+# note list header repeats the title with the emoji and a space and carries no
+# content-desc at all, so the comma is what separates them. UiAutomator2
+# appends a nesting suffix such as "  (level 1)" once the row has been
+# re-rendered, so this is a prefix rather than a whole value, and it is matched
+# against the PARSED tree: the raw dump escapes the emoji as a numeric entity.
+SIDEBAR_NOTEBOOK = "\N{WAVING HAND SIGN}, Welcome!"
+# Setting.ts asks for 'Synchronisation' and the shipped en_US catalogue renders
+# it 'Synchronization'. Accept the label the device actually draws.
+SYNC_SECTION = ("Synchronisation", "Synchronization")
 MUSIC_FIXTURE_NAMES = {
     "control-alpha.mp3",
     "control-beta.mp3",
@@ -418,7 +424,28 @@ def open_joplin_configuration(
         session,
         device.evidence,
         f"{label}-configuration",
-        lambda value: "Configuration" in value and "Synchronisation" in value,
+        configuration_screen_shown,
+    )
+
+
+def welcome_notebook_present(source: str) -> bool:
+    """Is the Welcome notebook still listed in the sidebar?
+
+    Parsed rather than matched against the raw dump, because the dump escapes
+    the emoji as a numeric entity, and by prefix rather than by whole value,
+    because a re-rendered row gains a nesting suffix. Checking the raw string
+    for one exact attribute passed the moment the suffix appeared, which let a
+    run continue with the notebook still present.
+    """
+    return any(
+        node.attrib.get("content-desc", "").startswith(SIDEBAR_NOTEBOOK)
+        for node in nodes(source)
+    )
+
+
+def configuration_screen_shown(source: str) -> bool:
+    return "Configuration" in source and any(
+        label in source for label in SYNC_SECTION
     )
 
 
@@ -439,16 +466,15 @@ def delete_joplin_welcome_notebook(
         session,
         device.evidence,
         f"{label}-sidebar",
-        lambda value: SIDEBAR_WELCOME in value and "Configuration" in value,
+        lambda value: welcome_notebook_present(value) and "Configuration" in value,
     )
-    # Exactly, not by substring. The note list header is a non-interactive View
-    # carrying text "\N{waving hand sign} Welcome!", and it precedes the sidebar
-    # in document order, so a contains match long-pressed the header instead of
-    # the notebook: the first executed run walked up from it looking for a
-    # clickable ancestor, found none, and landed on the boundless root. The
-    # sidebar row's own TextView has text exactly "Welcome!" and does have a
-    # clickable Button ancestor.
-    long_press_text(session, source, "Welcome!")
+    # The sidebar row, not the note list header. The header is a
+    # non-interactive View carrying the same title with no content-desc, and it
+    # precedes the sidebar in document order, so matching the bare title
+    # long-pressed the header: the first executed run then walked up from it
+    # looking for a clickable ancestor, found none, and landed on the boundless
+    # root. The row's own Button carries the comma form and is clickable.
+    long_press_text(session, source, SIDEBAR_NOTEBOOK, contains=True)
     source = wait_source(
         session,
         device.evidence,
@@ -473,14 +499,15 @@ def delete_joplin_welcome_notebook(
         session,
         device.evidence,
         f"{label}-welcome-deleted",
-        lambda value: "Configuration" in value and SIDEBAR_WELCOME not in value,
+        lambda value: "Configuration" in value
+        and not welcome_notebook_present(value),
     )
     tap_text(session, source, "Configuration")
     return wait_source(
         session,
         device.evidence,
         f"{label}-configuration",
-        lambda value: "Configuration" in value and "Synchronisation" in value,
+        configuration_screen_shown,
     )
 
 
@@ -519,7 +546,7 @@ def observe_joplin(
         time.sleep(3)
         source = session.source()
         configuration_visible = (
-            "Configuration" in source and "Synchronisation" in source
+            configuration_screen_shown(source)
         )
         identity = JOPLIN_IDENTITY if configuration_visible else None
         observation_reached = configuration_visible or "Sidebar" in source

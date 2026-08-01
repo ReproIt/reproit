@@ -201,6 +201,34 @@ contains exactly `['CANCEL', 'DELETE', 'EDIT', 'Notebook: Welcome!']`.
 and the tap use `DELETE` now. The confirmation's `OK` is already uppercase, so
 that step was never affected.
 
+### joplin, fourth executed run: two defects in the campaign's own predicates
+
+The sheet opened, `DELETE` was tapped, the confirmation was accepted, the
+sidebar updated and `Configuration` was tapped. The campaign then timed out
+waiting for the settings screen, and the retained dump shows two separate
+problems, one of which was silently letting a run continue in a wrong state.
+
+`Synchronisation` is never drawn. `Setting.ts` asks for it with the British
+spelling, and the shipped en_US catalogue renders `Synchronization`. The dump
+of the settings screen contains Appearance, General, Editor, Markdown, Note,
+Note History, Plugins, Tools, Import and Export, More information and
+`Synchronization`. The predicate accepts either spelling now.
+
+Worse, the same dump still lists the Welcome notebook. The
+`-welcome-deleted` wait had passed anyway, because it tested the raw dump for
+the exact attribute `content-desc="Welcome!"`, and by then UiAutomator2 was
+rendering the re-drawn row as `Welcome!  (level 1)`. The exact string was
+absent, so a check meant to prove the notebook was gone passed while it was
+still there. Presence is now read from the parsed tree, by prefix, against the
+one string only the sidebar row carries, and five unit cases guard it: the row
+is seen with and without a nesting suffix, a genuinely deleted notebook is
+absent, either spelling of the sync section counts as the settings screen, and
+the sidebar alone does not.
+
+The emoji matters here. The raw dump escapes it as a numeric entity, so a raw
+substring search for the comma form silently never matches; the check has to
+run against the parsed tree, which is also why the long press is matched there.
+
 ## Both trigger defects answered
 
 - `find_node` still prefers a clickable ancestor, and now falls back to the
