@@ -10,21 +10,21 @@
       "cleanLaunch": true,
       "exceptions": [],
       "jsHeapMiB": null,
-      "elapsedSeconds": 0.937
+      "elapsedSeconds": 41.119
     },
     {
       "run": 2,
       "cleanLaunch": true,
       "exceptions": [],
       "jsHeapMiB": null,
-      "elapsedSeconds": 0.92
+      "elapsedSeconds": 0.908
     },
     {
       "run": 3,
       "cleanLaunch": true,
       "exceptions": [],
       "jsHeapMiB": null,
-      "elapsedSeconds": 0.937
+      "elapsedSeconds": 0.918
     }
   ],
   "fixed": [
@@ -33,21 +33,21 @@
       "cleanLaunch": true,
       "exceptions": [],
       "jsHeapMiB": null,
-      "elapsedSeconds": 0.936
+      "elapsedSeconds": 0.92
     },
     {
       "run": 2,
       "cleanLaunch": true,
       "exceptions": [],
       "jsHeapMiB": null,
-      "elapsedSeconds": 0.929
+      "elapsedSeconds": 0.904
     },
     {
       "run": 3,
       "cleanLaunch": true,
       "exceptions": [],
       "jsHeapMiB": null,
-      "elapsedSeconds": 0.931
+      "elapsedSeconds": 0.923
     }
   ],
   "neighboringLegalBehavior": "the same full-screen round trip performed from a maximized window restores both the maximized geometry and the X11 maximized state on the affected build, so only the window-size restore path is wrong",

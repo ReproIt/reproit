@@ -122,7 +122,9 @@ qualification levels.
 - Jetpack Compose Android: already satisfies every recorded qualification slot
 - Electron Linux: already satisfies every recorded qualification slot
 - Flutter iOS: already satisfies every recorded qualification slot
+- Linux GTK: already satisfies every recorded qualification slot
 - Linux Qt Widgets: already satisfies every recorded qualification slot
+- Linux wxWidgets: already satisfies every recorded qualification slot
 - SwiftUI iOS: already satisfies every recorded qualification slot
 - Terminal UI: already satisfies every recorded qualification slot
 - Web Chromium: already satisfies every recorded qualification slot
@@ -168,38 +170,6 @@ complete target-specific record validates.
   - After Stable, run the target-specific fixture chain and then a distinct
     independent application chain. Retain and validate both records.
 
-### Linux GTK
-
-- Target id: `linux-gtk`
-- Current maturity: Preview
-- Environment: linux-container; x86_64
-- Runtime bound: AT-SPI 2, GLib main loop
-- Framework bound: GTK 3, GTK 4
-- Native gates:
-  - `linux-atspi-gtk`: required-ci in .github/workflows/native-gates.yml job `linux-containers`
-    ```sh
-    bash .github/scripts/atspi-scenario-e2e.sh
-    ```
-- Field benchmark to create: `validation/field/linux-gtk.json`
-- Open blockers:
-  - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 4
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
-  - [incomplete-evidence] only one of the five qualified candidates is admissible to the benchmark
-    record. validation/field/check-benchmark.py accepts a GitHub HTTPS repository and a GitHub issue
-    URL and nothing else, and four of the five candidates live on gitlab.gnome.org. rnote is the
-    single GitHub-hosted subject, so a second GitHub-hosted GTK 4 application with a verified
-    affected and fixed pair must be mined, or the benchmark and corpus validators must be extended
-    to accept a named set of additional forges
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
-- Promotion gate:
-  - Set `linux-gtk.maturity` to `stable` only after the benchmark,
-    qualification slots, required-CI gates, and blockers validate together.
-- Qualification dependency:
-  - After Stable, run the target-specific fixture chain and then a distinct
-    independent application chain. Retain and validate both records.
-
 ### Linux Qt Quick/QML
 
 - Target id: `linux-qt-quick`
@@ -214,61 +184,20 @@ complete target-specific record validates.
     ```
 - Field benchmark to create: `validation/field/linux-qt-quick.json`
 - Open blockers:
-  - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 5
-    application(s) are qualified with verified revisions, but none has three clean affected
+  - [incomplete-evidence] no application campaign has been executed. Both remaining candidate
+    applications now build at both revisions in an offline linux/amd64 trixie container, kalk at
+    940abaf and b452c5a and kclock at ac9abd2 and 033e713, but neither has three clean affected
     reproductions and three reached-observation fixed controls
-  - [incomplete-evidence] none of the five qualified candidates is admissible to the benchmark
-    record. validation/field/check-benchmark.py accepts a GitHub HTTPS repository and a GitHub issue
-    URL and nothing else, and all five candidates live on invent.kde.org with bugs.kde.org issue
-    ids. Two GitHub-hosted Qt Quick applications with verified affected and fixed pairs must be
-    mined, or the benchmark and corpus validators must be extended to accept a named set of
-    additional forges
+  - [incomplete-evidence] the trigger read is unfinished for both candidates and is the only thing
+    between here and a campaign. kalk's expression and result fields are AT-SPI text nodes whose
+    accessible name is empty, so the locale-separator observation has to go through the text
+    interface rather than through node names, and that read is not written. kclock's preset row only
+    renders when TimerPresetModel already holds a preset, so the fixture has to seed one before the
+    timer form is opened, and no such fixture exists yet
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
 - Promotion gate:
   - Set `linux-qt-quick.maturity` to `stable` only after the benchmark,
-    qualification slots, required-CI gates, and blockers validate together.
-- Qualification dependency:
-  - After Stable, run the target-specific fixture chain and then a distinct
-    independent application chain. Retain and validate both records.
-
-### Linux wxWidgets
-
-- Target id: `linux-wxwidgets`
-- Current maturity: Preview
-- Environment: linux-container; x86_64
-- Runtime bound: AT-SPI 2, GTK backend
-- Framework bound: wxWidgets
-- Native gates:
-  - `linux-atspi-toolkits`: required-ci in .github/workflows/native-gates.yml job `linux-containers`
-    ```sh
-    bash examples/qt-fixture/qt-atspi-e2e.sh
-    ```
-- Field benchmark to create: `validation/field/linux-wxwidgets.json`
-- Open blockers:
-  - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 5
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
-  - [incomplete-evidence] one of the two required applications now has a worker image and a proven
-    trigger and the other has neither. wxMaxima compiles at e5c410e884c3f1b24c54ac1179c16c3cf0283247
-    and 684d2ed4e106fc0fc174f5537129bfd13ba68b93 in an x86_64 bookworm container, and the retained
-    AT-SPI records show the Greek Letters view check menu item reporting checked on the affected
-    revision and unchecked on the fixed one from a clean profile. What is missing is a second
-    independent application: validation/field/linux-wxwidgets/ carries only the wxMaxima subject,
-    and no benchmark record exists because a complete benchmark needs exactly two
-  - [incomplete-evidence] the second application is chosen and its build is proven, but its probe is
-    unwritten. poedit c4fe890ef72c8c8cbc6b9b8cc1784dba10447798 configures and links a real binary on
-    Debian trixie with libwxgtk3.2-dev plus libwxgtk-webview3.2-dev and --without-cpprest --without-
-    cld2; bookworm cannot host it because configure demands wxWidgets 3.2.4. Its observation channel
-    is also settled by reading src/fileviewer.cpp at that revision: FileViewer::ShowError paints a
-    wxStaticText reading 'Source code not found' when GetFilename resolves nothing, which is exactly
-    what the empty BeforeLast(':') produces for a reference carrying no line number. What remains is
-    a two-distribution worker image, a .po fixture whose entry references a source file without a
-    line number, and three affected plus three fixed runs
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
-- Promotion gate:
-  - Set `linux-wxwidgets.maturity` to `stable` only after the benchmark,
     qualification slots, required-CI gates, and blockers validate together.
 - Qualification dependency:
   - After Stable, run the target-specific fixture chain and then a distinct
@@ -413,10 +342,10 @@ when this plan was generated. Each row is complete only at `IndependentQualified
 | `electron-linux` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `flutter-android` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `flutter-ios` | Stable | Unqualified | Stable + `IndependentQualified` |
-| `linux-gtk` | Preview | Unqualified | Stable + `IndependentQualified` |
+| `linux-gtk` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `linux-qt-quick` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `linux-qt-widgets` | Stable | Unqualified | Stable + `IndependentQualified` |
-| `linux-wxwidgets` | Preview | Unqualified | Stable + `IndependentQualified` |
+| `linux-wxwidgets` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `macos-ax` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `react-native-android` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `react-native-ios` | Preview | Unqualified | Stable + `IndependentQualified` |

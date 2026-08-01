@@ -1,0 +1,318 @@
+{
+  "schemaVersion": 1,
+  "target": "linux-gtk",
+  "worker": {
+    "image": "sha256:7b4a7e619624fdf48befd1f7d2d871dc5f726cc1a57b15ec7b0850f24eb1a553",
+    "platform": "linux/amd64",
+    "network": "none"
+  },
+  "cleanCases": 2,
+  "adversarialCases": 2,
+  "confirmedFalsePositives": 0,
+  "unreachedObservations": 0,
+  "containersRemaining": 0,
+  "cases": [
+    {
+      "id": "text-editor-clean-base",
+      "kind": "clean",
+      "application": "gnome-text-editor-search-entry-a11y-771",
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-text-editor",
+      "revision": "bf3a1414dc8ab39349c1d24beec89ea417a058b0",
+      "fixture": null,
+      "variant": "default",
+      "why": "the ordinary search bar on the fixed build: both entries carry the accessible names the fix gives them",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "variant": "default",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "memoryMeasurement": "unavailable",
+        "jsHeapMiB": null,
+        "elapsedSeconds": 1.217,
+        "atspiApplication": "gnome-text-editor",
+        "entries": [
+          {
+            "role": "text",
+            "name": "",
+            "states": [
+              "editable",
+              "focusable",
+              "multi line",
+              "sensitive",
+              "showing",
+              "visible"
+            ]
+          },
+          {
+            "role": "text",
+            "name": "Search",
+            "states": [
+              "editable",
+              "focusable",
+              "focused",
+              "sensitive",
+              "showing",
+              "visible"
+            ]
+          },
+          {
+            "role": "text",
+            "name": "Replace",
+            "states": [
+              "editable",
+              "focusable",
+              "sensitive",
+              "showing",
+              "visible"
+            ]
+          }
+        ],
+        "searchEntryLabeled": true,
+        "replaceEntryLabeled": true,
+        "unnamedEntryCount": 1,
+        "neighboringLegalBehavior": {
+          "namedButtonsInSameTree": [
+            "Close",
+            "Close Search",
+            "Main Menu",
+            "Maximize",
+            "Minimize",
+            "New Tab",
+            "Next Match",
+            "Open",
+            "Previous Match",
+            "Replace",
+            "Replace All",
+            "Search Options"
+          ],
+          "documentBodyIsLegitimatelyUnnamed": true
+        },
+        "application": "gnome-text-editor",
+        "revision": "fixed",
+        "run": 1
+      }
+    },
+    {
+      "id": "text-editor-adversarial-document-body",
+      "kind": "adversarial",
+      "application": "gnome-text-editor-search-entry-a11y-771",
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-text-editor",
+      "revision": "bf3a1414dc8ab39349c1d24beec89ea417a058b0",
+      "fixture": null,
+      "variant": "document-body",
+      "why": "the document body is a text node with no accessible name on both revisions and that is correct, so an oracle that reported any unnamed text node would call the fixed build defective",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "variant": "document-body",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "memoryMeasurement": "unavailable",
+        "jsHeapMiB": null,
+        "elapsedSeconds": 1.128,
+        "atspiApplication": "gnome-text-editor",
+        "entries": [
+          {
+            "role": "text",
+            "name": "",
+            "states": [
+              "editable",
+              "focusable",
+              "multi line",
+              "sensitive",
+              "showing",
+              "visible"
+            ]
+          },
+          {
+            "role": "text",
+            "name": "Search",
+            "states": [
+              "editable",
+              "focusable",
+              "focused",
+              "sensitive",
+              "showing",
+              "visible"
+            ]
+          },
+          {
+            "role": "text",
+            "name": "Replace",
+            "states": [
+              "editable",
+              "focusable",
+              "sensitive",
+              "showing",
+              "visible"
+            ]
+          }
+        ],
+        "searchEntryLabeled": true,
+        "replaceEntryLabeled": true,
+        "unnamedEntryCount": 1,
+        "neighboringLegalBehavior": {
+          "namedButtonsInSameTree": [
+            "Close",
+            "Close Search",
+            "Main Menu",
+            "Maximize",
+            "Minimize",
+            "New Tab",
+            "Next Match",
+            "Open",
+            "Previous Match",
+            "Replace",
+            "Replace All",
+            "Search Options"
+          ],
+          "documentBodyIsLegitimatelyUnnamed": true
+        },
+        "application": "gnome-text-editor",
+        "revision": "fixed",
+        "run": 1
+      }
+    },
+    {
+      "id": "clocks-clean-base",
+      "kind": "clean",
+      "application": "gnome-clocks-world-dialog-default-focus-393",
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-clocks",
+      "revision": "6055f282826d3ac817697e33697142899989c269",
+      "fixture": null,
+      "variant": "default",
+      "why": "the ordinary add-clock dialog on the fixed build: the location entry holds focus the moment the dialog maps",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "variant": "default",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "memoryMeasurement": "unavailable",
+        "jsHeapMiB": null,
+        "elapsedSeconds": 2.95,
+        "atspiApplication": "org.gnome.clocks",
+        "addClockAction": "atspi-action",
+        "mainWindowFocusBeforeDialog": [
+          {
+            "role": "button",
+            "name": "Add World Clock\u2026",
+            "states": [
+              "focusable",
+              "focused",
+              "sensitive",
+              "showing",
+              "visible"
+            ]
+          }
+        ],
+        "dialogInitialFocus": [
+          {
+            "role": "entry",
+            "name": "",
+            "states": [
+              "editable",
+              "focusable",
+              "focused",
+              "sensitive",
+              "showing",
+              "visible"
+            ]
+          }
+        ],
+        "focusChain": [
+          [
+            [
+              "entry",
+              ""
+            ]
+          ]
+        ],
+        "neighboringLegalBehavior": {
+          "entryReachableByTab": true,
+          "mainWindowFocusIsAButton": true
+        },
+        "application": "gnome-clocks",
+        "revision": "fixed",
+        "run": 1
+      }
+    },
+    {
+      "id": "clocks-adversarial-main-window-focus",
+      "kind": "adversarial",
+      "application": "gnome-clocks-world-dialog-default-focus-393",
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-clocks",
+      "revision": "6055f282826d3ac817697e33697142899989c269",
+      "fixture": null,
+      "variant": "main-window-focus",
+      "why": "a button legitimately holds focus in the main window before the dialog opens, which is the same condition the defect shows inside the dialog; only scoping the judgement to the dialog separates them",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "variant": "main-window-focus",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "memoryMeasurement": "unavailable",
+        "jsHeapMiB": null,
+        "elapsedSeconds": 3.102,
+        "atspiApplication": "org.gnome.clocks",
+        "addClockAction": "atspi-action",
+        "mainWindowFocusBeforeDialog": [
+          {
+            "role": "button",
+            "name": "Add World Clock\u2026",
+            "states": [
+              "focusable",
+              "focused",
+              "sensitive",
+              "showing",
+              "visible"
+            ]
+          }
+        ],
+        "dialogInitialFocus": [
+          {
+            "role": "entry",
+            "name": "",
+            "states": [
+              "editable",
+              "focusable",
+              "focused",
+              "sensitive",
+              "showing",
+              "visible"
+            ]
+          }
+        ],
+        "focusChain": [
+          [
+            [
+              "entry",
+              ""
+            ]
+          ]
+        ],
+        "neighboringLegalBehavior": {
+          "entryReachableByTab": true,
+          "mainWindowFocusIsAButton": true
+        },
+        "application": "gnome-clocks",
+        "revision": "fixed",
+        "run": 1
+      }
+    }
+  ]
+}

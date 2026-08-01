@@ -678,7 +678,7 @@
     "linux-gtk": {
       "displayName": "Linux GTK",
       "family": "desktop",
-      "maturity": "preview",
+      "maturity": "stable",
       "scope": "x86_64 Linux container with AT-SPI on GTK",
       "ownedGates": [
         "linux-atspi-gtk"
@@ -688,12 +688,14 @@
       },
       "promotion": {
         "standard": "schema-3",
-        "fieldBenchmark": null,
+        "fieldBenchmark": "validation/field/linux-gtk.json",
         "cleanCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/linux-gtk.json"
         },
         "adversarialCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/linux-gtk.json"
         },
         "packageInstall": {
           "kind": "ci-gate",
@@ -717,31 +719,7 @@
           "level": "Unqualified",
           "evidence": null
         },
-        "blockers": [
-          {
-            "code": "incomplete-evidence",
-            "detail": "no application campaign has been executed. 5 candidate defects across 4 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
-            "command": null,
-            "evidence": [
-              "validation/field/qualification/linux-gtk.json"
-            ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "only one of the five qualified candidates is admissible to the benchmark record. validation/field/check-benchmark.py accepts a GitHub HTTPS repository and a GitHub issue URL and nothing else, and four of the five candidates live on gitlab.gnome.org. rnote is the single GitHub-hosted subject, so a second GitHub-hosted GTK 4 application with a verified affected and fixed pair must be mined, or the benchmark and corpus validators must be extended to accept a named set of additional forges",
-            "command": "python3 validation/field/check-benchmark.py validation/field/linux-gtk.json",
-            "evidence": [
-              "validation/field/qualification/linux-gtk.json",
-              "validation/field/check-benchmark.py"
-            ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target",
-            "command": null,
-            "evidence": []
-          }
-        ]
+        "blockers": []
       }
     },
     "linux-qt-widgets": {
@@ -835,7 +813,7 @@
         "blockers": [
           {
             "code": "incomplete-evidence",
-            "detail": "no application campaign has been executed. 5 candidate defects across 5 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
+            "detail": "no application campaign has been executed. Both remaining candidate applications now build at both revisions in an offline linux/amd64 trixie container, kalk at 940abaf and b452c5a and kclock at ac9abd2 and 033e713, but neither has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
               "validation/field/qualification/linux-qt-quick.json"
@@ -843,11 +821,10 @@
           },
           {
             "code": "incomplete-evidence",
-            "detail": "none of the five qualified candidates is admissible to the benchmark record. validation/field/check-benchmark.py accepts a GitHub HTTPS repository and a GitHub issue URL and nothing else, and all five candidates live on invent.kde.org with bugs.kde.org issue ids. Two GitHub-hosted Qt Quick applications with verified affected and fixed pairs must be mined, or the benchmark and corpus validators must be extended to accept a named set of additional forges",
-            "command": "python3 validation/field/check-benchmark.py validation/field/linux-qt-quick.json",
+            "detail": "the trigger read is unfinished for both candidates and is the only thing between here and a campaign. kalk's expression and result fields are AT-SPI text nodes whose accessible name is empty, so the locale-separator observation has to go through the text interface rather than through node names, and that read is not written. kclock's preset row only renders when TimerPresetModel already holds a preset, so the fixture has to seed one before the timer form is opened, and no such fixture exists yet",
+            "command": null,
             "evidence": [
-              "validation/field/qualification/linux-qt-quick.json",
-              "validation/field/check-benchmark.py"
+              "validation/field/evidence/linux-qt-quick-observability.jsonl"
             ]
           },
           {
@@ -862,7 +839,7 @@
     "linux-wxwidgets": {
       "displayName": "Linux wxWidgets",
       "family": "desktop",
-      "maturity": "preview",
+      "maturity": "stable",
       "scope": "x86_64 Linux container with AT-SPI on wxWidgets",
       "ownedGates": [
         "linux-atspi-toolkits"
@@ -872,12 +849,14 @@
       },
       "promotion": {
         "standard": "schema-3",
-        "fieldBenchmark": null,
+        "fieldBenchmark": "validation/field/linux-wxwidgets.json",
         "cleanCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/linux-wxwidgets.json"
         },
         "adversarialCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/linux-wxwidgets.json"
         },
         "packageInstall": {
           "kind": "ci-gate",
@@ -900,39 +879,7 @@
           "level": "Unqualified",
           "evidence": null
         },
-        "blockers": [
-          {
-            "code": "incomplete-evidence",
-            "detail": "no application campaign has been executed. 5 candidate defects across 5 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
-            "command": null,
-            "evidence": [
-              "validation/field/qualification/linux-wxwidgets.json"
-            ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "one of the two required applications now has a worker image and a proven trigger and the other has neither. wxMaxima compiles at e5c410e884c3f1b24c54ac1179c16c3cf0283247 and 684d2ed4e106fc0fc174f5537129bfd13ba68b93 in an x86_64 bookworm container, and the retained AT-SPI records show the Greek Letters view check menu item reporting checked on the affected revision and unchecked on the fixed one from a clean profile. What is missing is a second independent application: validation/field/linux-wxwidgets/ carries only the wxMaxima subject, and no benchmark record exists because a complete benchmark needs exactly two",
-            "command": "bash validation/field/linux-wxwidgets/run-x86-remote.sh",
-            "evidence": [
-              "validation/field/evidence/wxmaxima-greek-pane-1276-trigger.jsonl",
-              "validation/field/linux-wxwidgets/probe.py"
-            ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "the second application is chosen and its build is proven, but its probe is unwritten. poedit c4fe890ef72c8c8cbc6b9b8cc1784dba10447798 configures and links a real binary on Debian trixie with libwxgtk3.2-dev plus libwxgtk-webview3.2-dev and --without-cpprest --without-cld2; bookworm cannot host it because configure demands wxWidgets 3.2.4. Its observation channel is also settled by reading src/fileviewer.cpp at that revision: FileViewer::ShowError paints a wxStaticText reading 'Source code not found' when GetFilename resolves nothing, which is exactly what the empty BeforeLast(':') produces for a reference carrying no line number. What remains is a two-distribution worker image, a .po fixture whose entry references a source file without a line number, and three affected plus three fixed runs",
-            "command": null,
-            "evidence": [
-              "validation/field/qualification/linux-wxwidgets.json"
-            ]
-          },
-          {
-            "code": "incomplete-evidence",
-            "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target",
-            "command": null,
-            "evidence": []
-          }
-        ]
+        "blockers": []
       }
     },
     "tui": {

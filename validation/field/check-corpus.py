@@ -9,6 +9,7 @@ resemble the defect. A single confirmed false positive fails the gate.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 from pathlib import Path
@@ -17,7 +18,25 @@ ROOT = Path(__file__).resolve().parents[2]
 SUPPORT = ROOT / "validation/support-manifest.json"
 MAX_BYTES = 1_048_576
 HEX_40 = re.compile(r"^[0-9a-f]{40}$")
-HTTPS_GITHUB = re.compile(r"^https://github\.com/[^/]+/[^/]+(?:\.git)?$")
+
+
+def _benchmark_module():
+    """Borrow the benchmark validator's forge allowlist.
+
+    A corpus case names the same repository its benchmark application does, so
+    the two must accept exactly the same forges. Importing the pattern instead
+    of restating it means they cannot drift: when only the benchmark side was
+    widened, every corpus record for a non-GitHub application failed here while
+    its benchmark passed.
+    """
+    path = Path(__file__).resolve().parent / "check-benchmark.py"
+    spec = importlib.util.spec_from_file_location("field_benchmark", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+HTTPS_GITHUB = _benchmark_module().HTTPS_GITHUB
 CASE_ID = re.compile(r"^[a-z0-9-]{3,64}$")
 KINDS = {"clean", "adversarial"}
 MIN_CLEAN = 1

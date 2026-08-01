@@ -1,0 +1,55 @@
+{
+  "issue": "https://github.com/wxMaxima-developers/wxmaxima/issues/1276",
+  "affectedRevision": "e5c410e884c3f1b24c54ac1179c16c3cf0283247",
+  "fixedRevision": "684d2ed4e106fc0fc174f5537129bfd13ba68b93",
+  "identity": "aui-perspective:greek-pane-forced-open-on-launch",
+  "memoryMeasurement": "unavailable",
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.533
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.529
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.537
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.531
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.545
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.557
+    }
+  ],
+  "neighboringLegalBehavior": "two neighbouring panes keep their own defaults at both revisions, Main Toolbar shown and Statistics hidden, and the Greek pane still responds to its own View toggle, so the reader is neither blind nor reporting a stale snapshot",
+  "minimizedAction": "launch against a clean profile and read the checked state of the Greek Letters item on the View menu, which wxMaxima derives from the pane's own IsShown()"
+}

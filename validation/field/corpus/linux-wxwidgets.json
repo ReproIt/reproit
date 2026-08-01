@@ -1,0 +1,278 @@
+{
+  "schemaVersion": 1,
+  "target": "linux-wxwidgets",
+  "worker": {
+    "image": "sha256:39d93d824f94a79851e485466afc88c31792ada0a68a3cc6b8ece5e111d36c48",
+    "platform": "linux/amd64",
+    "network": "none"
+  },
+  "cleanCases": 2,
+  "adversarialCases": 2,
+  "confirmedFalsePositives": 0,
+  "unreachedObservations": 0,
+  "containersRemaining": 0,
+  "cases": [
+    {
+      "id": "wxmaxima-clean-base",
+      "kind": "clean",
+      "application": "wxmaxima-greek-pane-1276",
+      "repository": "https://github.com/wxMaxima-developers/wxmaxima",
+      "revision": "684d2ed4e106fc0fc174f5537129bfd13ba68b93",
+      "fixture": null,
+      "variant": "default",
+      "why": "the ordinary launch on the fixed build: the Greek pane stays closed because nothing forces it open",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "variant": "default",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "memoryMeasurement": "unavailable",
+        "jsHeapMiB": null,
+        "elapsedSeconds": 0.551,
+        "atspiApplication": "wxmaxima-fixed",
+        "greekPane": {
+          "role": "check menu item",
+          "name": "Greek Letters",
+          "states": [
+            "enabled",
+            "selectable",
+            "sensitive",
+            "visible"
+          ],
+          "shown": false
+        },
+        "greekPaneAfterOwnToggle": {
+          "role": "check menu item",
+          "name": "Greek Letters",
+          "states": [
+            "checked",
+            "enabled",
+            "selectable",
+            "sensitive",
+            "visible"
+          ],
+          "shown": true
+        },
+        "neighboringLegalBehavior": {
+          "shownByDefault": {
+            "role": "check menu item",
+            "name": "Main Toolbar",
+            "states": [
+              "checked",
+              "enabled",
+              "selectable",
+              "sensitive",
+              "visible"
+            ],
+            "shown": true
+          },
+          "hiddenByDefault": {
+            "role": "check menu item",
+            "name": "Statistics",
+            "states": [
+              "enabled",
+              "selectable",
+              "sensitive",
+              "visible"
+            ],
+            "shown": false
+          },
+          "greekPaneRespondsToToggle": true
+        },
+        "application": "wxmaxima",
+        "revision": "fixed",
+        "run": 1
+      }
+    },
+    {
+      "id": "wxmaxima-adversarial-neighboring-panes",
+      "kind": "adversarial",
+      "application": "wxmaxima-greek-pane-1276",
+      "repository": "https://github.com/wxMaxima-developers/wxmaxima",
+      "revision": "684d2ed4e106fc0fc174f5537129bfd13ba68b93",
+      "fixture": null,
+      "variant": "neighboring-panes",
+      "why": "the Main Toolbar pane is open at launch on both revisions and that is correct, so an oracle that reported any pane being open at launch would call this the defect",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "variant": "neighboring-panes",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "memoryMeasurement": "unavailable",
+        "jsHeapMiB": null,
+        "elapsedSeconds": 0.515,
+        "atspiApplication": "wxmaxima-fixed",
+        "greekPane": {
+          "role": "check menu item",
+          "name": "Greek Letters",
+          "states": [
+            "enabled",
+            "selectable",
+            "sensitive",
+            "visible"
+          ],
+          "shown": false
+        },
+        "greekPaneAfterOwnToggle": {
+          "role": "check menu item",
+          "name": "Greek Letters",
+          "states": [
+            "checked",
+            "enabled",
+            "selectable",
+            "sensitive",
+            "visible"
+          ],
+          "shown": true
+        },
+        "neighboringLegalBehavior": {
+          "shownByDefault": {
+            "role": "check menu item",
+            "name": "Main Toolbar",
+            "states": [
+              "checked",
+              "enabled",
+              "selectable",
+              "sensitive",
+              "visible"
+            ],
+            "shown": true
+          },
+          "hiddenByDefault": {
+            "role": "check menu item",
+            "name": "Statistics",
+            "states": [
+              "enabled",
+              "selectable",
+              "sensitive",
+              "visible"
+            ],
+            "shown": false
+          },
+          "greekPaneRespondsToToggle": true
+        },
+        "application": "wxmaxima",
+        "revision": "fixed",
+        "run": 1
+      }
+    },
+    {
+      "id": "poedit-clean-base",
+      "kind": "clean",
+      "application": "poedit-source-view-no-line-900",
+      "repository": "https://github.com/vslavik/poedit",
+      "revision": "f261986fe726a5c2a0ca0717179740c31875de57",
+      "fixture": null,
+      "variant": "default",
+      "why": "the ordinary code occurrence flow on the fixed build: both the line-less and the line-numbered reference open the source file",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "variant": "default",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "memoryMeasurement": "unavailable",
+        "jsHeapMiB": null,
+        "elapsedSeconds": 6.46,
+        "catalog": "/tmp/reproit-field/poedit-fixed-default-1/catalog/fixture.po",
+        "sourceFilePresent": true,
+        "linelessReference": {
+          "row": 0,
+          "labels": [
+            "1 code occurrence"
+          ],
+          "errors": [],
+          "sourceShown": true,
+          "sourceHead": "1 code occurrence\n#include <stdio.h>\nint main(void) { puts(\"hello\"); return 0; }\n\n#include <stdio.h>\nint main(void) { puts(\"hello\"); return 0; }\n\n#include <stdio.h>\nint main(void) { puts(\"hello\"); ret",
+          "occurrenceCounted": true
+        },
+        "lineNumberedReference": {
+          "row": 1,
+          "labels": [
+            "1 code occurrence"
+          ],
+          "errors": [],
+          "sourceShown": true,
+          "sourceHead": "1 code occurrence\n#include <stdio.h>\nint main(void) { puts(\"hello\"); return 0; }\n\n#include <stdio.h>\nint main(void) { puts(\"hello\"); return 0; }\n\n#include <stdio.h>\nint main(void) { puts(\"hello\"); ret",
+          "occurrenceCounted": true
+        },
+        "neighboringLegalBehavior": {
+          "lineNumberedReferenceResolved": true,
+          "bothReferencesCounted": true
+        },
+        "application": "poedit",
+        "revision": "fixed",
+        "run": 1
+      }
+    },
+    {
+      "id": "poedit-adversarial-missing-source",
+      "kind": "adversarial",
+      "application": "poedit-source-view-no-line-900",
+      "repository": "https://github.com/vslavik/poedit",
+      "revision": "f261986fe726a5c2a0ca0717179740c31875de57",
+      "fixture": null,
+      "variant": "missing-source",
+      "why": "the referenced source file genuinely does not exist, so the viewer shows the same Source code not found heading the defect produces; only the line-numbered reference failing too separates the two, and an oracle keyed on the heading alone would report a false positive",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "variant": "missing-source",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "memoryMeasurement": "unavailable",
+        "jsHeapMiB": null,
+        "elapsedSeconds": 6.47,
+        "catalog": "/tmp/reproit-field/poedit-fixed-missing-source-1/catalog/fixture.po",
+        "sourceFilePresent": false,
+        "linelessReference": {
+          "row": 0,
+          "labels": [
+            "1 code occurrence",
+            "Source code not found"
+          ],
+          "errors": [
+            "Source code not found"
+          ],
+          "sourceShown": false,
+          "sourceHead": "1 code occurrence\nSource code not found\nabsent.c\nabsent.c\nPoedit cannot show source code where the string is used, because the file is either not available in the referenced location or it is a symbol",
+          "occurrenceCounted": true
+        },
+        "lineNumberedReference": {
+          "row": 1,
+          "labels": [
+            "1 code occurrence",
+            "Source code not found"
+          ],
+          "errors": [
+            "Source code not found"
+          ],
+          "sourceShown": false,
+          "sourceHead": "1 code occurrence\nSource code not found\nabsent.c:2\nabsent.c:2\nPoedit cannot show source code where the string is used, because the file is either not available in the referenced location or it is a sy",
+          "occurrenceCounted": true
+        },
+        "neighboringLegalBehavior": {
+          "lineNumberedReferenceResolved": false,
+          "bothReferencesCounted": true
+        },
+        "application": "poedit",
+        "revision": "fixed",
+        "run": 1
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "linux-wxwidgets-field-campaign",
+  "changeType": "tooling",
+  "detail": "Executes the Linux wxWidgets field campaign on the native x86_64 worker and promotes the target on the evidence it produced. wxMaxima and poedit are built from source at both revisions in one offline linux/amd64 trixie container; three affected reproductions per application land on one identity and three fixed controls reach observation without one, and four corpus subjects on the fixed revisions report nothing. Both triggers were checked for discrimination before any run was spent: wxMaxima's Greek Letters view item reads checked on the affected revision and unchecked on the fixed one, and poedit's line-less source reference errors on the affected revision while the line-numbered reference to the same file resolves. The poedit oracle needs both halves, so a genuinely absent source file, which fails on both references, is not attributable. The mechanical half of the record writers moved into validation/field/campaign_records.py, shared with the Qt Widgets collector, whose regenerated benchmark and corpus are byte-identical. No runtime product behavior changes.",
+  "evidence": [
+    {
+      "path": "validation/field/linux-wxwidgets.json",
+      "sha256": "sha256:258a97f710efeb3b5377d71633fcb4f0d37a0bd7fddc4dd043d841114bce11f7"
+    },
+    {
+      "path": "validation/field/corpus/linux-wxwidgets.json",
+      "sha256": "sha256:186bc0dcfeb2d4830bf591173b3e42ea8553a080c390d1a2692533aca716e2de"
+    }
+  ]
+}

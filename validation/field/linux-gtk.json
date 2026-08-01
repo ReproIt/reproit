@@ -1,32 +1,32 @@
 {
   "schemaVersion": 3,
-  "target": "linux-qt-widgets",
+  "target": "linux-gtk",
   "status": "complete",
   "applications": [
     {
-      "id": "qview-fullscreen-unmaximize-453",
-      "repository": "https://github.com/jurplel/qView",
-      "issueUrl": "https://github.com/jurplel/qView/issues/453",
-      "affectedRevision": "9f6c225451bb060af8fafd948839432a6de32f4a",
-      "fixedRevision": "e28cbe7b8521959777f40ad6a43b62b4ee243b28",
-      "authority": "standard",
-      "expectedIdentity": "window-state:resized-after-fullscreen-round-trip",
+      "id": "gnome-text-editor-search-entry-a11y-771",
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-text-editor",
+      "issueUrl": "https://gitlab.gnome.org/GNOME/gnome-text-editor/-/issues/771",
+      "affectedRevision": "8732544897aada0500e32df6dba1a7259f9ddc7b",
+      "fixedRevision": "bf3a1414dc8ab39349c1d24beec89ea417a058b0",
+      "authority": "platform",
+      "expectedIdentity": "accessibility:search-and-replace-entries-unlabeled",
       "affectedReproductions": [
         {
           "status": "reproduced",
-          "identity": "window-state:resized-after-fullscreen-round-trip",
+          "identity": "accessibility:search-and-replace-entries-unlabeled",
           "cleanLaunch": true,
           "observationReached": true
         },
         {
           "status": "reproduced",
-          "identity": "window-state:resized-after-fullscreen-round-trip",
+          "identity": "accessibility:search-and-replace-entries-unlabeled",
           "cleanLaunch": true,
           "observationReached": true
         },
         {
           "status": "reproduced",
-          "identity": "window-state:resized-after-fullscreen-round-trip",
+          "identity": "accessibility:search-and-replace-entries-unlabeled",
           "cleanLaunch": true,
           "observationReached": true
         }
@@ -58,41 +58,41 @@
       ],
       "manualReview": "confirmed-target-bug",
       "metrics": {
-        "setupSeconds": 6,
-        "replaySecondsP95": 41.119,
+        "setupSeconds": 220,
+        "replaySecondsP95": 1.249,
         "peakMemoryMiB": null,
         "memoryMeasurement": "unavailable"
       },
       "evidence": [
-        "validation/field/evidence/qview-fullscreen-unmaximize-453.json",
-        "validation/field/evidence/qview-fullscreen-unmaximize-453.md",
-        "validation/field/evidence/qview-fullscreen-unmaximize-453-runs.jsonl"
+        "validation/field/evidence/gnome-text-editor-search-entry-a11y-771.json",
+        "validation/field/evidence/gnome-text-editor-search-entry-a11y-771.md",
+        "validation/field/evidence/gnome-text-editor-search-entry-a11y-771-runs.jsonl"
       ]
     },
     {
-      "id": "keepassxc-autogenerate-charset-13073",
-      "repository": "https://github.com/keepassxreboot/keepassxc",
-      "issueUrl": "https://github.com/keepassxreboot/keepassxc/issues/13073",
-      "affectedRevision": "caa7d1476134d86c1cf769081d8460933f4cd11c",
-      "fixedRevision": "58a2919650f814e042daf0f51fe7c76705f0288c",
-      "authority": "authored-contract",
-      "expectedIdentity": "generator-settings:new-entry-password-ignores-saved-length",
+      "id": "gnome-clocks-world-dialog-default-focus-393",
+      "repository": "https://gitlab.gnome.org/GNOME/gnome-clocks",
+      "issueUrl": "https://gitlab.gnome.org/GNOME/gnome-clocks/-/issues/393",
+      "affectedRevision": "1283eb4668d83fd710e9b272abca1443f96ff21f",
+      "fixedRevision": "6055f282826d3ac817697e33697142899989c269",
+      "authority": "platform",
+      "expectedIdentity": "dialog-focus:initial-focus-on-cancel-instead-of-entry",
       "affectedReproductions": [
         {
           "status": "reproduced",
-          "identity": "generator-settings:new-entry-password-ignores-saved-length",
+          "identity": "dialog-focus:initial-focus-on-cancel-instead-of-entry",
           "cleanLaunch": true,
           "observationReached": true
         },
         {
           "status": "reproduced",
-          "identity": "generator-settings:new-entry-password-ignores-saved-length",
+          "identity": "dialog-focus:initial-focus-on-cancel-instead-of-entry",
           "cleanLaunch": true,
           "observationReached": true
         },
         {
           "status": "reproduced",
-          "identity": "generator-settings:new-entry-password-ignores-saved-length",
+          "identity": "dialog-focus:initial-focus-on-cancel-instead-of-entry",
           "cleanLaunch": true,
           "observationReached": true
         }
@@ -124,15 +124,15 @@
       ],
       "manualReview": "confirmed-target-bug",
       "metrics": {
-        "setupSeconds": 6,
-        "replaySecondsP95": 3.937,
+        "setupSeconds": 220,
+        "replaySecondsP95": 3.716,
         "peakMemoryMiB": null,
         "memoryMeasurement": "unavailable"
       },
       "evidence": [
-        "validation/field/evidence/keepassxc-autogenerate-charset-13073.json",
-        "validation/field/evidence/keepassxc-autogenerate-charset-13073.md",
-        "validation/field/evidence/keepassxc-autogenerate-charset-13073-runs.jsonl"
+        "validation/field/evidence/gnome-clocks-world-dialog-default-focus-393.json",
+        "validation/field/evidence/gnome-clocks-world-dialog-default-focus-393.md",
+        "validation/field/evidence/gnome-clocks-world-dialog-default-focus-393-runs.jsonl"
       ]
     }
   ]

@@ -2,15 +2,15 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-HERE="$ROOT/validation/field/linux-wxwidgets"
+HERE="$ROOT/validation/field/linux-gtk"
 WORK="$(mktemp -d)"
-OUTPUT="${REPROIT_WXWIDGETS_OUTPUT:-$ROOT/target/reproit-validation/linux-wxwidgets/amd64}"
-GATEWAY="${REPROIT_WXWIDGETS_GATEWAY:-black@zgx-5a09.local}"
-STRIX="${REPROIT_WXWIDGETS_STRIX_HOST:-strix}"
-CAMPAIGN_ID="wxw-$(uuidgen | tr '[:upper:]' '[:lower:]')"
-IMAGE="reproit-field-linux-wxwidgets:$CAMPAIGN_ID"
-REMOTE_ROOT="/home/black/reproit-wxwidgets-field-$CAMPAIGN_ID"
-CONTAINER_PREFIX="reproit-wxwidgets-field-$CAMPAIGN_ID"
+OUTPUT="${REPROIT_GTK_OUTPUT:-$ROOT/target/reproit-validation/linux-gtk/amd64}"
+GATEWAY="${REPROIT_GTK_GATEWAY:-black@zgx-5a09.local}"
+STRIX="${REPROIT_GTK_STRIX_HOST:-strix}"
+CAMPAIGN_ID="gtk-$(uuidgen | tr '[:upper:]' '[:lower:]')"
+IMAGE="reproit-field-linux-gtk:$CAMPAIGN_ID"
+REMOTE_ROOT="/home/black/reproit-gtk-field-$CAMPAIGN_ID"
+CONTAINER_PREFIX="reproit-gtk-field-$CAMPAIGN_ID"
 SSH_OPTIONS=(
   -o BatchMode=yes
   -o ConnectTimeout=10
@@ -68,8 +68,8 @@ archive_revision() {
   git -C "$repository" archive "$revision" | tar -x -C "$destination"
 }
 
-WXMAXIMA_REPOSITORY="${REPROIT_WXMAXIMA_REPOSITORY:?set REPROIT_WXMAXIMA_REPOSITORY}"
-POEDIT_REPOSITORY="${REPROIT_POEDIT_REPOSITORY:?set REPROIT_POEDIT_REPOSITORY}"
+TEXT_EDITOR_REPOSITORY="${REPROIT_TEXT_EDITOR_REPOSITORY:?set REPROIT_TEXT_EDITOR_REPOSITORY}"
+CLOCKS_REPOSITORY="${REPROIT_CLOCKS_REPOSITORY:?set REPROIT_CLOCKS_REPOSITORY}"
 if [[ -e "$OUTPUT" ]]; then
   [[ -d "$OUTPUT" ]]
   [[ -z "$(find "$OUTPUT" -mindepth 1 -print -quit)" ]]
@@ -78,21 +78,21 @@ else
 fi
 
 archive_revision \
-  "$WXMAXIMA_REPOSITORY" \
-  e5c410e884c3f1b24c54ac1179c16c3cf0283247 \
-  "$WORK/wxmaxima-affected"
+  "$TEXT_EDITOR_REPOSITORY" \
+  8732544897aada0500e32df6dba1a7259f9ddc7b \
+  "$WORK/text-editor-affected"
 archive_revision \
-  "$WXMAXIMA_REPOSITORY" \
-  684d2ed4e106fc0fc174f5537129bfd13ba68b93 \
-  "$WORK/wxmaxima-fixed"
+  "$TEXT_EDITOR_REPOSITORY" \
+  bf3a1414dc8ab39349c1d24beec89ea417a058b0 \
+  "$WORK/text-editor-fixed"
 archive_revision \
-  "$POEDIT_REPOSITORY" \
-  c4fe890ef72c8c8cbc6b9b8cc1784dba10447798 \
-  "$WORK/poedit-affected"
+  "$CLOCKS_REPOSITORY" \
+  1283eb4668d83fd710e9b272abca1443f96ff21f \
+  "$WORK/clocks-affected"
 archive_revision \
-  "$POEDIT_REPOSITORY" \
-  f261986fe726a5c2a0ca0717179740c31875de57 \
-  "$WORK/poedit-fixed"
+  "$CLOCKS_REPOSITORY" \
+  6055f282826d3ac817697e33697142899989c269 \
+  "$WORK/clocks-fixed"
 cp "$HERE/Dockerfile" "$WORK/Dockerfile"
 cp "$HERE/probe.py" "$WORK/probe.py"
 cp "$HERE/atspi_helpers.py" "$WORK/atspi_helpers.py"
@@ -102,10 +102,10 @@ COPYFILE_DISABLE=1 tar -C "$WORK" -cf - \
   Dockerfile \
   atspi_helpers.py \
   probe.py \
-  wxmaxima-affected \
-  wxmaxima-fixed \
-  poedit-affected \
-  poedit-fixed \
+  text-editor-affected \
+  text-editor-fixed \
+  clocks-affected \
+  clocks-fixed \
   | ssh "${SSH_OPTIONS[@]}" "$GATEWAY" \
     "ssh -o BatchMode=yes -o ConnectTimeout=10 \
       -o ServerAliveInterval=15 -o ServerAliveCountMax=4 '$STRIX' \
@@ -132,7 +132,7 @@ bounded_run() {
       $* --output '/output/$file'"
 }
 
-for application in wxmaxima poedit; do
+for application in gnome-text-editor gnome-clocks; do
   for revision in affected fixed; do
     for run in 1 2 3; do
       bounded_run \
@@ -146,10 +146,10 @@ done
 # Corpus subjects. Every case runs the fixed revision, so a reported identity
 # would be a false positive rather than the campaign defect.
 for subject in \
-  "wxmaxima default" \
-  "wxmaxima neighboring-panes" \
-  "poedit default" \
-  "poedit missing-source"; do
+  "gnome-text-editor default" \
+  "gnome-text-editor document-body" \
+  "gnome-clocks default" \
+  "gnome-clocks main-window-focus"; do
   # shellcheck disable=SC2086
   set -- $subject
   bounded_run \
@@ -178,4 +178,4 @@ on_strix 120 \
   "find '$REMOTE_ROOT' -depth -delete; test ! -e '$REMOTE_ROOT'; \
     printf 'remoteRootRemaining=0\\n'" \
   > "$OUTPUT/remote-root-cleanup.txt"
-printf 'linux-wxwidgets x86 campaign complete: %s\n' "$OUTPUT"
+printf 'linux-gtk x86 campaign complete: %s\n' "$OUTPUT"

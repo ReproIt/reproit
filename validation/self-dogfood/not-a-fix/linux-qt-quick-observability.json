@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "linux-qt-quick-observability",
+  "changeType": "tooling",
+  "detail": "Disproves the recorded observation-capability blocker for Linux Qt Quick and narrows the candidate set with build evidence. A Qt Quick application does register on the AT-SPI bus under QT_ACCESSIBILITY and QT_LINUX_ACCESSIBILITY_ALWAYS_ON: a minimal QML window exposes its frame, text field, button and label, and kalk, a real Kirigami application, exposes its whole keypad. The earlier doubt came from reading the desktop once instead of polling it, because the registration is late; a Qt Widgets control read the same way was equally invisible, so the fault was never Qt Quick. marknote is discarded as a candidate: it requires KF 6.21 and Debian trixie ships 6.13. kalk and kclock both build at both revisions. No runtime product behavior changes.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/linux-qt-quick-observability.jsonl",
+      "sha256": "sha256:5e5f63a74b1fc22567e7a6cfb99a41bd24031a57e6ee8570ece2d2dab17a0d56"
+    }
+  ]
+}
