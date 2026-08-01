@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "benchmark-forge-allowlist",
+  "changeType": "maintenance",
+  "detail": "validation/field/check-benchmark.py accepted repository and issue URLs only on github.com. That was an accident of the first campaigns all happening to live there, and it blocked two targets outright rather than partially: four of five qualified linux-gtk applications are hosted on gitlab.gnome.org, and every qualified linux-qt-quick application is on invent.kde.org with bugs.kde.org issue ids, so neither target could record a field benchmark at all no matter how much campaign work was performed. The promotion contract wants a RESOLVABLE public issue reference, not a GitHub one, and an issue on GNOME GitLab is exactly as checkable as one on GitHub. The fix is a NAMED allowlist rather than a general URL match, so the reference stays as tight as before: github.com, gitlab.com, gitlab.gnome.org, gitlab.freedesktop.org, invent.kde.org and codeberg.org, plus the bugs.kde.org query form. Widening the repository pattern to allow nested GitLab groups introduced a real loosening that the negative cases caught: an issue URL carrying an invalid number matched as a REPOSITORY and passed. The first attempt to exclude it asserted per segment with a trailing dollar, which anchors to end of string rather than end of segment and therefore did nothing at all, so the assertion is now a whole-path lookahead. All twelve existing benchmarks revalidate unchanged, and two new cases pin both the accepted forges and the rejected shapes.",
+  "evidence": [
+    {
+      "path": "validation/field/check-benchmark.py",
+      "sha256": "sha256:f8f0ca599b513d6438a83929ccc6621c5e446691eb4ba26e354d3060fc13b158"
+    }
+  ]
+}

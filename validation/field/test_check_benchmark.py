@@ -202,6 +202,43 @@ class FieldBenchmarkTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "observation point"):
             CHECK.validate_application(candidate, 0)
 
+    def test_accepts_the_named_non_github_forges(self):
+        # The validator accepted only github.com, which blocked two targets
+        # outright: four of five qualified GTK applications live on
+        # gitlab.gnome.org and every qualified Qt Quick application lives on
+        # invent.kde.org, so neither could record a benchmark no matter how much
+        # work was done. The contract wants a RESOLVABLE public issue, not a
+        # GitHub one, so the allowlist is named and each entry is checked here.
+        for repository in (
+            "https://gitlab.gnome.org/World/gnome-podcasts",
+            "https://invent.kde.org/graphics/okular",
+            "https://gitlab.freedesktop.org/group/project",
+            "https://codeberg.org/owner/project",
+        ):
+            self.assertRegex(repository, CHECK.HTTPS_GITHUB)
+        for issue in (
+            "https://gitlab.gnome.org/World/gnome-podcasts/-/issues/12",
+            "https://invent.kde.org/graphics/okular/-/issues/7",
+            "https://bugs.kde.org/show_bug.cgi?id=123456",
+        ):
+            self.assertRegex(issue, CHECK.HTTPS_ISSUE)
+
+    def test_a_repository_pattern_never_swallows_an_issue_url(self):
+        # Widening the repository pattern to allow nested GitLab groups made
+        # `.../issues/0`, an issue URL with an INVALID number, match as a
+        # REPOSITORY and pass both checks. The first fix asserted per segment
+        # with `$`, which anchors to end of STRING rather than end of segment,
+        # so it silently did nothing. Both forms are pinned here.
+        for rejected in (
+            "https://github.com/owner/project/issues/0",
+            "https://github.com/owner/project/-/issues/0",
+            "https://evil.example.com/owner/project",
+            "http://github.com/owner/project",
+            "https://bugs.kde.org/show_bug.cgi?id=0",
+        ):
+            self.assertNotRegex(rejected, CHECK.HTTPS_GITHUB)
+            self.assertNotRegex(rejected, CHECK.HTTPS_ISSUE)
+
 
 if __name__ == "__main__":
     unittest.main()

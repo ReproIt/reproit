@@ -12,8 +12,36 @@ ROOT = Path(__file__).resolve().parents[2]
 SUPPORT = ROOT / "validation/support-manifest.json"
 MAX_BYTES = 1_048_576
 HEX_40 = re.compile(r"^[0-9a-f]{40}$")
-HTTPS_GITHUB = re.compile(r"^https://github\.com/[^/]+/[^/]+(?:\.git)?$")
-HTTPS_ISSUE = re.compile(r"^https://github\.com/[^/]+/[^/]+/issues/[1-9][0-9]*$")
+# The contract wants a RESOLVABLE public issue reference, not a GitHub one.
+# Restricting to github.com was an accident of the first campaigns all living
+# there, and it blocked two targets outright: four of five qualified GTK
+# applications are on gitlab.gnome.org and every qualified Qt Quick application
+# is on invent.kde.org, so neither target could record a benchmark at all no
+# matter how much work was done. This is a named ALLOWLIST rather than a general
+# URL match, so the reference stays as checkable as it was: each forge below
+# hosts public, stable, numerically addressed issues.
+FORGES = (
+    "github.com",
+    "gitlab.com",
+    "gitlab.gnome.org",
+    "gitlab.freedesktop.org",
+    "invent.kde.org",
+    "codeberg.org",
+)
+_HOSTS = "|".join(host.replace(".", r"\.") for host in FORGES)
+# GitLab-family projects can be nested in groups, so allow extra path segments.
+# The path must not contain an "issues" or GitLab "-" router segment: without
+# that assertion an issue URL carrying an INVALID number matched as a
+# repository and slipped past both patterns. Written as a whole-path lookahead
+# because a per-segment one anchored to end-of-string instead of end-of-segment
+# and silently did nothing.
+HTTPS_GITHUB = re.compile(
+    rf"^https://(?:{_HOSTS})/(?!.*/(?:issues|-)(?:/|$))[^/]+(?:/[^/]+)+?(?:\.git)?$"
+)
+HTTPS_ISSUE = re.compile(
+    rf"^https://(?:{_HOSTS})/[^/]+(?:/[^/]+)+?/(?:-/)?issues/[1-9][0-9]*$"
+    r"|^https://bugs\.kde\.org/show_bug\.cgi\?id=[1-9][0-9]*$"
+)
 REQUIRED_CONTROLS = {"fixed-revision", "neighboring-legal-behavior"}
 REQUIRED_RUNS = 3
 
