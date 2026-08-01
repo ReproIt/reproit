@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "react-native-ios-wda-derived-data",
+  "changeType": "tooling",
+  "detail": "The first attempt to run the react-native-ios campaign never obtained a WebDriverAgent session, and the cause is worth committing rather than working around silently. The driver built WebDriverAgent into a fresh per-campaign derived data directory. The build succeeded, and both WebDriverAgentLib.framework and WebDriverAgentRunner-Runner.app were produced, but the runner then never answered: Appium logged connect ECONNREFUSED 127.0.0.1:8191 continuously for far longer than the build itself had taken, the runner was never listed as installed on the simulator, and syspolicyd was pinned near a full core throughout. macOS rescans a newly produced bundle before it will run, and on a loaded host that scan outlasts the WebDriverAgent launch timeout. The earlier probes that did obtain sessions had reused a derived data directory whose WebDriverAgent had already been built and scanned once, which is the difference. WebDriverAgent is test infrastructure and not the subject under test, so caching its build across campaigns cannot affect the application under observation. The driver now takes the derived data path as an argument, defaults to the per-campaign directory when none is given, and records the path it actually used in the campaign result, so a run that reused a warm build says so rather than leaving a reader to assume a cold one. The stuck attempt was stopped and the simulator it owned was deleted, so nothing was left behind. No campaign is claimed by this commit: this is tooling work on the validation harness and no CLI behaviour changes.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/react-native-ios-simulator-build.md",
+      "sha256": "sha256:4fbf5434f1ee3e1eed662013264e1c044d347b73dc87f9ef74f876a5f851f7fe"
+    }
+  ]
+}

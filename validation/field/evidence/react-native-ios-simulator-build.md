@@ -100,6 +100,15 @@ The pair discriminates, on the observable the adapter owns, before any run of
 the benchmark was spent on it. The identity is
 `react-native-layout:note-row-padding-outside-touch-target`.
 
+A third lesson came from the first campaign attempt. Building WebDriverAgent
+into a fresh per-campaign directory succeeded, and the runner then never
+answered: Appium sat on `connect ECONNREFUSED 127.0.0.1:8191` for far longer
+than the build itself had taken, with `syspolicyd` pinned at 97% of a core.
+macOS rescans a newly produced bundle, and on a loaded host that scan outlasts
+the launch timeout. WebDriverAgent is test infrastructure rather than the
+subject under test, so its build is allowed to persist across campaigns; the
+driver takes the derived data path as an argument and records the path it used.
+
 Two WebDriverAgent lessons are worth not rediscovering. Port 8100 is contended
 whenever a neighbouring simulator is booted, and that contention is what
 produces `Unable to start WebDriverAgent session. Original error: Request

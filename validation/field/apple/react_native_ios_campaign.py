@@ -114,10 +114,23 @@ class Appium:
     'Unable to start WebDriverAgent session. Original error: 401'.
     """
 
-    def __init__(self, evidence: Path, port: int, wda_port: int) -> None:
+    def __init__(
+        self,
+        evidence: Path,
+        port: int,
+        wda_port: int,
+        derived: Path | None = None,
+    ) -> None:
         self.port = port
         self.wda_port = wda_port
-        self.derived = evidence / "wda-derived-data"
+        # WebDriverAgent is test infrastructure, not the subject under test, so
+        # its build is allowed to persist across campaigns. Rebuilding it into
+        # a fresh directory each time makes macOS rescan a newly produced
+        # bundle, and on a loaded host that scan is slow enough that the runner
+        # never answers within the launch timeout: the first attempt at this
+        # campaign sat on connect ECONNREFUSED to the runner port for far
+        # longer than the WDA build itself took.
+        self.derived = derived or (evidence / "wda-derived-data")
         self.log = (evidence / "appium.log").open("w", encoding="utf-8")
         self.process = subprocess.Popen(
             [
@@ -336,6 +349,7 @@ def campaign(
             "a tap 9pt above the row centre is inside the hit area on both "
             "revisions and opens the note on both"
         ),
+        "webDriverAgentDerivedData": str(appium.derived),
         "minimizedAction": (
             "one tap at the row centre offset 19pt upward, which is inside the "
             "painted row on both revisions and inside the pressable only on the "
@@ -353,6 +367,7 @@ def main() -> None:
     parser.add_argument("--runs", type=int, choices=range(1, 4), default=3)
     parser.add_argument("--appium-port", type=int, default=4753)
     parser.add_argument("--wda-port", type=int, default=8191)
+    parser.add_argument("--wda-derived-data", type=Path)
     parser.add_argument("--with-corpus", action="store_true")
     arguments = parser.parse_args()
     if re.fullmatch(r"[0-9a-f]{40}", arguments.cli_commit) is None:
@@ -361,7 +376,12 @@ def main() -> None:
         if not application.is_dir():
             parser.error(f"application bundle does not exist: {application}")
     arguments.evidence.mkdir(parents=True, exist_ok=True)
-    appium = Appium(arguments.evidence, arguments.appium_port, arguments.wda_port)
+    appium = Appium(
+        arguments.evidence,
+        arguments.appium_port,
+        arguments.wda_port,
+        arguments.wda_derived_data,
+    )
     device = Simulator(arguments.evidence)
     result = None
     try:
