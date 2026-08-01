@@ -279,23 +279,19 @@ complete target-specific record validates.
     bash validation/backends/with-appium.sh bash validation/backends/with-ios-simulator.sh \
     bash validation/backends/run-react-native-ios.sh
     ```
-- Field benchmark to create: `validation/field/react-native-ios.json`
+- Field benchmark: `validation/field/react-native-ios.json`
 - Open blockers:
-  - [incomplete-evidence] the build blocker is closed and the observable is measured, but no
-    campaign has been run. Both revisions of joplin-note-row-touch-target-15972 build, install and
-    launch on a disposable simulator. XCUITest reports the note row as an XCUIElementTypeButton
-    whose frame is the pressable the fix changes: affected x=16 y=127 w=370 h=20, fixed x=0 y=111
-    w=402 h=52, both centred at (201, 137). One tap at (201, 118) is swallowed on the affected build
-    and opens the note on the fixed one, executed on both. A campaign driver is committed on that
-    observable and has never obtained a WebDriverAgent session: four device and server
-    configurations were executed and each reaches 'Launching WebDriverAgent on the device' and then
-    waits on connect ECONNREFUSED, while the standalone probes that measured the observable obtain
-    sessions reliably against the same Appium, driver, derived data and bundles. Stale xcodebuild
-    runners were one real cause and are reaped now, but were not sufficient. Isolating the
-    difference between the probe and the driver by bisection is the first missing input; a second
-    independent application, since BlueWallet is excluded outright, is the second
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
+  - [incomplete-evidence] one of the two required application campaigns is complete, and the corpus
+    is retained and passing. joplin, issue 15972, affected 7d90db0b and fixed 2fa45a5a, ran on
+    disposable iPhone 16 Pro simulators on iOS 26.2: three affected reproductions all landing on
+    react-native-layout:note-row-padding-outside-touch-target with the note row hit area measured at
+    370 by 20 and the tap at (201, 118) swallowed, three fixed controls all reaching the same
+    observation with the hit area at 402 by 52 and the identical coordinate opening the note,
+    neighbouring legal behaviour holding on both revisions, and the owned simulator deleted. The
+    corpus is one clean and two adversarial subjects with zero false positives. The second
+    application is what remains: BlueWallet is excluded outright because a pinned dependency
+    repository returns 404, and streetwriters/notesnook is bootstrapped with its pods resolving at
+    both revisions but is not built
 - Promotion gate:
   - Set `react-native-ios.maturity` to `stable` only after the benchmark,
     qualification slots, required-CI gates, and blockers validate together.
