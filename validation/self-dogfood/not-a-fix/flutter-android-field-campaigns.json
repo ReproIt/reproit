@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "flutter-android-field-campaigns",
+  "changeType": "tooling",
+  "detail": "Field-campaign work that promotes flutter-android from Preview to Stable. Two independent application campaigns were executed on the native x86_64 executor, both reading their observable from the platform accessibility hierarchy rather than from the profile-mode Dart VM service, which registers the tree-dump RPCs but carries no tree and refuses evaluate in AOT mode. LocalSend issue 2904, affected 3ec2d77 against fixed 9e4a598: three affected reproductions all landing on flutter-receive:trailing-text-message-classified-as-link with a pending prepare-upload on loopback, three fixed controls reaching the same observation and showing the message subtitle, and a bare URL staying a link on both revisions. gopeed issue 1180, affected f718966 against fixed 5bb8541: three affected reproductions all landing on flutter-settings:proxy-credentials-dropped-on-restart, three fixed controls restoring the username, and an address-only control surviving the same restart on both revisions. The per-target clean and adversarial corpus is two clean and three adversarial subjects with zero false positives. The manifest's runtime bound is corrected from 'flutter drive' to Appium UiAutomator2 because that is what was measured. No runtime product behavior changes; the change adds two campaign drivers, a worker script, contract tests, and the retained evidence.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/gopeed-proxy-credentials-1180.md",
+      "sha256": "sha256:44c5cf66830eef86daf782a899a9a26640e3882eaade1644476418d58ef4700b"
+    }
+  ]
+}

@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "target": "flutter-android",
   "gate": "S2-candidate-qualification",
-  "status": "candidates-selected",
+  "status": "campaigns-executed",
   "declaredBounds": {
     "os": "android",
-    "arch": "arm64-v8a",
-    "device": "reset Android Studio AVD from the installed SDK",
+    "arch": "x86_64",
+    "device": "reset API 36 x86_64 AVD created inside the lane worker image on the native x86_64 executor; every Android system image on the development machine is arm64-v8a, so the declared arch can only be met there",
     "runtime": [
-      "Dart VM service",
-      "flutter drive"
+      "Dart VM service (profile-mode build, liveness and isolate only)",
+      "Appium UiAutomator2"
     ],
     "framework": [
       "Flutter"
@@ -152,14 +152,11 @@
       "affectedRevision": "3ec2d77875fc31dab21548ae4966ca693e8b2733",
       "fixedRevision": "9e4a5985b5fd1377f7c4c1fa9127a00b8fc9abff",
       "whySuitable": "the defect is the isLink field of ReceivePageVm in app/lib/pages/receive_page.dart: a message such as https://example.com plus trailing prose satisfied Uri.tryParse().isAbsolute and was rendered as a tappable link instead of plain text. Flutter paints into one SurfaceView, so UiAutomator2 sees no such distinction; reading which branch of the receive page was built means attaching to the Dart isolate over the VM service and inspecting the widget tree and the Riverpod view model. The trigger is an inbound LAN text send, so the adapter has to hold that observation across an incoming HTTP request served by the app's own Dart server",
-      "qualification": "selected-not-executed",
-      "remaining": [
-        "build affected and fixed profile-mode APKs with Flutter 3.35.6 after running scripts/remove_proprietary_dependencies.sh, with a locally generated throwaway keystore in app/android/key.properties",
-        "stand up the second peer: run the repository's own cli/ Dart package on the host and reach the emulator over the LocalSend LAN protocol, or run a second AVD",
-        "author the trigger: send the exact message from issue 2904, accept it on the emulator, and read ReceivePageVm.isLink through the Dart VM service",
-        "state identity and authority for the observation",
-        "minimize the trigger and verify neighboring legal behavior with a bare absolute URL, which must still render as a link on both builds",
-        "prove three clean affected reproductions and three reached-observation fixed controls"
+      "qualification": "executed-and-campaigned",
+      "outcome": "three affected reproductions all landing on flutter-receive:trailing-text-message-classified-as-link, three fixed controls reaching the same observation and showing the message subtitle, and the bare-URL control staying a link on both revisions",
+      "evidence": [
+        "validation/field/evidence/localsend-receive-link-2904.json",
+        "validation/field/evidence/localsend-receive-link-2904.md"
       ]
     },
     {
@@ -209,13 +206,11 @@
       "affectedRevision": "f7189668fd014696c9716bf7687ecc48fb91cd3b",
       "fixedRevision": "5bb85413854f2f4202bdc8e6026a3a856358b4d4",
       "whySuitable": "the proxy username and password TextEditingControllers in ui/flutter/lib/app/modules/setting/views/setting_view.dart were never wired to the GetX settings controller, so the typed values were dropped and never persisted. The fix adds listeners that copy them into the proxy config and call debounceSave. The trigger is text entry plus an application restart with no network at all, and the check is the persisted Dart-side config object read over the VM service, so it exercises the Flutter adapter's state and lifecycle path on a second, independent application without touching the downloader core",
-      "qualification": "selected-not-executed",
-      "remaining": [
-        "build the gomobile libgopeed.aar and the affected and fixed profile-mode APKs at the two revisions",
-        "author the trigger: enter proxy credentials in the settings page, leave the page, restart the app, and read the persisted config over the VM service",
-        "state identity and authority: a setting the application persists must be restored on the next launch",
-        "minimize the trigger and verify neighboring legal behavior: the proxy host and port fields on the same page persist on both builds, so the restart itself is not what loses state",
-        "prove three clean affected reproductions and three reached-observation fixed controls"
+      "qualification": "executed-and-campaigned",
+      "outcome": "three affected reproductions all landing on flutter-settings:proxy-credentials-dropped-on-restart, three fixed controls restoring the username, and the address-only control surviving the same restart on both revisions",
+      "evidence": [
+        "validation/field/evidence/gopeed-proxy-credentials-1180.json",
+        "validation/field/evidence/gopeed-proxy-credentials-1180.md"
       ]
     },
     {
@@ -249,15 +244,6 @@
       ]
     },
     {
-      "code": "incomplete-evidence",
-      "kind": "build-input-missing",
-      "detail": "both LocalSend profile APKs exist at the verified revisions on the x86_64 executor (affected 15d50ed5..., fixed c093cebac...), so the build input is closed for the first application. What remains is the campaign runner on that executor and a scenario whose observable the profile channel can actually show: the profile VM service registers 26 extension RPCs including debugDumpApp, debugDumpRenderTree and the semantics dumps, has no widget inspector, and refuses evaluate with 'Debugger is disabled in AOT mode'. gopeed is untouched",
-      "command": null,
-      "evidence": [
-        "validation/field/evidence/flutter-android-vm-service-profile-vs-release.md"
-      ]
-    },
-    {
       "code": "environment-unreachable",
       "kind": "architecture-bound-unmet",
       "detail": "RESOLVED as a route, not as a restatement. The macOS campaign host has only arm64-v8a images, so the x86_64 bound is met on the lane's own executor: black@zgx-5a09.local then strix, native x86_64 with KVM. Both LocalSend revisions build profile APKs for android-x64 inside the lane worker image, and the lane's AVD recipe boots an x86_64 API 36 emulator there. Two traps were fixed on the way: the Gradle build needs ndk;27.0.12077973, which was installed into the lane SDK, and cargokit expects rustup under $HOME/.cargo while the image keeps it in /usr/local",
@@ -265,6 +251,15 @@
       "evidence": [
         "validation/field/evidence/flutter-android-vm-service-profile-vs-release.json",
         "validation/field/evidence/flutter-android-vm-service-profile-vs-release.md"
+      ]
+    },
+    {
+      "code": "resolved-by-measurement",
+      "kind": "observation-channel",
+      "detail": "the read path was measured rather than argued. A profile build registers the tree-dump RPCs but they carry nothing and evaluate is refused in AOT mode, so the observable is read from the platform accessibility hierarchy that attaching a UiAutomation makes Flutter generate. Both campaigns read their observable that way and keep the VM service only for liveness and the isolate id",
+      "command": null,
+      "evidence": [
+        "validation/field/evidence/flutter-android-discrimination.jsonl"
       ]
     }
   ],

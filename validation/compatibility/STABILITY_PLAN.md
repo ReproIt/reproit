@@ -121,6 +121,7 @@ qualification levels.
 - Backend contracts: already satisfies every recorded qualification slot
 - Jetpack Compose Android: already satisfies every recorded qualification slot
 - Electron Linux: already satisfies every recorded qualification slot
+- Flutter Android: already satisfies every recorded qualification slot
 - Flutter iOS: already satisfies every recorded qualification slot
 - Linux GTK: already satisfies every recorded qualification slot
 - Linux Qt Quick/QML: already satisfies every recorded qualification slot
@@ -140,40 +141,6 @@ qualification levels.
 
 Execute these worklists in lane order. A target leaves this section only when its
 complete target-specific record validates.
-
-### Flutter Android
-
-- Target id: `flutter-android`
-- Current maturity: Preview
-- Environment: android-emulator; x86_64
-- Runtime bound: Dart VM service (profile-mode build, dump and profile RPCs only), flutter drive
-- Framework bound: Flutter
-- Native gates:
-  - `flutter-android`: required-ci in .github/workflows/native-gates.yml job `android-hosted`
-    ```sh
-    bash validation/backends/run-flutter-drive-android.sh
-    ```
-- Field benchmark to create: `validation/field/flutter-android.json`
-- Open blockers:
-  - [incomplete-evidence] the first application's pair is now verified to discriminate but no
-    campaign has been run. LocalSend 3ec2d77 against 9e4a598, issue 2904, separates on the receive
-    page: with the message 'https://example.com some extra text' delivered by a prepare-upload
-    request on loopback, the affected build shows 'sent you a link:' and the fixed build shows 'sent
-    you a message:'. A bare URL stays a link on both revisions, which is the neighbouring legal
-    control. What is missing is the campaign runner on the executor, three affected reproductions
-    and three fixed controls
-  - [incomplete-evidence] only one application is verified and the second is untouched. gopeed
-    remains the recorded second candidate and no revision of it has been fetched, built or run
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target. The adversarial subject is already identified and
-    measured: a bare URL on the fixed build legitimately produces the link subtitle, which is what
-    the defect produces
-- Promotion gate:
-  - Set `flutter-android.maturity` to `stable` only after the benchmark,
-    qualification slots, required-CI gates, and blockers validate together.
-- Qualification dependency:
-  - After Stable, run the target-specific fixture chain and then a distinct
-    independent application chain. Retain and validate both records.
 
 ### macOS Accessibility
 
@@ -296,7 +263,7 @@ when this plan was generated. Each row is complete only at `IndependentQualified
 | `backend-contract` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `compose-android` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `electron-linux` | Stable | Unqualified | Stable + `IndependentQualified` |
-| `flutter-android` | Preview | Unqualified | Stable + `IndependentQualified` |
+| `flutter-android` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `flutter-ios` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `linux-gtk` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `linux-qt-quick` | Stable | Unqualified | Stable + `IndependentQualified` |

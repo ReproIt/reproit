@@ -17,6 +17,8 @@ assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 GREENSTASH = Path(__file__).with_name("greenstash_currency_rotation.py")
+LOCALSEND = Path(__file__).with_name("localsend_receive_link.py")
+GOPEED = Path(__file__).with_name("gopeed_proxy_credentials.py")
 
 
 class AndroidFieldContractTests(unittest.TestCase):
@@ -59,6 +61,20 @@ class AndroidFieldContractTests(unittest.TestCase):
         self.assertNotIn('"input", "tap"', nextplayer)
         self.assertNotIn('"input", "text"', greenstash)
         self.assertNotIn('"wm", "user-rotation"', greenstash)
+
+    def test_flutter_drivers_are_owned_and_read_the_platform_hierarchy(self) -> None:
+        runner = Path(__file__).with_name("run_android_field_driver.sh").read_text(
+            encoding="utf-8"
+        )
+
+        for driver in (LOCALSEND, GOPEED):
+            self.assertIn(driver.name, runner)
+            source = driver.read_text(encoding="utf-8")
+            # The profile-mode VM service carries no tree, so the observable is
+            # read from the hierarchy Appium exposes, never from a dump RPC.
+            self.assertIn("session.source()", source)
+            self.assertNotIn('"uiautomator",', source)
+            self.assertNotIn("ext.flutter.debugDump", source)
 
     def test_runner_requires_exact_cli_commit_provenance(self) -> None:
         runner = Path(__file__).with_name("run_android_field_driver.sh")
