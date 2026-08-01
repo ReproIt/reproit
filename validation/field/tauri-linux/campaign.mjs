@@ -72,7 +72,7 @@ export const APPLICATIONS = {
     depsMarker: 'node_modules',
     install: 'cd /work && corepack enable && '
       + 'pnpm install --frozen-lockfile --config.dangerouslyAllowAllBuilds=true',
-    appBin: '/work/target/debug/readest',
+    appBin: '/work/target/debug/Readest',
     scenario: 'library-select-last-book',
     // readest opens every path it is given on argv, which is how the campaign
     // seeds a library without a native file chooser.
