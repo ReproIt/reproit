@@ -18,6 +18,22 @@
 #define MAX_BLOB 8192 /* the 8 KiB inline body rule the SDKs use */
 #define MAX_PATH_LEN 4096
 #define MAX_FDS 4096
+/* Per FILE recorded content bound, shared by every path that snapshots a
+ * whole file (the seccomp layer's record_file and the libc data movers).
+ * 16 MiB covers every subject measured so far by two orders of magnitude
+ * (a locale archive is 350 KiB, an interpreter startup under 2 MiB) while
+ * still fitting four such files inside the capsule bounds below. A file
+ * past it records a `trunc` marker naming this cap, so replay refuses
+ * LOUDLY with the bound named instead of serving a prefix. */
+#define REPROIT_FILE_CAP (16u << 20)
+/* Per CAPSULE total inline content bound. Deliberately under the structural
+ * ceiling (MAX_ENTRIES * MAX_BLOB = 64 MiB) so the named marker fires before
+ * the entry bound starts dropping lines. */
+#define REPROIT_CAPSULE_CONTENT_CAP (48u << 20)
+/* Replay-side bound on the raw capsule log. 48 MiB of content base64s to
+ * 64 MiB; the rest is line overhead headroom. A log past this refuses to
+ * load, loudly, rather than parsing a prefix of itself. */
+#define REPROIT_CAPSULE_RAW_CAP (96u << 20)
 /* Entry key width. A path is up to MAX_PATH_LEN, so keys are FOLDED into this
  * width rather than truncated; see reproit_path_key. */
 #define MAX_KEY_LEN 256
@@ -53,6 +69,18 @@ typedef enum {
      * randomness, environment, and socket traffic go unseen. A capture that
      * shipped anyway would look complete and would not be. */
     K_EXEC,
+    /* A recording bound was hit. The key names WHAT was bounded (a file path,
+     * "capsule-entries", "capsule-content"), a carries the cap in its own
+     * unit, b the observed total when known. Replay turns the marker into a
+     * divergence that NAMES the cap, so a bound is never a silent prefix. */
+    K_TRUNC,
+    /* Which boundary layer captured this capsule: key "seccomp" or "libc".
+     * A capsule captured by the seccomp completeness layer holds path
+     * metadata the libc layer cannot serve, so replaying it layer-less dies
+     * confusingly mid-run (measured: OSError Errno 9 inside CPython's
+     * getpath with zero divergence lines). Replay REFUSES that pairing by
+     * name instead. */
+    K_LAYER,
     K_KINDS
 } kind_t;
 
@@ -90,9 +118,20 @@ typedef struct {
     entry_t entries[MAX_ENTRIES];
     size_t entry_count;
     size_t dropped;
+    /* Record-side bound accounting: total inline blob bytes this capsule
+     * carries, and whether the per-capsule content cap already fired (the
+     * marker is recorded once, not per drop). */
+    size_t blob_total;
+    int content_capped;
 
     fdstate_t fds[MAX_FDS];
     char paths[MAX_FDS][MAX_KEY_LEN];
+    /* Data-mover coverage per fd at record time: the file offset up to which
+     * a mover has recorded this fd's content (so a re-map of the same range
+     * is not recorded twice and served doubled), and whether the per-file
+     * cap fired for it (the trunc marker is recorded once). */
+    size_t mover_end[MAX_FDS];
+    unsigned char mover_capped[MAX_FDS];
 
     size_t served;
     size_t diverged;
@@ -196,6 +235,15 @@ void diverge(const char *kind, const char *detail);
  * how much is not actionable and a silent prefix is the failure mode the
  * completeness oracle exists to refuse. */
 void diverge_short(const char *kind, const char *path, long recorded, long held);
+/* Record N content bytes under one key, chunked to MAX_BLOB per entry. A
+ * single record_blob call inlines at most MAX_BLOB, so any caller handed
+ * more than one chunk's worth (a large read(), an fread into a big buffer,
+ * an iovec piece) must go through this or lose bytes past 8 KiB. */
+void record_content(kind_t kind, const char *key, const unsigned char *blob, size_t blob_len,
+                    long a, long b);
+/* The layer-less fallback is a NAMED event, never silent: one
+ * REPROIT:PROCESS-LAYER line to stderr with the reason. */
+void reproit_layer_note(const char *reason);
 void load_replay(const char *path);
 entry_t *next_entry(kind_t kind, const char *key);
 /* Like next_entry, but a repeat lookup of an already consumed key returns
