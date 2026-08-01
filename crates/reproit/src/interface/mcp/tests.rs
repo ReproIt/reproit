@@ -252,6 +252,50 @@ fn check_gloss_absent_for_non_verdict_output() {
 }
 
 #[test]
+fn check_gloss_reads_the_hermetic_verdict_before_the_folded_outcome() {
+    // A hermetic capture run folds diverged and inconclusive into `outcome:
+    // "stale"`. The gloss must read the precise `capture.verdict` first, so
+    // drift is named DIVERGED (re-capture) rather than glossed as a moved UI
+    // path, and each of the four hermetic verdicts is distinct.
+    let hermetic = |verdict: &str, outcome: &str| {
+        let raw = format!(r#"{{"capture":{{"verdict":"{verdict}"}},"outcome":"{outcome}"}}"#);
+        check_gloss(raw.as_bytes()).unwrap()
+    };
+    let reproduced = hermetic("reproduced", "fail");
+    let fixed = hermetic("fixed", "pass");
+    let diverged = hermetic("diverged", "stale");
+    let inconclusive = hermetic("inconclusive", "stale");
+    assert!(reproduced.starts_with("FAIL"));
+    assert!(reproduced.contains("re-executed code"));
+    assert!(fixed.starts_with("PASS"));
+    assert!(fixed.contains("hermetic re-execution"));
+    assert!(diverged.starts_with("DIVERGED"));
+    assert!(diverged.contains("re-capture"));
+    assert!(inconclusive.starts_with("INCONCLUSIVE"));
+    assert!(inconclusive.contains("NOT a verdict"));
+    assert_ne!(diverged, inconclusive);
+    // The offline log re-evaluation output carries `capture` without a
+    // `verdict`; it must keep the plain outcome gloss.
+    let offline = check_gloss(
+        br#"{"capture":{"mode":"offline-evaluation","reproduced":true},"outcome":"fail"}"#,
+    )
+    .unwrap();
+    assert!(offline.starts_with("FAIL"));
+}
+
+#[test]
+fn occurrence_live_resend_output_counts_as_a_verdict() {
+    // `reproit occ_x` on the live-resend plan path emits `verdict`, not
+    // `outcome`. The bridge must read that as a produced verdict, or a
+    // reproduced occurrence (exit 1) would surface as a tool error.
+    assert!(json_has_field(
+        br#"{"command":"occurrence","mode":"live-resend","verdict":"Reproduced"}"#,
+        "verdict"
+    ));
+    assert!(!json_has_field(b"Error: no occurrence `occ_x`", "verdict"));
+}
+
+#[test]
 fn scan_check_video_and_baseline_tools_are_present() {
     // The redesigned find/evidence surface is advertised.
     let names = tool_names();
