@@ -19,6 +19,10 @@ module ReproitBackendRb
     MAX_EXCHANGE_HEADERS = 32
     # Rows recorded per database result; beyond it the result is truncated.
     MAX_DB_ROWS = 64
+    # Stream chunk boundaries recorded per exchange (SSE / chunked responses,
+    # the LLM streaming shape). Beyond it the boundaries are marked truncated
+    # and replay fails closed rather than serve a wrong stream shape.
+    MAX_STREAM_CHUNKS = 128
 
     module_function
 
@@ -26,6 +30,9 @@ module ReproitBackendRb
     # redaction sees fields rather than text.
     def bounded_body(body, content_type)
       return {} if body.nil?
+      # A BodyCollector that overflowed already reduced the body to provable
+      # identity; pass it through instead of stringifying the identity hash.
+      return body if body.is_a?(Hash) && body["truncated"] == true
       bytes = body.to_s.dup.force_encoding(Encoding::BINARY)
       return {} if bytes.empty?
       if bytes.bytesize > MAX_EXCHANGE_BODY_BYTES
@@ -59,6 +66,18 @@ module ReproitBackendRb
 
     # `request`/`response` are plain hashes of already-collected parts.
     def http(request, response)
+      response_body = bounded_body(response[:body], response[:content_type])
+      response_value = { "status" => response[:status] }
+        .merge(bounded_headers(response[:headers]))
+        .merge(response_body)
+      # Stream shape (SSE / chunked): observed chunk boundaries, so the
+      # whole stream is ONE logical exchange and replay can re-serve it
+      # chunk for chunk. A truncated inline body already fails closed, so
+      # boundaries are only kept for bodies recorded verbatim.
+      stream = response[:stream]
+      if stream && response_body["truncated"] != true
+        response_value["stream"] = stream
+      end
       {
         "protocol" => "http",
         "request" => {
@@ -66,11 +85,67 @@ module ReproitBackendRb
           "url" => request[:url],
         }.merge(bounded_headers(request[:headers]))
           .merge(bounded_body(request[:body], request[:content_type])),
-        "response" => {
-          "status" => response[:status],
-        }.merge(bounded_headers(response[:headers]))
-          .merge(bounded_body(response[:body], response[:content_type])),
+        "response" => response_value,
       }
+    end
+
+    # Collect a stream's chunks up to one byte past the inline budget;
+    # enough to know the true size class without holding unbounded memory.
+    # The sha256 runs over EVERY byte so truncated identity stays provable.
+    # Chunk boundaries are recorded as observed byte lengths, bounded by
+    # MAX_STREAM_CHUNKS; boundaries past the cap are counted, never guessed.
+    class BodyCollector
+      def initialize
+        @chunks = []
+        @boundaries = []
+        @bytes = 0
+        @dropped_boundaries = 0
+        @digest = Digest::SHA256.new
+      end
+
+      def push(chunk)
+        raw = chunk.to_s.dup.force_encoding(Encoding::BINARY)
+        @bytes += raw.bytesize
+        @digest.update(raw)
+        if @boundaries.length < MAX_STREAM_CHUNKS
+          @boundaries << raw.bytesize
+        else
+          @dropped_boundaries += 1
+        end
+        @chunks << raw if @bytes <= MAX_EXCHANGE_BODY_BYTES
+        nil
+      end
+
+      # The collected body: nil when empty, provable identity when over
+      # budget, the raw bytes otherwise.
+      def result
+        return nil if @bytes.zero?
+        if @bytes > MAX_EXCHANGE_BODY_BYTES
+          return {
+            "bodyBytes" => @bytes,
+            "bodySha256" => @digest.hexdigest,
+            "truncated" => true,
+          }
+        end
+        @chunks.join
+      end
+
+      def truncated?
+        @bytes > MAX_EXCHANGE_BODY_BYTES
+      end
+
+      # Chunk boundaries as observed byte lengths. Recorded when the
+      # response is a stream (SSE always; anything else only when it
+      # actually arrived in more than one chunk, since a single-chunk body
+      # replays identically without them).
+      def stream(is_event_stream)
+        return nil if @boundaries.empty?
+        if !is_event_stream && @boundaries.length < 2 && @dropped_boundaries.zero?
+          return nil
+        end
+        return { "chunks" => @boundaries.dup, "truncated" => true } if @dropped_boundaries.positive?
+        { "chunks" => @boundaries.dup }
+      end
     end
 
     def db(text, values, outcome)
