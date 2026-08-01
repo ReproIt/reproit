@@ -229,6 +229,31 @@ The emoji matters here. The raw dump escapes it as a numeric entity, so a raw
 substring search for the comma form silently never matches; the check has to
 run against the parsed tree, which is also why the long press is matched there.
 
+### joplin, fifth executed run: the defect does not do what was written down
+
+The whole trigger executed. The notebook was deleted, settings opened, and the
+hardware back key was sent. The run then reported that it had not reached an
+observation, and the retained `joplin-affected-1-source.xml` says why: the
+foreground package is `com.google.android.apps.nexuslauncher`. The screen is
+the Android launcher, with Chrome, Gmail, Messages, Phone, Photos and YouTube.
+
+The affected build does not strand the user on settings. It **leaves the
+application**. That follows directly from the fix: `appReducer.ts` empties the
+navigation history when the current route is a deleted folder, and the fix
+pushes `DEFAULT_ROUTE` so there is always a back target. With the history empty
+nothing claims the hardware back event, so Android's default handling takes it
+and the activity finishes.
+
+The oracle was written against the recorded prose rather than the behaviour,
+and it is corrected to the behaviour: the identity is that the platform back
+gesture left the application, and it is renamed to
+`react-native-navigation:hardware-back-exits-app-after-deleted-notebook`. A run
+that ends stranded on settings is a genuinely different state, so it is
+recorded as such and fails the expected identity loudly rather than being
+folded into the same name. Each run now retains the foreground package set, the
+note list visibility and the settings visibility, so the three outcomes are
+distinguishable in the evidence rather than collapsed into one boolean.
+
 ## Both trigger defects answered
 
 - `find_node` still prefers a clickable ancestor, and now falls back to the

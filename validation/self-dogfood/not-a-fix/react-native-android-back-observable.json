@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "react-native-android-back-observable",
+  "changeType": "tooling",
+  "detail": "The joplin trigger now executes end to end: the Welcome notebook is deleted, settings opens, and the hardware back key is sent. The run that first got that far reported no observation, and the retained joplin-affected-1-source.xml explains it: the foreground package is com.google.android.apps.nexuslauncher and the screen is the Android launcher with Chrome, Gmail, Messages, Phone, Photos and YouTube. The affected build does not strand the user on settings, which is what the qualification prose recorded and what the oracle was written against. It leaves the application. That follows directly from the fix under test: appReducer.ts empties the navigation history when the current route is a deleted folder, and the fix pushes DEFAULT_ROUTE so a back target always exists; with the history empty nothing claims the hardware back event, Android's default handling takes it, and the activity finishes. The oracle is corrected to the behaviour rather than the prose. The identity is that the platform back gesture left the application, and it is renamed from react-native-navigation:hardware-back-disabled-after-deleted-notebook to react-native-navigation:hardware-back-exits-app-after-deleted-notebook so the name says what is observed. A run that ends stranded on settings is a genuinely different state: it is recorded as such, counts as having reached an observation, and fails the expected identity loudly rather than being folded under the same name, because one identity that covers two distinct observable outcomes is not an exact identity. Every run now retains the foreground package set, whether the note list is visible and whether the settings screen is visible, so all three outcomes are distinguishable in the evidence instead of collapsing into a single boolean, and cleanLaunch now reports that the trigger surface was actually reached rather than being hardcoded true. No campaign is claimed by this commit and no promotion follows from it; this is the oracle being made to match the application. This is tooling work on the validation harness and no CLI behaviour changes.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/react-native-android-field-runner.md",
+      "sha256": "sha256:858ce1163d6afefc58696e690f5e062e89f5c45607b91ce1beda1ecaa4c78ae0"
+    }
+  ]
+}

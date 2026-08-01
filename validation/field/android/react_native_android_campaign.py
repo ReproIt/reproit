@@ -50,7 +50,7 @@ JOPLIN_ISSUE = "https://github.com/laurent22/joplin/issues/15004"
 JOPLIN_AFFECTED_REVISION = "de6378473fa261e495b4709672471613235b493a"
 JOPLIN_FIXED_REVISION = "623da377db98dbc8576651aa066ef4000fbf2116"
 JOPLIN_IDENTITY = (
-    "react-native-navigation:hardware-back-disabled-after-deleted-notebook"
+    "react-native-navigation:hardware-back-exits-app-after-deleted-notebook"
 )
 MUSIC_PACKAGE = "com.cyanchill.missingcore.music"
 MUSIC_ACTIVITY = ".MainActivity"
@@ -443,6 +443,12 @@ def welcome_notebook_present(source: str) -> bool:
     )
 
 
+def foreground_packages(source: str) -> set[str]:
+    return {
+        node.attrib["package"] for node in nodes(source) if node.attrib.get("package")
+    }
+
+
 def configuration_screen_shown(source: str) -> bool:
     return "Configuration" in source and any(
         label in source for label in SYNC_SECTION
@@ -542,14 +548,24 @@ def observe_joplin(
             open_joplin_configuration(session, device, label)
         else:
             delete_joplin_welcome_notebook(session, device, label)
+        configuration_reached = True
         press_back(session)
         time.sleep(3)
         source = session.source()
-        configuration_visible = (
-            configuration_screen_shown(source)
+        packages = foreground_packages(source)
+        in_foreground = JOPLIN_PACKAGE in packages
+        configuration_visible = in_foreground and configuration_screen_shown(source)
+        note_list_visible = in_foreground and "Sidebar" in source
+        # The recorded shape of this defect was 'stranded on settings'. What the
+        # affected build actually does is leave: with the navigation history
+        # emptied by the deletion, nothing claims the hardware back event, so
+        # Android's default takes it and the activity finishes to the launcher.
+        # That, not the stranding, is the identity, and a run that ends stranded
+        # is a different state which is reported rather than folded in.
+        identity = JOPLIN_IDENTITY if not in_foreground else None
+        observation_reached = (
+            not in_foreground or note_list_visible or configuration_visible
         )
-        identity = JOPLIN_IDENTITY if configuration_visible else None
-        observation_reached = configuration_visible or "Sidebar" in source
         retained = retain_observation(device, session, label, source)
     finally:
         try:
@@ -568,12 +584,15 @@ def observe_joplin(
     return {
         "status": "reproduced" if identity else "not_reproduced",
         "identity": identity,
-        "cleanLaunch": True,
+        "cleanLaunch": configuration_reached,
         "observationReached": True,
         "exceptions": [],
         "elapsedSeconds": round(time.monotonic() - started, 3),
         "jsHeapMiB": None,
         "configurationVisibleAfterBack": configuration_visible,
+        "noteListVisibleAfterBack": note_list_visible,
+        "applicationForegroundAfterBack": in_foreground,
+        "foregroundPackagesAfterBack": sorted(packages),
         "networkContainment": network,
         "appium": appium,
         **retained,
