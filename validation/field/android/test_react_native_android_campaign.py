@@ -23,6 +23,16 @@ SPEC.loader.exec_module(MODULE)
 music_signature_flags = MODULE.music_signature_flags
 music_observation_reached = MODULE.music_observation_reached
 
+UI_PATH = MODULE_PATH.with_name("react_native_android_ui.py")
+UI_SPEC = importlib.util.spec_from_file_location(
+    "react_native_android_ui",
+    UI_PATH,
+)
+assert UI_SPEC is not None and UI_SPEC.loader is not None
+UI_MODULE = importlib.util.module_from_spec(UI_SPEC)
+UI_SPEC.loader.exec_module(UI_MODULE)
+find_node = UI_MODULE.find_node
+
 RUNTIME_PATH = MODULE_PATH.with_name("react_native_android_runtime.py")
 RUNTIME_SPEC = importlib.util.spec_from_file_location(
     "react_native_android_runtime",
@@ -151,6 +161,49 @@ class AndroidEnvironmentTest(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, "does not exist"):
                 configure_android_environment(missing)
+
+
+class NodeAddressingTest(unittest.TestCase):
+    """The Joplin sidebar row is what these two cases are drawn from.
+
+    A React Native touchable often exposes no clickable attribute, so walking
+    up for a clickable ancestor runs off the top of the tree and lands on the
+    root, which has no bounds. The first executed joplin campaign failed on
+    exactly that with 'UI node has no usable bounds'.
+    """
+
+    CLICKABLE = (
+        '<hierarchy><node bounds="[0,0][1080,2400]">'
+        '<node clickable="true" bounds="[0,100][1080,220]">'
+        '<node text="Welcome!" bounds="[40,130][400,190]"/>'
+        "</node></node></hierarchy>"
+    )
+    TOUCHABLE = (
+        "<hierarchy><node>"
+        '<node bounds="[0,100][1080,220]">'
+        '<node text="Welcome!" bounds="[40,130][400,190]"/>'
+        "</node></node></hierarchy>"
+    )
+    BOUNDLESS = (
+        "<hierarchy><node><node>"
+        '<node text="Welcome!"/>'
+        "</node></node></hierarchy>"
+    )
+
+    def test_a_clickable_ancestor_is_still_preferred(self) -> None:
+        node = find_node(self.CLICKABLE, "Welcome!")
+
+        self.assertEqual(node.attrib["bounds"], "[0,100][1080,220]")
+        self.assertEqual(node.attrib["clickable"], "true")
+
+    def test_a_touchable_without_clickable_is_still_addressable(self) -> None:
+        node = find_node(self.TOUCHABLE, "Welcome!")
+
+        self.assertEqual(node.attrib["bounds"], "[40,130][400,190]")
+
+    def test_a_subtree_with_no_bounds_at_all_is_reported(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "no usable bounds"):
+            find_node(self.BOUNDLESS, "Welcome!")
 
 
 if __name__ == "__main__":

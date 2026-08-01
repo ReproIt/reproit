@@ -119,11 +119,30 @@ the media permission and reached the application's own Home screen. It timed out
 after 180 seconds in `capture_music_ui`, whose first wait requires both `HOME`
 and `ARTISTS` in the accessibility tree. The retained
 `music-affected-1-home-wait-failure.xml` shows the live screen at
-`cdd2305aa0ae3bb5dcefe0691090a1d57cf53cb3`: the top-level tabs are `HOME`,
-`FOLDERS`, `PLAYLISTS` and `TRACKS`, with no `ARTISTS` tab at all, and the track
-count still reads `0`. The trigger was authored against a navigation this
-revision does not have, and it also assumes the media scan has completed by the
-time the Home screen renders.
+`cdd2305aa0ae3bb5dcefe0691090a1d57cf53cb3`: the visible tabs are `HOME`,
+`FOLDERS`, `PLAYLISTS` and `TRACKS` in a band at `y` 2150 to 2285, followed by
+the `Search` and `Settings` actions, and the track count still reads `0`.
+
+Two independent causes, and the first reading of this dump got one of them
+wrong. The correction is on the record rather than quietly replaced.
+
+**The ARTISTS tab is not missing; it is off screen.** `(main)/_layout.tsx`
+renders the bar as a horizontal `FlatList` over `index` plus every displayed
+tab, and `UserPreferences.ts` defaults `tabsOrder` to
+`["folder", "playlist", "track", "album", "artist"]` with all of them visible.
+Six entries do not fit 1080 device pixels, so `ALBUMS` and `ARTISTS` start
+beyond the right edge, and a UiAutomator2 dump only reports visible nodes.
+Waiting for `ARTISTS` without scrolling the bar could never have succeeded on
+any revision. The first record said the tab did not exist at this revision;
+that was wrong about the mechanism, and the candidate was never in doubt.
+
+**Nothing was ever indexed.** `seed_music` announced each pushed file with
+`ACTION_MEDIA_SCANNER_SCAN_FILE`. That is a protected broadcast MediaProvider
+stopped honouring long before API 36, so it silently indexed nothing and the
+application had no media to scan, which is why the track count read `0` rather
+than `4`. Seeding now calls MediaStore's `scan_file` per fixture and
+`scan_volume` for `external_primary` through the content provider, queries the
+audio volume back, and refuses to continue unless every fixture is present.
 
 ### joplin: executed and disqualified on an unaddressable node
 
@@ -143,12 +162,18 @@ remaining ADB devices, and every owned emulator and Appium process proven gone
 by start-clock-tick identity, so the ownership and reset half of the runner is
 now executed rather than asserted.
 
-## Exact missing input
+## Both trigger defects answered
 
-1. A Music trigger authored against the tabs this revision actually has, plus a
-   wait on the scan completing rather than on the Home screen rendering.
-2. Node resolution in `find_node` that can address a React Native touchable
-   which does not set `clickable`, so the joplin long press has usable bounds.
+- `find_node` still prefers a clickable ancestor, and now falls back to the
+  matching node itself, rising only as far as the nearest ancestor with bounds a
+  pointer action can target. Three unit cases guard the three outcomes.
+- The Music trigger waits for the home screen, then waits for the application's
+  own track count to leave zero, then scrolls the navigation bar within its own
+  measured band until `ARTISTS` is addressable, retaining a dump if eight swipes
+  do not reveal it.
+- Seeding proves the index rather than requesting it, and each run record
+  retains the MediaStore rows it saw.
 
-Both are harness work on a proven route with the four archives already built.
-The applications, the revision pairs and the identities are unchanged.
+`react_native_android_campaign.py` reached this repository's 1000 line ceiling
+with these changes, so the accessibility-tree addressing and the gestures both
+applications share moved into `react_native_android_ui.py`.

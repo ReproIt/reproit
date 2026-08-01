@@ -4,22 +4,30 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import time
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Callable
 
 from nextplayer_permission_loop import (
-    ALLOW_BUTTON_IDS,
     AppiumServer,
     AppiumSession,
-    BOUNDS,
     Device,
     run_with_reset,
     sha256,
+)
+from react_native_android_ui import (
+    grant_permission,
+    install,
+    long_press_text,
+    nodes,
+    press_back,
+    retain_observation,
+    reveal_music_tab,
+    swipe_left,
+    tap_text,
+    wait_source,
 )
 from react_native_android_runtime import (
     APPIUM_VERSION,
@@ -59,192 +67,6 @@ MUSIC_FIXTURE_NAMES = {
 }
 
 
-def nodes(source: str) -> list[ET.Element]:
-    return list(ET.fromstring(source).iter())
-
-def wait_source(
-    session: AppiumSession,
-    evidence: Path,
-    label: str,
-    predicate: Callable[[str], bool],
-    seconds: int = 90,
-) -> str:
-    source = ""
-    for _ in range(seconds):
-        source = session.source()
-        if predicate(source):
-            return source
-        time.sleep(1)
-    (evidence / f"{label}-wait-failure.xml").write_text(source, encoding="utf-8")
-    raise RuntimeError(f"{label} UI condition did not become true")
-
-
-def find_node(source: str, text: str, *, contains: bool = False) -> ET.Element:
-    root = ET.fromstring(source)
-    parents = {child: parent for parent in root.iter() for child in parent}
-    matching = None
-    for candidate in root.iter():
-        values = [candidate.attrib.get(key, "") for key in ELEMENT_TEXT_KEYS]
-        if contains and any(text in value for value in values):
-            matching = candidate
-            break
-        if not contains and text in values:
-            matching = candidate
-            break
-    if matching is None:
-        raise RuntimeError(f"UI node not found: {text!r}")
-    while matching.attrib.get("clickable") != "true" and matching in parents:
-        matching = parents[matching]
-    return matching
-
-
-def tap_text(
-    session: AppiumSession,
-    source: str,
-    text: str,
-    *,
-    contains: bool = False,
-) -> None:
-    node = find_node(source, text, contains=contains)
-    session.tap_bounds(node.attrib.get("bounds", ""))
-
-
-def long_press_text(
-    session: AppiumSession,
-    source: str,
-    text: str,
-    *,
-    contains: bool = False,
-) -> None:
-    node = find_node(source, text, contains=contains)
-    match = BOUNDS.fullmatch(node.attrib.get("bounds", ""))
-    if match is None:
-        raise RuntimeError(f"UI node has no usable bounds: {text!r}")
-    left, top, right, bottom = map(int, match.groups())
-    actions = {
-        "actions": [
-            {
-                "type": "pointer",
-                "id": "finger",
-                "parameters": {"pointerType": "touch"},
-                "actions": [
-                    {
-                        "type": "pointerMove",
-                        "duration": 0,
-                        "origin": "viewport",
-                        "x": (left + right) // 2,
-                        "y": (top + bottom) // 2,
-                    },
-                    {"type": "pointerDown", "button": 0},
-                    {"type": "pause", "duration": 1400},
-                    {"type": "pointerUp", "button": 0},
-                ],
-            }
-        ]
-    }
-    session._request("POST", f"/session/{session.session_id}/actions", actions)
-    session._request("DELETE", f"/session/{session.session_id}/actions")
-
-
-def swipe_left(session: AppiumSession, y: int = 720) -> None:
-    actions = {
-        "actions": [
-            {
-                "type": "pointer",
-                "id": "finger",
-                "parameters": {"pointerType": "touch"},
-                "actions": [
-                    {
-                        "type": "pointerMove",
-                        "duration": 0,
-                        "origin": "viewport",
-                        "x": 850,
-                        "y": y,
-                    },
-                    {"type": "pointerDown", "button": 0},
-                    {
-                        "type": "pointerMove",
-                        "duration": 700,
-                        "origin": "viewport",
-                        "x": 180,
-                        "y": y,
-                    },
-                    {"type": "pointerUp", "button": 0},
-                ],
-            }
-        ]
-    }
-    session._request("POST", f"/session/{session.session_id}/actions", actions)
-    session._request("DELETE", f"/session/{session.session_id}/actions")
-
-
-def press_back(session: AppiumSession) -> None:
-    session._request(
-        "POST",
-        f"/session/{session.session_id}/execute/sync",
-        {"script": "mobile: pressKey", "args": [{"keycode": 4}]},
-    )
-
-
-def grant_permission(session: AppiumSession, evidence: Path, label: str) -> None:
-    source = ""
-    for _ in range(45):
-        source = session.source()
-        for node in nodes(source):
-            resource_id = node.attrib.get("resource-id")
-            text = node.attrib.get("text", "")
-            if resource_id not in ALLOW_BUTTON_IDS and text not in {
-                "Allow",
-                "Allow all",
-                "While using the app",
-            }:
-                continue
-            session.tap_bounds(node.attrib.get("bounds", ""))
-            return
-        if MUSIC_PACKAGE in source or JOPLIN_PACKAGE in source:
-            time.sleep(1)
-    (evidence / f"{label}-permission-failure.xml").write_text(
-        source,
-        encoding="utf-8",
-    )
-    raise RuntimeError(f"{label} permission dialog did not expose Allow")
-
-
-def retain_observation(
-    device: Device,
-    session: AppiumSession,
-    label: str,
-    source: str,
-) -> dict:
-    source_path = device.evidence / f"{label}-source.xml"
-    source_path.write_text(source, encoding="utf-8")
-    screenshot = device.evidence / f"{label}-screen.png"
-    session.screenshot(screenshot)
-    logcat = device.adb_run(
-        "logcat",
-        "-d",
-        "-t",
-        "3000",
-        capture=True,
-        check=False,
-        timeout=60,
-    )
-    (device.evidence / f"{label}-logcat.log").write_text(
-        logcat,
-        encoding="utf-8",
-    )
-    return {
-        "sourceSha256": f"sha256:{hashlib.sha256(source.encode()).hexdigest()}",
-        "screenshotSha256": f"sha256:{sha256(screenshot)}",
-    }
-
-
-def install(device: Device, package: str, apk: Path) -> None:
-    device.adb_run("uninstall", package, capture=True, check=False)
-    device.adb_run("install", str(apk), timeout=300)
-    device.adb_run("logcat", "-c")
-
-
 def music_fixture_hashes(fixture_dir: Path) -> dict[str, str]:
     fixtures = {}
     for fixture in sorted(fixture_dir.glob("*.mp3")):
@@ -268,7 +90,16 @@ def select_music_fixtures(
     return fixtures
 
 
-def seed_music(device: Device, fixtures: list[Path]) -> None:
+def seed_music(device: Device, fixtures: list[Path]) -> str:
+    """Push the fixture set and make MediaStore index it before the app scans.
+
+    ACTION_MEDIA_SCANNER_SCAN_FILE is a protected broadcast that MediaProvider
+    stopped honouring long before API 36, so it silently indexes nothing: the
+    first executed run reached the Music home screen with the track count still
+    reading zero. MediaStore.scanFile and scanVolume are reachable from the
+    shell as provider calls, and the returned row count is the proof the volume
+    really was indexed rather than the request merely accepted.
+    """
     remote_dir = "/sdcard/Music/ReproitField"
     device.adb_run("shell", "mkdir", "-p", remote_dir)
     for fixture in fixtures:
@@ -276,13 +107,51 @@ def seed_music(device: Device, fixtures: list[Path]) -> None:
         device.adb_run("push", str(fixture), remote, timeout=120)
         device.adb_run(
             "shell",
-            "am",
-            "broadcast",
-            "-a",
-            "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
-            "-d",
-            f"file://{remote}",
+            "content",
+            "call",
+            "--uri",
+            "content://media",
+            "--method",
+            "scan_file",
+            "--arg",
+            remote,
+            check=False,
+            timeout=120,
         )
+    device.adb_run(
+        "shell",
+        "content",
+        "call",
+        "--uri",
+        "content://media",
+        "--method",
+        "scan_volume",
+        "--arg",
+        "external_primary",
+        check=False,
+        timeout=300,
+    )
+    indexed = device.adb_run(
+        "shell",
+        "content",
+        "query",
+        "--uri",
+        "content://media/external/audio/media",
+        "--projection",
+        "_display_name",
+        capture=True,
+        check=False,
+        timeout=120,
+    )
+    found = {
+        fixture.name for fixture in fixtures if fixture.name in indexed
+    }
+    if found != {fixture.name for fixture in fixtures}:
+        raise RuntimeError(
+            "MediaStore did not index the whole fixture set: "
+            f"{sorted(found)} of {sorted(f.name for f in fixtures)}"
+        )
+    return indexed
 
 
 def visible_media_cards(source: str) -> list[dict[str, object]]:
@@ -420,13 +289,21 @@ def capture_music_ui(
         )
         appium = session.evidence()
         grant_permission(session, device.evidence, label)
-        source = wait_source(
+        wait_source(
             session,
             device.evidence,
             f"{label}-home",
-            lambda value: "HOME" in value and "ARTISTS" in value,
+            lambda value: "HOME" in value and "FOLDERS" in value,
             seconds=180,
         )
+        wait_source(
+            session,
+            device.evidence,
+            f"{label}-scan",
+            lambda value: 'content-desc="0, Tracks"' not in value,
+            seconds=300,
+        )
+        source = reveal_music_tab(session, device, label, "ARTISTS")
         tap_text(session, source, "ARTISTS")
         source = wait_source(
             session,
@@ -476,7 +353,7 @@ def observe_music(
         music_fixture_names(observation_mode),
     )
     install(device, MUSIC_PACKAGE, apk)
-    seed_music(device, fixtures)
+    indexed = seed_music(device, fixtures)
     appium, flags, signatures, retained = capture_music_ui(
         device,
         label,
@@ -504,6 +381,9 @@ def observe_music(
             fixture.name: f"sha256:{sha256(fixture)}" for fixture in fixtures
         },
         "observationMode": observation_mode,
+        "mediaStoreIndexed": sorted(
+            row.strip() for row in indexed.splitlines() if row.strip()
+        ),
         "networkContainment": network,
         "appium": appium,
         **retained,
