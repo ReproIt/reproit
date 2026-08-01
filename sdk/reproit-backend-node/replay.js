@@ -9,11 +9,14 @@
  * live dependencies.
  *
  * Determinism is a contract here, not a similarity score. Matching is
- * strict: next-unconsumed exchange of the same protocol, method, and path
- * (recorded `$reproit` redaction placeholders match any value at their
- * position). The first unmatched call is a DIVERGENCE: it is reported as a
- * structured `REPROIT:DIVERGENCE` line on stderr and the call fails with
- * status 599 (HTTP) or a thrown error (pg), never a fuzzy match.
+ * strict per-operation ordinals: within one operation (method+path for HTTP,
+ * statement text for pg) exchanges are consumed in recorded order, so pooled
+ * pg clients and LLM tool-call loops that interleave operations still match
+ * exactly. Recorded `$reproit` redaction placeholders match any value at
+ * their position; nothing else is tolerated. The first unmatched call is a
+ * DIVERGENCE: it is reported as a structured `REPROIT:DIVERGENCE` line on
+ * stderr and the call fails with status 599 (HTTP) or a thrown error (pg),
+ * never a fuzzy match.
  *
  * The envelope pins the replay's determinism: `TZ` from the capture,
  * `Date.now` offset to the capture moment, `Math.random` seeded from
@@ -47,17 +50,22 @@ class ReplaySession {
     this.diverged = false;
   }
 
-  // Strict next-unconsumed match. Returns the exchange or null (divergence).
+  // Strict per-operation ordinal match. Returns the exchange or null
+  // (divergence).
   match(protocol, probe) {
     const matcher = protocol === 'http' ? httpRequestMatcher : pgRequestMatcher;
+    const key = operationKey(protocol, probe);
     for (const entry of this.exchanges) {
       if (entry.consumed || entry.exchange.protocol !== protocol) continue;
+      if (operationKey(protocol, entry.exchange.request ?? {}) !== key) continue;
       if (matcher(entry.exchange.request ?? {}, probe)) {
         entry.consumed = true;
         return entry.exchange;
       }
-      // Strict ordering within a protocol: the first unconsumed exchange is
-      // the only candidate; skipping it silently would be a fuzzy match.
+      // Strict ordinal within an operation: the next unconsumed exchange of
+      // THIS operation is the only candidate; skipping it silently would be
+      // a fuzzy match. Other operations' exchanges may interleave (pg
+      // pooling, tool-call loops), which is why the key filters above.
       break;
     }
     this.diverge(protocol, probe);
@@ -66,9 +74,14 @@ class ReplaySession {
 
   diverge(protocol, probe) {
     this.diverged = true;
-    const expected = this.exchanges.find(
+    const key = operationKey(protocol, probe);
+    const candidates = this.exchanges.filter(
       (entry) => !entry.consumed && entry.exchange.protocol === protocol,
     );
+    const expected =
+      candidates.find(
+        (entry) => operationKey(protocol, entry.exchange.request ?? {}) === key,
+      ) ?? candidates[0];
     const report = {
       protocol,
       got: probe,
@@ -76,8 +89,77 @@ class ReplaySession {
       consumed: this.exchanges.filter((entry) => entry.consumed).length,
       total: this.exchanges.length,
     };
+    // Prompt drift: when the recorded and live bodies both exist and differ,
+    // name WHERE they differ. Chat-shaped bodies (OpenAI/Anthropic messages
+    // arrays) name the first differing message index; unknown shapes fall
+    // back to the byte offset of the first differing byte.
+    const delta = expected ? bodyDelta((expected.exchange.request ?? {}).body, probe.body) : null;
+    if (delta !== null) report.bodyDelta = delta;
     process.stderr.write(DIVERGENCE_MARKER + JSON.stringify(report) + '\n');
   }
+}
+
+// One operation's identity for ordinal matching: HTTP is method plus
+// path+query, pg is the exact statement text.
+function operationKey(protocol, request) {
+  return protocol === 'http'
+    ? String(request.method ?? '') + ' ' + urlPathAndQuery(request.url)
+    : String(request.text ?? '');
+}
+
+// The messages array of an OpenAI/Anthropic-shaped chat body, else null.
+function chatMessages(body) {
+  if (body && typeof body === 'object' && Array.isArray(body.messages)) return body.messages;
+  return null;
+}
+
+// Locate the first difference between a recorded request body and a live
+// one, modulo redaction placeholders. Null when there is nothing to report
+// (either body missing, or no difference the matcher would object to).
+function bodyDelta(recorded, live) {
+  if (recorded === undefined || live === undefined) return null;
+  if (matches(recorded, live)) return null;
+  const recordedMessages = chatMessages(recorded);
+  const liveMessages = chatMessages(live);
+  if (recordedMessages !== null && liveMessages !== null) {
+    const bound = Math.min(recordedMessages.length, liveMessages.length);
+    let index = null;
+    for (let i = 0; i < bound; i += 1) {
+      if (!matches(recordedMessages[i], liveMessages[i])) {
+        index = i;
+        break;
+      }
+    }
+    // All shared indexes match: the drift is a longer/shorter conversation,
+    // and the first differing message is the first unshared one. If lengths
+    // also agree the drift is outside `messages`; fall through to bytes.
+    if (index === null && recordedMessages.length !== liveMessages.length) index = bound;
+    if (index !== null) {
+      return {
+        kind: 'message',
+        firstDifferingMessage: index,
+        recordedMessages: recordedMessages.length,
+        liveMessages: liveMessages.length,
+      };
+    }
+  }
+  const recordedBytes = Buffer.from(
+    typeof recorded === 'string' ? recorded : JSON.stringify(recorded) ?? '',
+    'utf8',
+  );
+  const liveBytes = Buffer.from(
+    typeof live === 'string' ? live : JSON.stringify(live) ?? '',
+    'utf8',
+  );
+  const bound = Math.min(recordedBytes.length, liveBytes.length);
+  let offset = bound;
+  for (let i = 0; i < bound; i += 1) {
+    if (recordedBytes[i] !== liveBytes[i]) {
+      offset = i;
+      break;
+    }
+  }
+  return { kind: 'byte', offset };
 }
 
 // A recorded value matches a live one when equal, or when the recorded side
@@ -133,7 +215,35 @@ function serveHttp(session, probe) {
       : typeof response.body === 'string'
         ? response.body
         : JSON.stringify(response.body);
-  return { status: response.status ?? 200, headers, bodyText };
+  const served = { status: response.status ?? 200, headers, bodyText };
+  if (response.stream && Array.isArray(response.stream.chunks)) {
+    if (response.stream.truncated === true) {
+      // The capture kept the body but not every chunk boundary; serving a
+      // guessed stream shape would be a silent lie. Fail closed, named.
+      session.diverge('http', { ...probe, streamBoundariesTruncated: true });
+      return diverged599('truncated-stream-boundaries');
+    }
+    served.chunks = splitChunks(bodyText, response.stream.chunks);
+  }
+  return served;
+}
+
+// Split a replayed body at the recorded chunk boundaries (byte lengths).
+// Redaction can change body byte counts, so lengths are clamped and the last
+// chunk absorbs any remainder: the CHUNK COUNT (the stream shape the app
+// observed) is preserved exactly, the recorded content is never padded.
+function splitChunks(bodyText, lengths) {
+  const bytes = Buffer.from(bodyText, 'utf8');
+  const chunks = [];
+  let offset = 0;
+  for (let i = 0; i < lengths.length; i += 1) {
+    const last = i === lengths.length - 1;
+    const size = Number.isInteger(lengths[i]) && lengths[i] > 0 ? lengths[i] : 0;
+    const end = last ? bytes.length : Math.min(offset + size, bytes.length);
+    chunks.push(bytes.subarray(offset, end));
+    offset = end;
+  }
+  return chunks;
 }
 
 function diverged599(reason) {
@@ -206,5 +316,7 @@ module.exports = {
   // vectors pin them directly rather than through a live replay.
   httpRequestMatcher,
   pgRequestMatcher,
+  operationKey,
+  bodyDelta,
   DIVERGENCE_MARKER,
 };

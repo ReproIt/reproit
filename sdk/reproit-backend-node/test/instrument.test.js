@@ -28,6 +28,17 @@ function beginTrace() {
   );
 }
 
+// Exchanges land asynchronously when the response body ends (both the http
+// and the fetch wrapper). Bounded settle: never an unbounded poll.
+async function settledExchange(trace) {
+  for (let tick = 0; tick < 50; tick += 1) {
+    const exchange = trace.events().find((event) => event.exchange)?.exchange;
+    if (exchange) return exchange;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  return trace.events().find((event) => event.exchange)?.exchange;
+}
+
 test('http.get exchanges record request and response on the ambient trace', async () => {
   const upstream = await startUpstream((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' });
@@ -77,7 +88,7 @@ test('fetch exchanges are recorded with bodies', async () => {
     });
   });
   upstream.close();
-  const exchange = trace.events().find((event) => event.exchange)?.exchange;
+  const exchange = await settledExchange(trace);
   assert.ok(exchange, 'exchange event recorded');
   assert.strictEqual(exchange.request.method, 'POST');
   assert.deepStrictEqual(exchange.request.body, { amount: 5 });
@@ -97,11 +108,59 @@ test('oversized bodies keep provable identity only', async () => {
     await fetch('http://127.0.0.1:' + port + '/blob');
   });
   upstream.close();
-  const exchange = trace.events().find((event) => event.exchange)?.exchange;
+  const exchange = await settledExchange(trace);
   assert.strictEqual(exchange.response.truncated, true);
   assert.strictEqual(exchange.response.bodyBytes, big.length);
   assert.match(exchange.response.bodySha256, /^[0-9a-f]{64}$/);
   assert.strictEqual(exchange.response.body, undefined);
+});
+
+test('SSE responses record one exchange with chunk boundaries preserved', async () => {
+  const frames = [
+    'event: message_start\ndata: {"type":"message_start"}\n\n',
+    'data: {"type":"content_block_delta","delta":{"text":"Hello"}}\n\n',
+    'data: {"type":"message_stop"}\n\n',
+  ];
+  const upstream = await startUpstream((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    let index = 0;
+    const send = () => {
+      if (index >= frames.length) return res.end();
+      res.write(frames[index++]);
+      setTimeout(send, 5);
+    };
+    send();
+  });
+  const port = upstream.address().port;
+  const trace = beginTrace();
+  await traceStorage.run(trace, async () => {
+    const response = await fetch('http://127.0.0.1:' + port + '/v1/messages');
+    await response.text();
+  });
+  upstream.close();
+  const exchange = await settledExchange(trace);
+  assert.ok(exchange, 'exchange event recorded');
+  assert.strictEqual(exchange.response.body, frames.join(''));
+  assert.deepStrictEqual(
+    exchange.response.stream.chunks,
+    frames.map((frame) => Buffer.byteLength(frame)),
+  );
+  assert.notStrictEqual(exchange.response.stream.truncated, true);
+});
+
+test('single-chunk non-SSE responses record no stream shape', async () => {
+  const upstream = await startUpstream((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+  });
+  const port = upstream.address().port;
+  const trace = beginTrace();
+  await traceStorage.run(trace, async () => {
+    await fetch('http://127.0.0.1:' + port + '/plain');
+  });
+  upstream.close();
+  const exchange = await settledExchange(trace);
+  assert.strictEqual(exchange.response.stream, undefined);
 });
 
 test('pg queries record rows and errors as exchanges', async () => {
