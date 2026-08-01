@@ -280,7 +280,9 @@ def serve_http(session, probe):
     elif isinstance(body, str):
         body_text = body
     else:
-        body_text = json.dumps(body)
+        # Compact separators: byte-identical to the Node reference's
+        # JSON.stringify of the same recorded body.
+        body_text = json.dumps(body, separators=(",", ":"))
     served = {
         "status": response.get("status") or 200,
         "headers": headers,
@@ -321,7 +323,7 @@ def _diverged_599(reason):
     return {
         "status": 599,
         "headers": {"content-type": "application/json"},
-        "body_text": json.dumps({"reproit": reason}),
+        "body_text": json.dumps({"reproit": reason}, separators=(",", ":")),
     }
 
 
