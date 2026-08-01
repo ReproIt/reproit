@@ -2,15 +2,15 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-HERE="$ROOT/validation/field/linux-qt-widgets"
+HERE="$ROOT/validation/field/linux-wxwidgets"
 WORK="$(mktemp -d)"
-OUTPUT="${REPROIT_QT_WIDGETS_OUTPUT:-$ROOT/target/reproit-validation/linux-qt-widgets/amd64}"
-GATEWAY="${REPROIT_QT_WIDGETS_GATEWAY:-black@zgx-5a09.local}"
-STRIX="${REPROIT_QT_WIDGETS_STRIX_HOST:-strix}"
-CAMPAIGN_ID="qtw-$(uuidgen | tr '[:upper:]' '[:lower:]')"
-IMAGE="reproit-field-linux-qt-widgets:$CAMPAIGN_ID"
-REMOTE_ROOT="/home/black/reproit-qtwidgets-field-$CAMPAIGN_ID"
-CONTAINER_PREFIX="reproit-qtwidgets-field-$CAMPAIGN_ID"
+OUTPUT="${REPROIT_WXWIDGETS_OUTPUT:-$ROOT/target/reproit-validation/linux-wxwidgets/amd64}"
+GATEWAY="${REPROIT_WXWIDGETS_GATEWAY:-black@zgx-5a09.local}"
+STRIX="${REPROIT_WXWIDGETS_STRIX_HOST:-strix}"
+CAMPAIGN_ID="wxw-$(uuidgen | tr '[:upper:]' '[:lower:]')"
+IMAGE="reproit-field-linux-wxwidgets:$CAMPAIGN_ID"
+REMOTE_ROOT="/home/black/reproit-wxwidgets-field-$CAMPAIGN_ID"
+CONTAINER_PREFIX="reproit-wxwidgets-field-$CAMPAIGN_ID"
 SSH_OPTIONS=(
   -o BatchMode=yes
   -o ConnectTimeout=10
@@ -68,8 +68,7 @@ archive_revision() {
   git -C "$repository" archive "$revision" | tar -x -C "$destination"
 }
 
-QVIEW_REPOSITORY="${REPROIT_QVIEW_REPOSITORY:?set REPROIT_QVIEW_REPOSITORY}"
-KEEPASSXC_REPOSITORY="${REPROIT_KEEPASSXC_REPOSITORY:?set REPROIT_KEEPASSXC_REPOSITORY}"
+WXMAXIMA_REPOSITORY="${REPROIT_WXMAXIMA_REPOSITORY:?set REPROIT_WXMAXIMA_REPOSITORY}"
 if [[ -e "$OUTPUT" ]]; then
   [[ -d "$OUTPUT" ]]
   [[ -z "$(find "$OUTPUT" -mindepth 1 -print -quit)" ]]
@@ -78,21 +77,13 @@ else
 fi
 
 archive_revision \
-  "$QVIEW_REPOSITORY" \
-  9f6c225451bb060af8fafd948839432a6de32f4a \
-  "$WORK/qview-affected"
+  "$WXMAXIMA_REPOSITORY" \
+  e5c410e884c3f1b24c54ac1179c16c3cf0283247 \
+  "$WORK/wxmaxima-affected"
 archive_revision \
-  "$QVIEW_REPOSITORY" \
-  e28cbe7b8521959777f40ad6a43b62b4ee243b28 \
-  "$WORK/qview-fixed"
-archive_revision \
-  "$KEEPASSXC_REPOSITORY" \
-  caa7d1476134d86c1cf769081d8460933f4cd11c \
-  "$WORK/keepassxc-affected"
-archive_revision \
-  "$KEEPASSXC_REPOSITORY" \
-  58a2919650f814e042daf0f51fe7c76705f0288c \
-  "$WORK/keepassxc-fixed"
+  "$WXMAXIMA_REPOSITORY" \
+  684d2ed4e106fc0fc174f5537129bfd13ba68b93 \
+  "$WORK/wxmaxima-fixed"
 cp "$HERE/Dockerfile" "$WORK/Dockerfile"
 cp "$HERE/probe.py" "$WORK/probe.py"
 cp "$HERE/atspi_helpers.py" "$WORK/atspi_helpers.py"
@@ -102,10 +93,8 @@ COPYFILE_DISABLE=1 tar -C "$WORK" -cf - \
   Dockerfile \
   atspi_helpers.py \
   probe.py \
-  qview-affected \
-  qview-fixed \
-  keepassxc-affected \
-  keepassxc-fixed \
+  wxmaxima-affected \
+  wxmaxima-fixed \
   | ssh "${SSH_OPTIONS[@]}" "$GATEWAY" \
     "ssh -o BatchMode=yes -o ConnectTimeout=10 \
       -o ServerAliveInterval=15 -o ServerAliveCountMax=4 '$STRIX' \
@@ -114,9 +103,9 @@ COPYFILE_DISABLE=1 tar -C "$WORK" -cf - \
 on_strix 60 \
   "test \"\$(find '$REMOTE_ROOT/context' -type f -name '._*' -print -quit)\" = ''"
 
-on_strix 1800 \
+on_strix 2400 \
   "date +%s > '$REMOTE_ROOT/output/build-start.epoch'; \
-    docker build --platform linux/amd64 -t '$IMAGE' \
+    docker build --no-cache --platform linux/amd64 -t '$IMAGE' \
       '$REMOTE_ROOT/context'; \
     date +%s > '$REMOTE_ROOT/output/build-finish.epoch'"
 
@@ -132,30 +121,22 @@ bounded_run() {
       $* --output '/output/$file'"
 }
 
-for application in qview keepassxc; do
-  for revision in affected fixed; do
-    for run in 1 2 3; do
-      bounded_run \
-        "${CONTAINER_PREFIX}-${application}-${revision}-${run}" \
-        "${application}-${revision}-${run}.json" \
-        "--application '$application' --revision '$revision' --run '$run'"
-    done
+for revision in affected fixed; do
+  for run in 1 2 3; do
+    bounded_run \
+      "${CONTAINER_PREFIX}-wxmaxima-${revision}-${run}" \
+      "wxmaxima-${revision}-${run}.json" \
+      "--application wxmaxima --revision '$revision' --run '$run'"
   done
 done
 
 # Corpus subjects. Every case runs the fixed revision, so a reported identity
 # would be a false positive rather than the campaign defect.
-for subject in \
-  "qview default" \
-  "qview maximized-roundtrip" \
-  "keepassxc default" \
-  "keepassxc configured-length-32"; do
-  # shellcheck disable=SC2086
-  set -- $subject
+for variant in default neighboring-panes; do
   bounded_run \
-    "${CONTAINER_PREFIX}-corpus-$1-$2" \
-    "corpus-$1-$2.json" \
-    "--application '$1' --revision fixed --run 1 --variant '$2'"
+    "${CONTAINER_PREFIX}-corpus-wxmaxima-$variant" \
+    "corpus-wxmaxima-$variant.json" \
+    "--application wxmaxima --revision fixed --run 1 --variant '$variant'"
 done
 
 on_strix 120 \
@@ -178,4 +159,4 @@ on_strix 120 \
   "find '$REMOTE_ROOT' -depth -delete; test ! -e '$REMOTE_ROOT'; \
     printf 'remoteRootRemaining=0\\n'" \
   > "$OUTPUT/remote-root-cleanup.txt"
-printf 'linux-qt-widgets x86 campaign complete: %s\n' "$OUTPUT"
+printf 'linux-wxwidgets x86 campaign complete: %s\n' "$OUTPUT"

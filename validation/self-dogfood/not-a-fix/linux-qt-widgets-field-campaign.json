@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "linux-qt-widgets-field-campaign",
+  "changeType": "tooling",
+  "detail": "Executes the Linux Qt Widgets field campaign on the native x86_64 worker and promotes the target on the evidence it produced. qView 9f6c225 and 58a2919-era KeePassXC are built from source at both revisions in one offline linux/amd64 container; three affected reproductions per application land on one identity and three fixed controls reach observation without one, and four corpus subjects on the fixed revisions report nothing. The Qt Widgets worker image now builds qView with qmake6 so both subjects stay inside the target's declared Qt 6 runtime bound. No runtime product behavior changes.",
+  "evidence": [
+    {
+      "path": "validation/field/linux-qt-widgets.json",
+      "sha256": "sha256:94b90b8d3a9f3611115c1c464b1767855d6668ad4b335a9a9285806ac2f64044"
+    },
+    {
+      "path": "validation/field/corpus/linux-qt-widgets.json",
+      "sha256": "sha256:dade63690b34c56920695c247e272bb5983b950e64e085984c5f0ba39bcb4d6f"
+    }
+  ]
+}

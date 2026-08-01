@@ -55,7 +55,7 @@ RUN cmake -S /src/keepassxc-affected -B /src/keepassxc-affected/build \
         -DKPXC_MINIMAL=ON \
         -DKPXC_FEATURE_NETWORK=OFF \
         -DKPXC_FEATURE_DOCS=OFF \
-    && cmake --build /src/keepassxc-affected/build --parallel 2 \
+    && cmake --build /src/keepassxc-affected/build --parallel 12 \
     && install -D /src/keepassxc-affected/build/src/keepassxc \
         /opt/reproit/keepassxc-affected \
     && install -D /src/keepassxc-affected/build/src/cli/keepassxc-cli \
@@ -68,45 +68,37 @@ RUN cmake -S /src/keepassxc-affected -B /src/keepassxc-affected/build \
         -DKPXC_MINIMAL=ON \
         -DKPXC_FEATURE_NETWORK=OFF \
         -DKPXC_FEATURE_DOCS=OFF \
-    && cmake --build /src/keepassxc-fixed/build --parallel 2 \
+    && cmake --build /src/keepassxc-fixed/build --parallel 12 \
     && install -D /src/keepassxc-fixed/build/src/keepassxc \
         /opt/reproit/keepassxc-fixed \
     && install -D /src/keepassxc-fixed/build/src/cli/keepassxc-cli \
         /opt/reproit/keepassxc-cli-fixed \
     && rm -rf /src
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        libqt5svg5-dev \
-        libqt5x11extras5-dev \
-        qt5-qmake \
-        qtbase5-dev \
-        qttools5-dev-tools \
-    && rm -rf /var/lib/apt/lists/*
+# qView is built against the same Qt 6 the target's declared runtime bound names.
+# The .pro file pins no Qt major version, so qmake6 selects Qt 6 here.
+COPY qview-affected /src6/qview-affected
+COPY qview-fixed /src6/qview-fixed
 
-COPY qview-affected /src5/qview-affected
-COPY qview-fixed /src5/qview-fixed
-
-RUN /usr/lib/qt5/bin/qmake \
-        /src5/qview-affected/qView.pro \
-        -o /src5/qview-affected/Makefile \
-    && make -C /src5/qview-affected -j2 \
-    && install -D /src5/qview-affected/bin/qview \
+RUN qmake6 \
+        /src6/qview-affected/qView.pro \
+        -o /src6/qview-affected/Makefile \
+    && make -C /src6/qview-affected -j12 \
+    && install -D /src6/qview-affected/bin/qview \
         /opt/reproit/qview-affected \
-    && /usr/lib/qt5/bin/qmake \
-        /src5/qview-fixed/qView.pro \
-        -o /src5/qview-fixed/Makefile \
-    && make -C /src5/qview-fixed -j2 \
-    && install -D /src5/qview-fixed/bin/qview \
+    && qmake6 \
+        /src6/qview-fixed/qView.pro \
+        -o /src6/qview-fixed/Makefile \
+    && make -C /src6/qview-fixed -j12 \
+    && install -D /src6/qview-fixed/bin/qview \
         /opt/reproit/qview-fixed \
-    && rm -rf /src5
+    && rm -rf /src6
 
 RUN dpkg-query -W -f='${binary:Package}\t${Version}\t${Architecture}\n' \
         | sort > /opt/reproit/build-packages.tsv \
     && { \
         g++ --version; \
         qmake6 -v; \
-        /usr/lib/qt5/bin/qmake -v; \
         cmake --version; \
         python3 --version; \
     } > /opt/reproit/toolchain.txt 2>&1

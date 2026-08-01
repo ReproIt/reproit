@@ -1,0 +1,598 @@
+{
+  "schemaVersion": 1,
+  "target": "linux-qt-widgets",
+  "worker": {
+    "image": "sha256:e39f915ebb6d3ed347583ce85a862d172e3af2db2b0fd798c2d6d4003614771a",
+    "platform": "linux/amd64",
+    "network": "none"
+  },
+  "cleanCases": 2,
+  "adversarialCases": 2,
+  "confirmedFalsePositives": 0,
+  "unreachedObservations": 0,
+  "containersRemaining": 0,
+  "cases": [
+    {
+      "id": "qview-clean-base",
+      "kind": "clean",
+      "application": "qview-fullscreen-unmaximize-453",
+      "repository": "https://github.com/jurplel/qView",
+      "revision": "e28cbe7b8521959777f40ad6a43b62b4ee243b28",
+      "fixture": null,
+      "variant": "default",
+      "why": "the ordinary full-screen round trip on the fixed build: the window keeps the geometry it had before the round trip",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "variant": "default",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "memoryMeasurement": "unavailable",
+        "jsHeapMiB": null,
+        "elapsedSeconds": 0.951,
+        "atspiApplication": "qView",
+        "atspiWindow": {
+          "role": "frame",
+          "name": "fixture.ppm",
+          "states": [
+            "active",
+            "enabled",
+            "resizable",
+            "sensitive",
+            "showing",
+            "visible"
+          ]
+        },
+        "x11WindowId": "4194310",
+        "x11ProcessOwnedWindows": [
+          {
+            "id": "4194310",
+            "width": 1280,
+            "height": 781,
+            "area": 999680,
+            "properties": "WM_CLASS(STRING) = \"qview-fixed\", \"qView\"\n_NET_WM_PID(CARDINAL) = 19\nWM_NAME(STRING) = \"fixture.ppm\""
+          }
+        ],
+        "maximizeTrigger": {
+          "channel": "foreground XTEST title-bar double-click",
+          "clickPoint": [
+            320,
+            132
+          ]
+        },
+        "windowResizeMode": {
+          "source": "/tmp/reproit-field/qview-fixed-default-1/home/.config/qView/qView.conf",
+          "value": 2,
+          "meaning": "when opening images"
+        },
+        "firstLaunchDialogSuppressed": {
+          "source": "/tmp/reproit-field/qview-fixed-default-1/home/.config/qView/qView.conf",
+          "key": "firstlaunch",
+          "value": true
+        },
+        "fullscreenTrigger": {
+          "channel": "AT-SPI discovery plus foreground XTEST click",
+          "node": {
+            "role": "menu item",
+            "name": "Enter Full Screen",
+            "states": [
+              "enabled",
+              "sensitive"
+            ]
+          },
+          "parentMenu": {
+            "role": "menu item",
+            "name": "View",
+            "states": [
+              "enabled",
+              "sensitive"
+            ]
+          },
+          "parentMenuAction": "ShowMenu",
+          "enterNodeExtents": [
+            79,
+            220,
+            209,
+            22
+          ],
+          "enterAction": "foreground XTEST left click",
+          "exitNode": {
+            "role": "menu item",
+            "name": "Exit Full Screen",
+            "states": [
+              "enabled",
+              "sensitive"
+            ]
+          },
+          "exitAction": "Press"
+        },
+        "maximizedExtents": [
+          0,
+          19,
+          1280,
+          781
+        ],
+        "fullscreenExtents": [
+          0,
+          0,
+          1280,
+          800
+        ],
+        "postRoundTripExtents": [
+          0,
+          19,
+          1280,
+          781
+        ],
+        "atspiExtentsTolerancePixels": 2,
+        "atspiMaximizedGeometryRestored": true,
+        "postRoundTripStates": [
+          "_NET_WM_STATE_MAXIMIZED_HORZ",
+          "_NET_WM_STATE_MAXIMIZED_VERT"
+        ],
+        "x11MaximizedStateRestored": true,
+        "targetObservation": {
+          "atspiWindow": {
+            "role": "frame",
+            "name": "fixture.ppm",
+            "states": [
+              "active",
+              "enabled",
+              "resizable",
+              "sensitive",
+              "showing",
+              "visible"
+            ]
+          },
+          "beforeExtents": [
+            162,
+            142,
+            316,
+            196
+          ],
+          "afterExtents": [
+            162,
+            142,
+            316,
+            196
+          ],
+          "states": [],
+          "fullscreenTrigger": {
+            "channel": "AT-SPI discovery plus foreground XTEST click",
+            "node": {
+              "role": "menu item",
+              "name": "Enter Full Screen",
+              "states": [
+                "enabled",
+                "sensitive"
+              ]
+            },
+            "parentMenu": {
+              "role": "menu item",
+              "name": "View",
+              "states": [
+                "enabled",
+                "sensitive"
+              ]
+            },
+            "parentMenuAction": "ShowMenu",
+            "enterNodeExtents": [
+              241,
+              343,
+              209,
+              22
+            ],
+            "enterAction": "foreground XTEST left click",
+            "exitNode": {
+              "role": "menu item",
+              "name": "Exit Full Screen",
+              "states": [
+                "enabled",
+                "sensitive"
+              ]
+            },
+            "exitAction": "Press"
+          },
+          "geometryPreserved": true,
+          "nonMaximizedPreserved": true
+        },
+        "maximizedPathDiagnostic": {
+          "result": "non-separating on Debian Bookworm with Openbox",
+          "atspiGeometryRestored": true,
+          "x11StateRestored": true
+        },
+        "neighboringLegalBehavior": {
+          "maximizedGeometryPreserved": true,
+          "maximizedStatePreserved": true
+        },
+        "application": "qview",
+        "revision": "fixed",
+        "run": 1
+      }
+    },
+    {
+      "id": "qview-adversarial-maximized-roundtrip",
+      "kind": "adversarial",
+      "application": "qview-fullscreen-unmaximize-453",
+      "repository": "https://github.com/jurplel/qView",
+      "revision": "e28cbe7b8521959777f40ad6a43b62b4ee243b28",
+      "fixture": null,
+      "variant": "maximized-roundtrip",
+      "why": "the maximized round trip is the scenario the issue title names and it changes the window geometry twice on the way through full screen, so an oracle that merely watches for a resize would report it",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "variant": "maximized-roundtrip",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "memoryMeasurement": "unavailable",
+        "jsHeapMiB": null,
+        "elapsedSeconds": 0.934,
+        "atspiApplication": "qView",
+        "atspiWindow": {
+          "role": "frame",
+          "name": "fixture.ppm",
+          "states": [
+            "active",
+            "enabled",
+            "resizable",
+            "sensitive",
+            "showing",
+            "visible"
+          ]
+        },
+        "x11WindowId": "4194310",
+        "x11ProcessOwnedWindows": [
+          {
+            "id": "4194310",
+            "width": 1280,
+            "height": 781,
+            "area": 999680,
+            "properties": "WM_CLASS(STRING) = \"qview-fixed\", \"qView\"\n_NET_WM_PID(CARDINAL) = 19\nWM_NAME(STRING) = \"fixture.ppm\""
+          }
+        ],
+        "maximizeTrigger": {
+          "channel": "foreground XTEST title-bar double-click",
+          "clickPoint": [
+            320,
+            132
+          ]
+        },
+        "windowResizeMode": {
+          "source": "/tmp/reproit-field/qview-fixed-maximized-roundtrip-1/home/.config/qView/qView.conf",
+          "value": 2,
+          "meaning": "when opening images"
+        },
+        "firstLaunchDialogSuppressed": {
+          "source": "/tmp/reproit-field/qview-fixed-maximized-roundtrip-1/home/.config/qView/qView.conf",
+          "key": "firstlaunch",
+          "value": true
+        },
+        "fullscreenTrigger": {
+          "channel": "AT-SPI discovery plus foreground XTEST click",
+          "node": {
+            "role": "menu item",
+            "name": "Enter Full Screen",
+            "states": [
+              "enabled",
+              "sensitive"
+            ]
+          },
+          "parentMenu": {
+            "role": "menu item",
+            "name": "View",
+            "states": [
+              "enabled",
+              "sensitive"
+            ]
+          },
+          "parentMenuAction": "ShowMenu",
+          "enterNodeExtents": [
+            79,
+            220,
+            209,
+            22
+          ],
+          "enterAction": "foreground XTEST left click",
+          "exitNode": {
+            "role": "menu item",
+            "name": "Exit Full Screen",
+            "states": [
+              "enabled",
+              "sensitive"
+            ]
+          },
+          "exitAction": "Press"
+        },
+        "maximizedExtents": [
+          0,
+          19,
+          1280,
+          781
+        ],
+        "fullscreenExtents": [
+          0,
+          0,
+          1280,
+          800
+        ],
+        "postRoundTripExtents": [
+          0,
+          19,
+          1280,
+          781
+        ],
+        "atspiExtentsTolerancePixels": 2,
+        "atspiMaximizedGeometryRestored": true,
+        "postRoundTripStates": [
+          "_NET_WM_STATE_MAXIMIZED_HORZ",
+          "_NET_WM_STATE_MAXIMIZED_VERT"
+        ],
+        "x11MaximizedStateRestored": true,
+        "targetObservation": {
+          "atspiWindow": {
+            "role": "frame",
+            "name": "fixture.ppm",
+            "states": [
+              "active",
+              "enabled",
+              "resizable",
+              "sensitive",
+              "showing",
+              "visible"
+            ]
+          },
+          "beforeExtents": [
+            162,
+            142,
+            316,
+            196
+          ],
+          "afterExtents": [
+            162,
+            142,
+            316,
+            196
+          ],
+          "states": [],
+          "fullscreenTrigger": {
+            "channel": "AT-SPI discovery plus foreground XTEST click",
+            "node": {
+              "role": "menu item",
+              "name": "Enter Full Screen",
+              "states": [
+                "enabled",
+                "sensitive"
+              ]
+            },
+            "parentMenu": {
+              "role": "menu item",
+              "name": "View",
+              "states": [
+                "enabled",
+                "sensitive"
+              ]
+            },
+            "parentMenuAction": "ShowMenu",
+            "enterNodeExtents": [
+              241,
+              343,
+              209,
+              22
+            ],
+            "enterAction": "foreground XTEST left click",
+            "exitNode": {
+              "role": "menu item",
+              "name": "Exit Full Screen",
+              "states": [
+                "enabled",
+                "sensitive"
+              ]
+            },
+            "exitAction": "Press"
+          },
+          "geometryPreserved": true,
+          "nonMaximizedPreserved": true
+        },
+        "maximizedPathDiagnostic": {
+          "result": "non-separating on Debian Bookworm with Openbox",
+          "atspiGeometryRestored": true,
+          "x11StateRestored": true
+        },
+        "neighboringLegalBehavior": {
+          "maximizedGeometryPreserved": true,
+          "maximizedStatePreserved": true
+        },
+        "application": "qview",
+        "revision": "fixed",
+        "run": 1
+      }
+    },
+    {
+      "id": "keepassxc-clean-base",
+      "kind": "clean",
+      "application": "keepassxc-autogenerate-charset-13073",
+      "repository": "https://github.com/keepassxreboot/keepassxc",
+      "revision": "58a2919650f814e042daf0f51fe7c76705f0288c",
+      "fixture": null,
+      "variant": "default",
+      "why": "the ordinary new-entry flow on the fixed build: the generated password is exactly as long as the stored configuration says",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "variant": "default",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "memoryMeasurement": "unavailable",
+        "jsHeapMiB": null,
+        "elapsedSeconds": 4.548,
+        "atspiApplication": "KeePassXC",
+        "generatedPasswordField": {
+          "role": "password text",
+          "name": "",
+          "states": [
+            "editable",
+            "enabled",
+            "focusable",
+            "sensitive",
+            "showing",
+            "visible"
+          ]
+        },
+        "generatedPasswordCharacterCount": 7,
+        "configuredPasswordLength": 7,
+        "developmentNoticeAction": "Press",
+        "unlockAction": "Press",
+        "newEntryAction": "Press",
+        "newEntryMenuAction": "ShowMenu",
+        "neighboringLegalBehavior": {
+          "explicitGeneratorDialog": {
+            "role": "frame",
+            "name": "Password Generator - KeePassXC",
+            "states": [
+              "active",
+              "enabled",
+              "resizable",
+              "sensitive",
+              "showing",
+              "visible"
+            ]
+          },
+          "lengthField": {
+            "role": "spin button",
+            "name": "Password length",
+            "states": [
+              "enabled",
+              "focusable",
+              "sensitive",
+              "showing",
+              "visible"
+            ]
+          },
+          "configuredLength": 7,
+          "generatedPasswordField": {
+            "role": "text",
+            "name": "",
+            "states": [
+              "editable",
+              "enabled",
+              "focusable",
+              "focused",
+              "sensitive",
+              "showing",
+              "visible"
+            ]
+          },
+          "generatedPasswordCharacterCount": 7,
+          "generateAction": "initial generation on dialog open",
+          "cancelEntryAction": "Press",
+          "toolsMenuAction": "ShowMenu",
+          "passwordGeneratorAction": "Press",
+          "sameSavedConfigurationHonored": true
+        },
+        "application": "keepassxc",
+        "revision": "fixed",
+        "run": 1
+      }
+    },
+    {
+      "id": "keepassxc-adversarial-configured-length-32",
+      "kind": "adversarial",
+      "application": "keepassxc-autogenerate-charset-13073",
+      "repository": "https://github.com/keepassxreboot/keepassxc",
+      "revision": "58a2919650f814e042daf0f51fe7c76705f0288c",
+      "fixture": null,
+      "variant": "configured-length-32",
+      "why": "the stored configuration asks for 32 characters, so the new entry gets the same 32-character password the affected build produced by ignoring the configuration; only the stored length distinguishes the two",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "variant": "configured-length-32",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "memoryMeasurement": "unavailable",
+        "jsHeapMiB": null,
+        "elapsedSeconds": 4.371,
+        "atspiApplication": "KeePassXC",
+        "generatedPasswordField": {
+          "role": "password text",
+          "name": "",
+          "states": [
+            "editable",
+            "enabled",
+            "focusable",
+            "sensitive",
+            "showing",
+            "visible"
+          ]
+        },
+        "generatedPasswordCharacterCount": 32,
+        "configuredPasswordLength": 32,
+        "developmentNoticeAction": "Press",
+        "unlockAction": "Press",
+        "newEntryAction": "Press",
+        "newEntryMenuAction": "ShowMenu",
+        "neighboringLegalBehavior": {
+          "explicitGeneratorDialog": {
+            "role": "frame",
+            "name": "Password Generator - KeePassXC",
+            "states": [
+              "active",
+              "enabled",
+              "resizable",
+              "sensitive",
+              "showing",
+              "visible"
+            ]
+          },
+          "lengthField": {
+            "role": "spin button",
+            "name": "Password length",
+            "states": [
+              "enabled",
+              "focusable",
+              "sensitive",
+              "showing",
+              "visible"
+            ]
+          },
+          "configuredLength": 32,
+          "generatedPasswordField": {
+            "role": "text",
+            "name": "",
+            "states": [
+              "editable",
+              "enabled",
+              "focusable",
+              "focused",
+              "sensitive",
+              "showing",
+              "visible"
+            ]
+          },
+          "generatedPasswordCharacterCount": 32,
+          "generateAction": "initial generation on dialog open",
+          "cancelEntryAction": "Press",
+          "toolsMenuAction": "ShowMenu",
+          "passwordGeneratorAction": "Press",
+          "sameSavedConfigurationHonored": true
+        },
+        "application": "keepassxc",
+        "revision": "fixed",
+        "run": 1
+      }
+    }
+  ]
+}
