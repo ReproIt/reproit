@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "linux-qt-quick-candidate-execution",
+  "changeType": "tooling",
+  "detail": "Executes both buildable Linux Qt Quick candidates against their triggers and discards both on the evidence, rather than spending six runs on a pair that does not separate. The kalk read now goes through the AT-SPI text interface as required, since its expression and result fields carry empty accessible names, and the kclock fixture seeds a preset into kclockrc so TimerPresetModel is non-empty. Neither pair separates: the affected kalk already evaluates the comma decimal correctly because libqalculate parses the separator itself, and the kclock preset row is showing on both revisions so the isMobile gate the fix removes gates nothing on this worker. Both observations are retained per revision. The blockers now name the exhausted pool and the one qualified candidate left, elisa, whose build was started but not completed. No run was recorded for any candidate, because no campaign was performed. No runtime product behavior changes.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/linux-qt-quick-discrimination.jsonl",
+      "sha256": "sha256:8058f9ee0bc95c6fd108a14e80a24c77cf38a1aaf4aba0febc2dd29e352aefe5"
+    }
+  ]
+}
