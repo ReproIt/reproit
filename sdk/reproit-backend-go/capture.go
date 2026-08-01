@@ -620,9 +620,24 @@ func captureCapabilities(operation capturedOperation) []any {
 // Go has no cheap IANA zone name for an unset TZ.
 func (c *Capture) determinismEnvelope(observedAt any) map[string]any {
 	seed := c.rng.Add(0x9e3779b97f4a7c15)
+	return determinismEnvelopeFrom(seed, observedAt)
+}
+
+// DeterminismEnvelope builds a standalone determinism envelope for callers
+// that write capture payloads themselves (fixtures, file sinks) instead of
+// uploading through a Capture. Pass the first event's `at` stamp when one
+// exists, nil otherwise.
+func DeterminismEnvelope(observedAt any) map[string]any {
+	return determinismEnvelopeFrom(uint64(time.Now().UnixNano())|1, observedAt)
+}
+
+func determinismEnvelopeFrom(seed uint64, observedAt any) map[string]any {
 	seed ^= seed << 13
 	seed ^= seed >> 7
 	seed ^= seed << 17
+	if seed == 0 {
+		seed = 1
+	}
 	if observedAt == nil {
 		observedAt = json.Number(strconv.FormatInt(time.Now().UnixMilli(), 10))
 	}

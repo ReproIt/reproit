@@ -30,11 +30,20 @@ package reproitbackend
 //	                          values made a capsule say {"symbol":"ACME"}
 //	                          where production sent {"prices":null}, and
 //	                          replay reproduced a DIFFERENT error.
+//	matching.cases            the replay matcher's contract: method and
+//	                          path+query compared, host and scheme not, a
+//	                          $reproit placeholder wildcards, nothing else
+//	                          fuzzy. matching.pgCases pin the statement-text
+//	                          matcher the same way.
+//	divergence.cases          an unmatched call writes the REPROIT:DIVERGENCE
+//	                          marker starting the stderr line, with the
+//	                          required report fields.
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -78,6 +87,37 @@ type behaviorVectors struct {
 		Rejected  []string          `json:"rejected"`
 		BySdkKind map[string]string `json:"bySdkKind"`
 	} `json:"triggerTokens"`
+	Matching struct {
+		Cases   []matchVectorCase `json:"cases"`
+		PgCases []matchVectorCase `json:"pgCases"`
+	} `json:"matching"`
+	Divergence struct {
+		MarkerPrefix string `json:"markerPrefix"`
+		ReportFields struct {
+			Required []string `json:"required"`
+		} `json:"reportFields"`
+		Cases []divergenceVectorCase `json:"cases"`
+	} `json:"divergence"`
+}
+
+type matchVectorCase struct {
+	Name     string          `json:"name"`
+	Recorded json.RawMessage `json:"recorded"`
+	Live     json.RawMessage `json:"live"`
+	Expect   struct {
+		Matches bool `json:"matches"`
+	} `json:"expect"`
+}
+
+type divergenceVectorCase struct {
+	Name             string            `json:"name"`
+	CapsuleExchanges []json.RawMessage `json:"capsuleExchanges"`
+	Expect           struct {
+		Diverged        bool            `json:"diverged"`
+		Consumed        json.Number     `json:"consumed"`
+		Total           json.Number     `json:"total"`
+		ExpectedRequest json.RawMessage `json:"expectedRequest"`
+	} `json:"expect"`
 }
 
 func loadVectors(t *testing.T) behaviorVectors {
@@ -290,6 +330,109 @@ func TestBehaviorVectorRedactionFolding(t *testing.T) {
 			t.Fatalf("folding case %s: redacted=%v, vectors say secret=%v",
 				kase.Field, wasRedacted, kase.Secret)
 		}
+	}
+}
+
+func orderedVector(t *testing.T, raw json.RawMessage) any {
+	t.Helper()
+	if len(raw) == 0 {
+		return nil
+	}
+	decoded, err := decodeOrderedJSON(raw)
+	if err != nil {
+		t.Fatalf("decode vector value: %v", err)
+	}
+	return decoded
+}
+
+func TestBehaviorVectorMatching(t *testing.T) {
+	vectors := loadVectors(t)
+	if len(vectors.Matching.Cases) == 0 {
+		t.Fatal("matching cases missing from the vectors")
+	}
+	for _, kase := range vectors.Matching.Cases {
+		actual := httpRequestMatches(
+			orderedVector(t, kase.Recorded), orderedVector(t, kase.Live))
+		if actual != kase.Expect.Matches {
+			t.Fatalf("matching case %s: got %v, want %v",
+				kase.Name, actual, kase.Expect.Matches)
+		}
+	}
+}
+
+func TestBehaviorVectorPgMatching(t *testing.T) {
+	vectors := loadVectors(t)
+	if len(vectors.Matching.PgCases) == 0 {
+		t.Fatal("pg matching cases missing from the vectors")
+	}
+	for _, kase := range vectors.Matching.PgCases {
+		actual := dbRequestMatches(
+			orderedVector(t, kase.Recorded), orderedVector(t, kase.Live))
+		if actual != kase.Expect.Matches {
+			t.Fatalf("pg matching case %s: got %v, want %v",
+				kase.Name, actual, kase.Expect.Matches)
+		}
+	}
+}
+
+func TestBehaviorVectorDivergenceMarker(t *testing.T) {
+	vectors := loadVectors(t)
+	if len(vectors.Divergence.Cases) == 0 {
+		t.Fatal("divergence cases missing from the vectors")
+	}
+	kase := vectors.Divergence.Cases[0]
+	events := make([]string, 0, len(kase.CapsuleExchanges))
+	for index, exchange := range kase.CapsuleExchanges {
+		events = append(events, fmt.Sprintf(
+			`{"kind":"effect","sequence":%d,"exchange":%s}`, index+1, exchange))
+	}
+	payload := `{"format":"reproit-backend-capture","version":2,` +
+		`"operation":"GET /x","oracle":"backend-server-error",` +
+		`"events":[` + strings.Join(events, ",") + `]}`
+	loaded := loadedCapture(t, payload)
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stderr := os.Stderr
+	os.Stderr = writer
+	hit := loaded.matched("http", omap{
+		{"method", "GET"}, {"url", "http://svc/unknown"},
+	})
+	os.Stderr = stderr
+	_ = writer.Close()
+	if hit != nil {
+		t.Fatal("an unmatched probe matched")
+	}
+	emitted, _ := io.ReadAll(reader)
+	line := strings.TrimSuffix(string(emitted), "\n")
+	prefix := vectors.Divergence.MarkerPrefix
+	// The prefix must START the line: Ruby's warn prefix broke the CLI match.
+	if !strings.HasPrefix(line, prefix) {
+		t.Fatalf("marker does not start the stderr line: %q", line)
+	}
+	var report map[string]any
+	if json.Unmarshal([]byte(line[len(prefix):]), &report) != nil {
+		t.Fatalf("divergence report is not JSON: %q", line)
+	}
+	for _, field := range vectors.Divergence.ReportFields.Required {
+		if _, present := report[field]; !present {
+			t.Fatalf("report lacks required field %q: %v", field, report)
+		}
+	}
+	if fmt.Sprintf("%v", report["consumed"]) != kase.Expect.Consumed.String() {
+		t.Fatalf("consumed %v, vectors say %s", report["consumed"], kase.Expect.Consumed)
+	}
+	if fmt.Sprintf("%v", report["total"]) != kase.Expect.Total.String() {
+		t.Fatalf("total %v, vectors say %s", report["total"], kase.Expect.Total)
+	}
+	var expectedRequest any
+	if err := json.Unmarshal(kase.Expect.ExpectedRequest, &expectedRequest); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(report["expected"], expectedRequest) {
+		t.Fatalf("expected request %v, vectors say %v",
+			report["expected"], expectedRequest)
 	}
 }
 
