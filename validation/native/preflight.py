@@ -86,6 +86,55 @@ def validate_versions(profile: str, pins: dict[str, object]) -> None:
         require_version("Xcode", xcode, f"Xcode {xcode_version}\n")
 
 
+def ax_process_trusted() -> bool:
+    """Ask macOS whether THIS process tree may use the Accessibility APIs.
+
+    ctypes rather than pyobjc so the check has no dependency of its own: a
+    preflight that cannot run because its own import failed would be a gate
+    that reports the wrong thing.
+    """
+    import ctypes
+    import ctypes.util
+
+    path = ctypes.util.find_library("ApplicationServices")
+    if path is None:
+        raise ValueError("ApplicationServices is unavailable, so AX cannot be verified")
+    library = ctypes.cdll.LoadLibrary(path)
+    library.AXIsProcessTrusted.restype = ctypes.c_bool
+    library.AXIsProcessTrusted.argtypes = []
+    return bool(library.AXIsProcessTrusted())
+
+
+def require_ax_permission() -> None:
+    """Prove Accessibility rather than accept an assertion that it was granted.
+
+    This used to gate on REPROIT_AX_PERMISSION_CONFIRMED=1, an environment
+    variable the workflow sets. That is an ATTESTATION, not a check: a runner
+    whose grant was missing, revoked, or attached to a different binary would
+    still pass preflight and fail later somewhere less obvious. TCC also
+    evaluates the grant per process at launch and attributes it to the
+    responsible app bundle, so it can lapse without anything in the repository
+    changing, which is exactly the case an env var cannot notice.
+
+    The variable is still required, because a machine granting desktop control
+    to CI should say so deliberately, but it is now the ACKNOWLEDGEMENT and the
+    probe is the evidence.
+    """
+    if os.environ.get("REPROIT_AX_PERMISSION_CONFIRMED") != "1":
+        raise ValueError(
+            "set REPROIT_AX_PERMISSION_CONFIRMED=1 only on a runner whose service "
+            "has macOS Accessibility permission"
+        )
+    if not ax_process_trusted():
+        raise ValueError(
+            "AXIsProcessTrusted() is false: this runner process may not use the "
+            "Accessibility APIs. Grant Accessibility to the app bundle hosting "
+            "the runner service and restart it, since TCC evaluates the grant "
+            "when the process starts. REPROIT_AX_PERMISSION_CONFIRMED says the "
+            "grant was intended; this probe says whether it is in force."
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("profile")
@@ -105,11 +154,8 @@ def main() -> int:
     ]
     if missing:
         raise ValueError(f"{args.profile} is missing prerequisites: {', '.join(missing)}")
-    if args.require_ax_permission and os.environ.get("REPROIT_AX_PERMISSION_CONFIRMED") != "1":
-        raise ValueError(
-            "set REPROIT_AX_PERMISSION_CONFIRMED=1 only on a runner whose service "
-            "has macOS Accessibility permission"
-        )
+    if args.require_ax_permission:
+        require_ax_permission()
     validate_versions(args.profile, manifest["pins"])
     print(f"native preflight passed: {args.profile}")
     return 0

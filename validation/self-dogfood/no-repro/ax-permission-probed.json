@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "ax-permission-probed",
+  "detail": "The macos-ax preflight gated on REPROIT_AX_PERMISSION_CONFIRMED=1, an environment variable the workflow itself sets, and never asked macOS whether Accessibility was actually in force. That is an attestation, not a check, and it is the same shape as every other defect this repository has paid for: something that cannot observe the thing it claims to verify. A runner whose grant was missing, revoked, or attached to a different binary would pass preflight and fail later somewhere less obvious. TCC makes it sharper than a generic assumption, because the grant is evaluated per process at launch and attributed to the responsible app bundle, so it can lapse with nothing in the repository changing: rebuild or move the bundle, or restart the service before the grant exists, and the attestation still reads 1. The variable is now the acknowledgement, kept deliberately because a machine granting desktop control to CI should say so on purpose, and AXIsProcessTrusted is the evidence. It is called through ctypes rather than pyobjc so the probe carries no dependency of its own, since a preflight that cannot run because its own import failed would report the wrong thing. Three controls: probe false with the acknowledgement present is refused, probe true with the acknowledgement absent is refused, and both present is accepted. The proof is a self-contained test rather than a rerun of preflight itself, because preflight also validates toolchain pins and exits 1 on any host whose rustc differs, which would make it fail on the fixed side for an unrelated reason. The test substitutes the probe instead of depending on the host's real TCC state, so it runs anywhere including Linux and an unpermissioned Mac: a test that only passed on a permissioned machine would be one nobody could trust elsewhere. A fourth case guards the obvious wrong fix, a probe that consults the same environment variable and therefore proves nothing, by requiring the source to reach AXIsProcessTrusted through ApplicationServices.",
+  "test": "validation/self-dogfood/test_ax_permission_probed.py",
+  "command": [
+    "python3",
+    "validation/self-dogfood/test_ax_permission_probed.py"
+  ],
+  "timeoutSeconds": 120,
+  "affectedExitCode": 1,
+  "affectedEvidence": [
+    {
+      "path": "validation/self-dogfood/evidence/ax-permission-probed.log",
+      "sha256": "sha256:cdd29396fd6b2a8262ea1ce90fe2012fe83f38588dfe19037fc76ff9848d08be"
+    }
+  ]
+}

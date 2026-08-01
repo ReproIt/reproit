@@ -1,0 +1,41 @@
+The macos-ax gate accepted an ATTESTATION that Accessibility was granted.
+
+preflight.py --require-ax-permission gated on REPROIT_AX_PERMISSION_CONFIRMED=1,
+an environment variable the workflow itself sets. It never asked macOS anything.
+A runner whose grant was missing, revoked, or attached to a different binary
+would pass preflight and fail later somewhere less obvious, which is the same
+shape as every other defect this repository has paid for: a check that cannot
+observe the thing it claims to check.
+
+TCC makes this worse than a generic assumption. The grant is evaluated per
+process AT LAUNCH and attributed to the responsible app bundle, so it can lapse
+with nothing in the repository changing: rebuild or move the bundle, or restart
+the service before the grant exists, and the attestation still reads "1".
+
+Now the variable is the ACKNOWLEDGEMENT, deliberately kept because a machine
+granting desktop control to CI should say so on purpose, and AXIsProcessTrusted()
+is the EVIDENCE. Called through ctypes rather than pyobjc so the probe carries no
+dependency of its own; a preflight that cannot run because its own import failed
+would report the wrong thing.
+
+CONTROLS, run locally:
+
+  real probe here -> True
+  CONTROL 1 ok: probe false, acknowledgement present -> refused
+  CONTROL 2 ok: probe true, acknowledgement absent   -> refused
+  CONTROL 3 ok: both present                         -> accepted
+
+SETUP THIS PROVES OUT. This repository had zero self-hosted runners, so the gate
+could never satisfy the required-CI rule Stable demands. Registered
+reproit-ax-mac with labels self-hosted, macOS, ARM64, reproit-ax, matching the
+job's runs-on exactly, as a user LaunchAgent rather than a system daemon because
+Accessibility only works inside a logged-in GUI session.
+
+The raw Runner.Listener could not be granted: it is an ad-hoc signed Mach-O and
+the Privacy picker only offers things with a stable app identity, so it appeared
+greyed out. It now runs inside ReproItAXRunner.app (identifier
+dev.reproit.ax-runner, LSBackgroundOnly so it shows no window or Dock icon), and
+the LaunchAgent was repointed at that bundle so the thing granted is the thing
+that runs. Because the bundle is ad-hoc signed rather than Developer ID signed,
+rebuilding or moving it can drop the grant; the failure then surfaces here, by
+name, instead of silently.
