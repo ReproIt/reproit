@@ -171,6 +171,10 @@ pub fn check_capture(ctx: &Ctx, file: &Path) -> Result<ExitCode> {
             "file": file.display().to_string(),
             "operation": artifact.operation,
             "oracle": artifact.oracle,
+            // The honest mode label, mirroring `mode: hermetic-exec` on the
+            // re-execution path: this verdict comes from the recorded log,
+            // not from re-executed code.
+            "mode": "offline-evaluation",
             "events": artifact.events.len(),
             "reproduced": evaluation.reproduced,
             "findings": evaluation.findings,
@@ -178,7 +182,8 @@ pub fn check_capture(ctx: &Ctx, file: &Path) -> Result<ExitCode> {
         "outcome": outcome.as_str(),
         "exit": outcome.exit_code(),
     }));
-    ctx.say(format!("check capture {}", file.display()));
+    ctx.say(format!("check capture {} (offline)", file.display()));
+    ctx.say("  mode: offline log re-evaluation (recorded events, not re-executed code)");
     if evaluation.reproduced {
         ctx.say(format!(
             "  FAIL reproduced exactly ({} on {})",

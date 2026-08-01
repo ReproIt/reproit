@@ -281,8 +281,21 @@ pub(super) async fn run(
             )
             .await
         }
-        InternalCmd::Occurrence { reference, no_run } => {
-            bundle::run_occurrence(ctx, config_path.as_deref(), &reference, no_run).await
+        InternalCmd::Occurrence {
+            reference,
+            no_run,
+            exec,
+            auto,
+        } => {
+            bundle::run_occurrence(
+                ctx,
+                config_path.as_deref(),
+                &reference,
+                no_run,
+                exec.as_deref(),
+                auto,
+            )
+            .await
         }
         InternalCmd::Proof { reference } => {
             let loaded = config::load(config_path.as_deref())?;
