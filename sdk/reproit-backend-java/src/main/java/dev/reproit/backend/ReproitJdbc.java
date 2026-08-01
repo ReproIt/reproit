@@ -324,11 +324,12 @@ public final class ReproitJdbc {
     }
 
     /**
-     * A forward-only ResultSet over drained (or recorded) rows: next, the
+     * A forward-only ResultSet over drained (or recorded) rows, public so a
+     * fixture faking a driver can return one: next, the
      * getObject/getString/getInt/getLong/getBoolean/getDouble surface by
      * index or label, wasNull, and metadata. Anything else fails loudly.
      */
-    static ResultSet recordedResultSet(List<Map<String, Object>> rows) {
+    public static ResultSet recordedResultSet(List<Map<String, Object>> rows) {
         return (ResultSet) Proxy.newProxyInstance(
             ReproitJdbc.class.getClassLoader(),
             new Class<?>[] {ResultSet.class},
