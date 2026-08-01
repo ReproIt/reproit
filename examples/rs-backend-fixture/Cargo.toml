@@ -1,0 +1,17 @@
+# Standalone money-test fixture (not a workspace member): an axum service
+# with the reproit SDK at capsule parity, a planted 5xx fed by a real
+# upstream HTTP call and a real tokio-postgres query.
+[package]
+name = "rs-backend-fixture"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+axum = { version = "0.8", default-features = false, features = ["json", "tokio", "http1", "query"] }
+reproit-backend = { path = "../../sdk/reproit-backend-rs", features = ["axum", "instrument", "pg"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[workspace]
