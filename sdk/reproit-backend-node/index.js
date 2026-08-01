@@ -335,3 +335,11 @@ module.exports = {
   AGENT_ORACLES: capture.AGENT_ORACLES,
   markedOracle: capture.markedOracle,
 };
+
+// CI capture mode (ci.js): test-triggered capsules for the flaky-CI wedge.
+// Lazy so requiring the SDK never loads node:test, and so ci.js can require
+// this module back without a partially-initialized cycle.
+Object.defineProperty(module.exports, 'ci', {
+  enumerable: true,
+  get: () => require('./ci.js'),
+});

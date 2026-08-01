@@ -339,7 +339,7 @@ jobs:
         run: python3 sdk/check-behavior-coverage.py
       - name: node (reproit-backend-node)
         working-directory: sdk/reproit-backend-node
-        run: node --test test/trace.test.js test/capture.test.js test/instrument.test.js test/replay.test.js test/behavior-vectors.test.js
+        run: node --test test/trace.test.js test/capture.test.js test/ci.test.js test/instrument.test.js test/replay.test.js test/behavior-vectors.test.js
       # e2e stands up a real express and a real fastify app, so it needs the
       # devDependencies. It was the one file in test/ that CI never ran.
       - name: node e2e (reproit-backend-node)
