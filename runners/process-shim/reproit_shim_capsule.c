@@ -14,7 +14,7 @@ shim_state_t G;
 static const char *KIND_NAMES[K_KINDS] = {"open",  "read",   "connect",  "send",   "recv",
                                           "clock", "time",   "random",   "env",    "stat",
                                           "statx", "access", "readlink", "getcwd", "dirent",
-                                          "input", "exec"};
+                                          "input", "exec",   "trunc",    "layer"};
 
 /* This half resolves its own libc pointers so it never depends on the
  * interposition half's resolution order. */
@@ -173,24 +173,61 @@ void record_blob(kind_t kind, const char *key, const unsigned char *blob, size_t
     if (G.mode != 1) {
         return;
     }
+    /* The LAST slot is reserved for the bound marker itself, so a capsule
+     * that hit its entry bound always carries the line that says so; a
+     * marker past the bound would never be loaded back. */
     if (G.entry_count >= MAX_ENTRIES) {
         G.dropped++;
         return;
+    }
+    if (G.entry_count == MAX_ENTRIES - 1 && kind != K_TRUNC) {
+        G.dropped++;
+        record_blob(K_TRUNC, "capsule-entries", NULL, 0, (long)MAX_ENTRIES, 0);
+        return;
+    }
+    size_t take = 0;
+    if (blob && blob_len) {
+        take = blob_len > MAX_BLOB ? MAX_BLOB : blob_len;
+        /* Per-capsule content bound. Content past it is dropped WITH a
+         * marker naming the cap, recorded once; the opens and metadata keep
+         * recording, so replay refuses each short file loudly on top of the
+         * named capsule-level cause. */
+        if (G.blob_total + take > REPROIT_CAPSULE_CONTENT_CAP) {
+            G.dropped++;
+            if (!G.content_capped) {
+                G.content_capped = 1;
+                record_blob(K_TRUNC, "capsule-content", NULL, 0,
+                            (long)REPROIT_CAPSULE_CONTENT_CAP, 0);
+            }
+            return;
+        }
+        G.blob_total += take;
     }
     G.entry_count++;
     static char line[MAX_BLOB * 2 + 1024];
     char encoded[MAX_BLOB * 2 + 8];
     encoded[0] = 0;
-    size_t truncated = 0;
-    if (blob && blob_len) {
-        size_t take = blob_len > MAX_BLOB ? MAX_BLOB : blob_len;
-        truncated = blob_len > MAX_BLOB ? blob_len : 0;
+    size_t truncated = blob && blob_len > MAX_BLOB ? blob_len : 0;
+    if (take) {
         b64_encode(blob, take, encoded, sizeof(encoded));
     }
     int n = snprintf(line, sizeof(line), "%s\t%s\t%s\t%ld\t%ld\t%zu\n", KIND_NAMES[kind],
                      key ? key : "-", encoded[0] ? encoded : "-", a, b, truncated);
     if (n > 0) {
         emit(line, (size_t)n);
+    }
+}
+
+void record_content(kind_t kind, const char *key, const unsigned char *blob, size_t blob_len,
+                    long a, long b) {
+    size_t done = 0;
+    while (done < blob_len) {
+        size_t take = blob_len - done;
+        if (take > MAX_BLOB) {
+            take = MAX_BLOB;
+        }
+        record_blob(kind, key, blob + done, take, a, b);
+        done += take;
     }
 }
 
@@ -211,9 +248,38 @@ void diverge(const char *kind, const char *detail) {
 }
 
 void diverge_short(const char *kind, const char *path, long recorded, long held) {
-    static char detail[MAX_KEY_LEN + 64];
-    snprintf(detail, sizeof(detail), "%s recorded=%ld served=%ld", path, recorded, held);
+    static char detail[MAX_KEY_LEN + 96];
+    /* When the recording itself said WHY it is short (a trunc marker for
+     * this key), the divergence names the cap: a bound hit must never look
+     * like an anonymous gap. */
+    long cap = 0;
+    for (size_t i = 0; i < G.entry_count; i++) {
+        entry_t *e = &G.entries[i];
+        if (e->kind == K_TRUNC && strcmp(e->key, path) == 0) {
+            cap = e->a;
+            break;
+        }
+    }
+    if (cap > 0) {
+        snprintf(detail, sizeof(detail), "%s recorded=%ld served=%ld cap=%ld", path, recorded,
+                 held, cap);
+    } else {
+        snprintf(detail, sizeof(detail), "%s recorded=%ld served=%ld", path, recorded, held);
+    }
     diverge(kind, detail);
+}
+
+void reproit_layer_note(const char *reason) {
+    static char line[256];
+    int n = snprintf(line, sizeof(line),
+                     "REPROIT:PROCESS-LAYER {\"layer\":\"libc\",\"reason\":\"%s\"}\n", reason);
+    if (n > 0) {
+        cap_resolve();
+        if (cap_write) {
+            ssize_t ignored = cap_write(2, line, (size_t)n);
+            (void)ignored;
+        }
+    }
 }
 
 /* Load the replay log. Called once, before any interposed call serves. */
@@ -223,17 +289,35 @@ void load_replay(const char *path) {
     if (fd < 0) {
         return;
     }
-    static char buf[1 << 22];
+    /* Bounded, and loud past the bound: the earlier fixed 4 MiB buffer read
+     * a PREFIX of an oversized log and carried on, which is the same silent
+     * truncation the capsule refuses everywhere else. */
+    off_t size = lseek(fd, 0, SEEK_END);
+    if (size < 0 || (unsigned long long)size >= REPROIT_CAPSULE_RAW_CAP) {
+        static char detail[128];
+        snprintf(detail, sizeof(detail), "log is %lld bytes, cap=%u", (long long)size,
+                 REPROIT_CAPSULE_RAW_CAP);
+        diverge("capsule-oversize", detail);
+        cap_close(fd);
+        return;
+    }
+    lseek(fd, 0, SEEK_SET);
+    char *buf = malloc((size_t)size + 1);
+    if (!buf) {
+        cap_close(fd);
+        return;
+    }
     size_t total = 0;
     ssize_t got;
-    while (total < sizeof(buf) - 1 && (got = cap_read(fd, buf + total, sizeof(buf) - 1 - total)) > 0) {
+    while (total < (size_t)size && (got = cap_read(fd, buf + total, (size_t)size - total)) > 0) {
         total += (size_t)got;
     }
     buf[total] = 0;
     cap_close(fd);
 
     char *save_line = NULL;
-    for (char *line = strtok_r(buf, "\n", &save_line); line; line = strtok_r(NULL, "\n", &save_line)) {
+    for (char *line = strtok_r(buf, "\n", &save_line); line;
+         line = strtok_r(NULL, "\n", &save_line)) {
         if (G.entry_count >= MAX_ENTRIES) {
             break;
         }
@@ -271,6 +355,18 @@ void load_replay(const char *path) {
         e->a = atol(fields[3]);
         e->b = atol(fields[4]);
         G.entry_count++;
+    }
+    free(buf);
+    /* A recording that hit one of its own bounds says so with a trunc
+     * marker. Replay of such a capsule cannot be complete, so the bound is
+     * named up front rather than discovered one short file at a time. */
+    for (size_t i = 0; i < G.entry_count; i++) {
+        entry_t *e = &G.entries[i];
+        if (e->kind == K_TRUNC && strncmp(e->key, "capsule-", 8) == 0) {
+            static char detail[MAX_KEY_LEN + 64];
+            snprintf(detail, sizeof(detail), "%s recording hit cap=%ld", e->key, e->a);
+            diverge("capsule-bound", detail);
+        }
     }
 }
 

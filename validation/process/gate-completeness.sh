@@ -71,7 +71,13 @@ if "$OUT/layer"; then
 else
   SECCOMP_LIVE=0
 fi
-EXPECTED_CASES=$((7 + 2 * SECCOMP_LIVE))
+# 7 oracle/phase-1 rows, plus (track 4b/4c): full mover recording via cat and
+# via mmap, the over-cap loud refusal naming the cap, the seccomp-required
+# refusal, and the static binary row. The interpreter rows still need the
+# completeness layer and are SKIPPED by name without it.
+EXPECTED_CASES=$((12 + 2 * SECCOMP_LIVE))
+# Keep in sync with REPROIT_FILE_CAP in runners/process-shim/reproit_shim_capsule.h.
+FILE_CAP=$((16 * 1024 * 1024))
 
 echo "platform: $(uname -m), glibc $(ldd --version | awk 'NR==1{print $NF}'),\
  completeness layer: $([[ $SECCOMP_LIVE -eq 1 ]] && echo seccomp || echo 'libc only')"
@@ -274,6 +280,141 @@ truncate_reads "$OUT/stdio.log" "$INPUT" "$OUT/stdio-trunc.log"
 replay "$OUT/stdio-trunc.log" "$OUT/e5.rep" "$OUT/e5.err" -- "$OUT/stdioread"
 assert_loud "fopen, capsule truncated to a prefix" "truncated-file" \
   "recorded=${#CONTENT} served=1" "$OUT/stdio.rec" "$OUT/e5.rep" "$OUT/e5.err"
+
+# --- track 4b: the movers record FULLY, so a loud divergence becomes a -----
+# --- correct replay for in-bound files, and names the cap past the bound ---
+# All forced to the libc layer, because the movers ARE the libc layer's
+# coverage; with the supervisor live the file classes never reach them.
+
+BIG="$SUBJECT_DIR/big.bin"
+record_big() { # record_big <bytes> <log> <out> -- cmd...
+  local bytes="$1" log="$2" out="$3"; shift 4
+  mkdir -p "$SUBJECT_DIR"
+  head -c "$bytes" /dev/urandom > "$BIG"
+  env "${EXTRA_ENV[@]}" LD_PRELOAD="$OUT/shim.so" REPROIT_RECORD="$log" \
+    "$@" > "$out" 2> "$OUT/rec.err"
+  RECORD_STATUS=$?
+  rm -rf "$SUBJECT_DIR" # every replay runs with the input DELETED
+}
+
+# copy_file_range / read: cat carries 100 KiB, twelve times the old 8 KiB
+# per-call mover bound. Before full mover recording this row was a loud
+# truncated-file; the acceptance is that it now replays byte identical.
+record_big $((100 * 1024)) "$OUT/mover-cat.log" "$OUT/mover-cat.rec" -- cat "$BIG"
+replay "$OUT/mover-cat.log" "$OUT/mover-cat.rep" "$OUT/mover-cat.err" -- cat "$BIG"
+assert_correct "cat, 100 KiB through the data movers (libc layer)" \
+  "$OUT/mover-cat.rec" "$OUT/mover-cat.rep" "$OUT/mover-cat.err"
+
+# mmap: the mover that made CPython replay wrong in silence in phase 1. The
+# subject maps the whole file and writes the mapping out.
+cat > "$OUT/mapread.c" <<'C_MMAP'
+#include <fcntl.h>
+#include <stdio.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+int main(void) {
+    int fd = open("/tmp/reproit-oracle/big.bin", O_RDONLY);
+    if (fd < 0) { perror("open"); return 2; }
+    struct stat info;
+    if (fstat(fd, &info) != 0 || info.st_size <= 0) { perror("fstat"); return 2; }
+    void *map = mmap(NULL, (size_t)info.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (map == MAP_FAILED) { perror("mmap"); return 2; }
+    ssize_t put = write(1, map, (size_t)info.st_size);
+    return put == (ssize_t)info.st_size ? 0 : 2;
+}
+C_MMAP
+gcc -O1 -o "$OUT/mapread" "$OUT/mapread.c" || { echo "FAIL mmap subject build" >&2; exit 1; }
+record_big $((100 * 1024)) "$OUT/mover-map.log" "$OUT/mover-map.rec" -- "$OUT/mapread"
+replay "$OUT/mover-map.log" "$OUT/mover-map.rep" "$OUT/mover-map.err" -- "$OUT/mapread"
+assert_correct "mmap, 100 KiB mapping recorded in full (libc layer)" \
+  "$OUT/mover-map.rec" "$OUT/mover-map.rep" "$OUT/mover-map.err"
+
+# A file past REPROIT_FILE_CAP records the cap's worth plus a trunc marker,
+# and the replay refusal must NAME the cap, not report an anonymous gap.
+# Through mmap, because that mover's cap is deterministic; the plain read
+# path is bounded at the capsule level instead (capsule-content marker).
+OVER=$((FILE_CAP + 512 * 1024))
+record_big "$OVER" "$OUT/over.log" "$OUT/over.rec" -- "$OUT/mapread"
+replay "$OUT/over.log" "$OUT/over.rep" "$OUT/over.err" -- "$OUT/mapread"
+assert_loud "mmap, file past the per-file cap" "truncated-file" \
+  "recorded=$OVER served=$FILE_CAP cap=$FILE_CAP" \
+  "$OUT/over.rec" "$OUT/over.rep" "$OUT/over.err"
+EXTRA_ENV=()
+
+# --- track 4c: an interpreter capsule REFUSES a layer-less replay by name --
+# The capsule records which layer captured it; replaying a seccomp-captured
+# capsule on the libc boundary used to die mid-run as `OSError: [Errno 9]
+# Bad file descriptor` with ZERO divergence lines, which is a silent wrong
+# replay wearing a stack trace.
+if [[ "$SECCOMP_LIVE" -eq 1 ]]; then
+  if ! grep -q "^layer	seccomp	" "$OUT/py.log"; then
+    echo "FAIL the python3 capsule does not record its capturing layer" >&2
+    exit 1
+  fi
+  EXTRA_ENV=(REPROIT_SECCOMP=0)
+  replay "$OUT/py.log" "$OUT/noseccomp.rep" "$OUT/noseccomp.err" -- python3 "$OUT/script.py"
+  EXTRA_ENV=()
+  REFUSED_LABEL="python3 capsule, layer-less replay"
+else
+  # No layer here at all, so the seccomp-captured capsule is SIMULATED: the
+  # recorded layer line is rewritten to seccomp, exactly the shape a capsule
+  # carried from a seccomp host has on this one.
+  if ! grep -q "^layer	libc	" "$OUT/cat.log"; then
+    echo "FAIL the cat capsule does not record its capturing layer" >&2
+    exit 1
+  fi
+  sed 's/^layer	libc	/layer	seccomp	/' "$OUT/cat.log" > "$OUT/foreign.log"
+  replay "$OUT/foreign.log" "$OUT/noseccomp.rep" "$OUT/noseccomp.err" -- cat "$INPUT"
+  REFUSED_LABEL="seccomp-captured capsule on a layer-less host"
+fi
+if ! grep -q 'REPROIT:DIVERGENCE {"layer":"process","kind":"seccomp-required"' \
+  "$OUT/noseccomp.err"; then
+  echo "FAIL $REFUSED_LABEL: no named seccomp-required refusal" >&2
+  sed 's/^/  /' "$OUT/noseccomp.err" >&2
+  exit 1
+fi
+if grep -q "Errno 9" "$OUT/noseccomp.err"; then
+  echo "FAIL $REFUSED_LABEL: the refusal came after the OSError, not instead of it" >&2
+  exit 1
+fi
+if [[ -s "$OUT/noseccomp.rep" ]]; then
+  echo "FAIL $REFUSED_LABEL: the program ran and produced output before refusing" >&2
+  exit 1
+fi
+CASES_RUN=$((CASES_RUN + 1))
+echo "PASS $REFUSED_LABEL: refused by name (seccomp-required), before the program ran"
+
+# --- static binaries: measured, unsupported by construction ----------------
+# A static image resolves no dynamic symbols, so the shim never loads: the
+# record log is never even created, and a replay of the same subject cannot
+# diverge because there is no boundary to diverge AT. Both halves are
+# asserted; the CLI-level refusals live in validation/process/run.sh.
+if gcc -static -O1 -o "$OUT/staticplain" "$OUT/plain.c" 2>/dev/null; then
+  rm -f "$OUT/static.log"
+  record "$OUT/static.log" "$OUT/static.rec" -- "$OUT/staticplain"
+  if [[ -s "$OUT/static.log" ]]; then
+    echo "FAIL static subject: the boundary recorded entries through a static image" >&2
+    exit 1
+  fi
+  replay "$OUT/plain.log" "$OUT/static.rep" "$OUT/static.err" -- "$OUT/staticplain"
+  if grep -q "REPROIT:" "$OUT/static.err"; then
+    echo "FAIL static subject: a static replay emitted boundary markers" >&2
+    sed 's/^/  /' "$OUT/static.err" >&2
+    exit 1
+  fi
+  if cmp -s "$OUT/plain.rec" "$OUT/static.rep"; then
+    echo "FAIL static subject: replay matched the recording, so something served it" >&2
+    exit 1
+  fi
+  CASES_RUN=$((CASES_RUN + 1))
+  echo "PASS static binary: unsupported by construction, and measurably so" \
+    "(0 entries recorded, 0 markers at replay, output diverges silently only" \
+    "because no boundary exists; capture-side refusal is run.sh's row)"
+else
+  echo "FAIL static binary row: this image cannot link -static" >&2
+  exit 1
+fi
 
 if [[ "$CASES_RUN" -ne "$EXPECTED_CASES" ]]; then
   echo "FAIL gate accounting: $CASES_RUN of $EXPECTED_CASES cases ran" >&2

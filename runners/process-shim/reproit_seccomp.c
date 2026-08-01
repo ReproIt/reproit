@@ -72,15 +72,16 @@
 #define SECCOMP_IOCTL_NOTIF_RECV SECCOMP_IOR(0, struct seccomp_notif)
 #endif
 
-/* Per file inline cap. Bigger than the SDKs' 8 KiB body rule on purpose: a
- * process input is a whole file, not an HTTP body, and a locale archive is
- * 350 KiB. A file past the cap records its size but not all its bytes, and
- * the completeness oracle in serve_open refuses to serve that prefix: the
- * kernel answers the injected descriptor's reads, so this layer never sees
- * them and cannot defer the check to an over-read. The earlier claim that it
- * fired there was measured false; a short scratch file replayed a truncated
- * cat with ZERO divergences. */
-#define FILE_CAP (4u << 20)
+/* Per file inline cap: REPROIT_FILE_CAP, shared with the libc data movers so
+ * a file bounds the same way whichever layer records it. Bigger than the
+ * SDKs' 8 KiB body rule on purpose: a process input is a whole file, not an
+ * HTTP body, and a locale archive is 350 KiB. A file past the cap records
+ * its size, its bytes up to the cap, and a `trunc` marker naming the cap;
+ * the completeness oracle in serve_open then refuses to serve the prefix
+ * WITH the cap named. The check cannot defer to an over-read: the kernel
+ * answers the injected descriptor's reads, so this layer never sees them
+ * (the earlier claim that it fired there was measured false; a short scratch
+ * file replayed a truncated cat with ZERO divergences). */
 #define CHUNK MAX_BLOB
 
 static pid_t sup_target;
@@ -300,9 +301,22 @@ static void record_file(const char *absolute) {
     unsigned char buf[CHUNK];
     size_t total = 0;
     ssize_t got;
-    while (total < FILE_CAP && (got = read(fd, buf, sizeof(buf))) > 0) {
+    while (total < REPROIT_FILE_CAP) {
+        size_t take = sizeof(buf);
+        if (total + take > REPROIT_FILE_CAP) {
+            take = REPROIT_FILE_CAP - total;
+        }
+        got = read(fd, buf, take);
+        if (got <= 0) {
+            break;
+        }
         record_blob(K_READ, absolute, buf, (size_t)got, 0, 0);
         total += (size_t)got;
+    }
+    if ((long)total < (long)info.st_size && total >= REPROIT_FILE_CAP) {
+        /* The file outgrew the per-file cap: name it now, so the replay
+         * refusal carries the bound instead of an anonymous shortfall. */
+        record_blob(K_TRUNC, absolute, NULL, 0, (long)REPROIT_FILE_CAP, (long)info.st_size);
     }
     close(fd);
 }
@@ -451,6 +465,14 @@ static void serve_open(__u64 id, const char *absolute) {
      * divergences), so it fails at the serve, with both counts named. */
     if (opened && opened->b > 0 && len < (size_t)opened->b) {
         diverge_short("truncated-file", absolute, opened->b, (long)len);
+        free(content);
+        respond_error(id, EIO);
+        return;
+    }
+    /* MORE than the recording observed is the same silent wrong replay from
+     * the other side: the range was recorded twice and would serve doubled. */
+    if (opened && opened->b > 0 && len > (size_t)opened->b) {
+        diverge_short("overlong-file", absolute, opened->b, (long)len);
         free(content);
         respond_error(id, EIO);
         return;

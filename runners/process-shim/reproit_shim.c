@@ -114,7 +114,38 @@ void shim_init(void) {
     /* Start the syscall completeness layer LAST, so it inherits the open log
      * and the loaded replay entries. When it comes up it owns files and path
      * metadata and the interposed file calls below become passthrough. */
-    reproit_seccomp_start();
+    int layered = reproit_seccomp_start();
+    const char *seccomp_env = real_getenv ? real_getenv("REPROIT_SECCOMP") : NULL;
+    const char *layerless_reason =
+        seccomp_env && seccomp_env[0] == '0' ? "disabled by REPROIT_SECCOMP=0"
+#ifdef __linux__
+                                             : "seccomp user-notify unavailable on this host";
+#else
+                                             : "unsupported on this platform";
+#endif
+    if (G.mode == 1) {
+        /* The capsule records WHICH layer captured it, and a layer-less
+         * capture is a named event, never a silent downgrade. */
+        record_blob(K_LAYER, layered ? "seccomp" : "libc", NULL, 0, 0, 0);
+        if (!layered) {
+            reproit_layer_note(layerless_reason);
+        }
+    } else if (G.mode == 2 && !layered) {
+        /* A capsule captured by the completeness layer holds path metadata
+         * only that layer can serve; replaying it on the libc boundary dies
+         * confusingly mid-run with ZERO divergence lines (measured: OSError
+         * Errno 9 inside CPython's getpath). Refuse by name, fail closed,
+         * before the program runs at all. */
+        for (size_t i = 0; i < G.entry_count; i++) {
+            if (G.entries[i].kind == K_LAYER && strcmp(G.entries[i].key, "seccomp") == 0) {
+                diverge("seccomp-required",
+                        "capsule was captured by the seccomp completeness layer and this "
+                        "replay cannot install it; refusing a layer-less replay");
+                _exit(3);
+            }
+        }
+        reproit_layer_note(layerless_reason);
+    }
 }
 
 __attribute__((destructor)) static void shim_report(void) { reproit_report(); }
@@ -172,6 +203,8 @@ static void path_key(int dirfd, const char *path, char *out, size_t cap) {
 static void track_path(int fd, const char *path) {
     if (fd >= 0 && fd < MAX_FDS) {
         snprintf(G.paths[fd], sizeof(G.paths[fd]), "%s", path ? path : "-");
+        G.mover_end[fd] = 0;
+        G.mover_capped[fd] = 0;
     }
 }
 
@@ -227,6 +260,15 @@ static int serve_open(const char *path) {
      * fails HERE, at the last point this layer can still see it. */
     if (opened && opened->b > 0 && len < (size_t)opened->b) {
         diverge_short("truncated-file", path, opened->b, (long)len);
+        free(content);
+        return -3;
+    }
+    /* The other direction is wrong too: MORE bytes than the recording
+     * observed means the same range was recorded twice (a re-mapped file, a
+     * re-read region) and a doubled serve is as silent and as wrong as a
+     * short one. */
+    if (opened && opened->b > 0 && len > (size_t)opened->b) {
+        diverge_short("overlong-file", path, opened->b, (long)len);
         free(content);
         return -3;
     }
@@ -463,7 +505,7 @@ ssize_t read(int fd, void *buf, size_t count) {
          * schedules against. */
         record_blob(K_INPUT, "stdin", (const unsigned char *)buf, (size_t)got, fd, (long)G.tick);
     } else if (G.mode == 1 && got > 0 && fd >= 0 && fd < MAX_FDS && G.paths[fd][0]) {
-        record_blob(K_READ, G.paths[fd], (const unsigned char *)buf, (size_t)got, fd, 0);
+        record_content(K_READ, G.paths[fd], (const unsigned char *)buf, (size_t)got, fd, 0);
     }
     LEAVE();
     return got;
@@ -478,7 +520,7 @@ ssize_t pread(int fd, void *buf, size_t count, off_t offset) {
     }
     ssize_t got = real_pread(fd, buf, count, offset);
     if (G.mode == 1 && got > 0 && fd >= 0 && fd < MAX_FDS && G.paths[fd][0]) {
-        record_blob(K_READ, G.paths[fd], (const unsigned char *)buf, (size_t)got, fd, offset);
+        record_content(K_READ, G.paths[fd], (const unsigned char *)buf, (size_t)got, fd, offset);
     }
     LEAVE();
     return got;
@@ -497,6 +539,8 @@ int close(int fd) {
             memset(&G.fds[fd], 0, sizeof(G.fds[fd]));
         }
         G.paths[fd][0] = 0;
+        G.mover_end[fd] = 0;
+        G.mover_capped[fd] = 0;
     }
     int result = real_close(fd);
     LEAVE();
@@ -745,6 +789,13 @@ FILE *fopen(const char *path, const char *mode) {
             LEAVE();
             return NULL;
         }
+        if (opened && opened->b > 0 && len > (size_t)opened->b) {
+            diverge_short("overlong-file", key, opened->b, (long)len);
+            free(content);
+            errno = EIO;
+            LEAVE();
+            return NULL;
+        }
         if (!content) {
             /* a recorded open that yielded no bytes still replays as empty */
             content = malloc(1);
@@ -773,7 +824,7 @@ size_t fread(void *buf, size_t size, size_t count, FILE *handle) {
     if (G.mode == 1 && got > 0) {
         const char *path = stream_path(handle);
         if (path) {
-            record_blob(K_READ, path, (const unsigned char *)buf, got * size, 0, 0);
+            record_content(K_READ, path, (const unsigned char *)buf, got * size, 0, 0);
         }
     }
     LEAVE();
