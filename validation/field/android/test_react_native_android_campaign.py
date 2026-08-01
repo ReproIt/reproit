@@ -355,6 +355,21 @@ class NotesnookAddressingTest(unittest.TestCase):
     def test_a_notebook_that_is_not_listed_is_not_invented(self) -> None:
         self.assertIsNone(NOTESNOOK.notebook_row(self.SOURCE, "Gamma"))
 
+    def test_an_untyped_title_is_not_mistaken_for_a_typed_one(self) -> None:
+        """One executed run typed into an editor that had not taken focus.
+
+        The note was then empty, the editor discarded it on the way out, and
+        the run reached an empty note list with nothing to link.
+        """
+        empty = '<hierarchy><node><node resource-id="editor-title" ' + (
+            'bounds="[0,364][1080,472]" text=""/></node></hierarchy>'
+        )
+        typed = empty.replace('text=""', 'text="TriggerNote"')
+
+        self.assertFalse(NOTESNOOK.title_typed(empty))
+        self.assertFalse(NOTESNOOK.title_typed("<hierarchy><node/></hierarchy>"))
+        self.assertTrue(NOTESNOOK.title_typed(typed))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "react-native-notesnook-title-race",
+  "changeType": "tooling",
+  "detail": "The first executed notesnook benchmark reproduced the identity on affected runs 1 and 2 and then stopped in affected run 3, inside create_note, with an empty note list and nothing to link. The retained dump is the ordinary Notes screen carrying buttons.add and no note-item-0, which is what the application shows when the note was never created. The cause is the one step of the trigger the application does not publish a testID for: the note title is typed into the editor WebView with input text after a tap on editor-title, and a tap sent before that view has taken focus types into nothing, so the note is empty, the editor discards an empty note on the way out, and the run arrives at a note list with nothing on it. It is a race, which is why the same code passed the two runs before it, and it is the kind of thing only an executed run finds. The observer now reads the title back out of the editor after typing it and retries the tap and the typing up to three times, and fails with that sentence rather than continuing if the title never lands. The benchmark itself is not in this commit: the run that found this is a failed run and is recorded as one, and the target stays Preview until a complete campaign is executed and written up.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/react-native-android-field-runner.md",
+      "sha256": "sha256:c1e4e9e9d76d587077db8b1b53f6d7896338def9e6b387b3ceb816d322866668"
+    }
+  ]
+}

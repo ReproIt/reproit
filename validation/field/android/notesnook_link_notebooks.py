@@ -256,12 +256,42 @@ def create_notebooks(
         )
 
 
+def title_typed(source: str) -> bool:
+    try:
+        node = resource_node(source, "editor-title")
+    except RuntimeError:
+        return False
+    return node.attrib.get("text", "") == NOTE_TITLE
+
+
 def create_note(session: AppiumSession, device: Device, label: str) -> None:
     tap_after_wait(session, device, label, "tab-home")
     tap_after_wait(session, device, label, "Notes")
     tap_after_wait(session, device, label, "buttons.add")
-    tap_after_wait(session, device, label, "editor-title", seconds=120)
-    device.adb_run("shell", "input", "text", NOTE_TITLE)
+    # The title is typed into the editor WebView, and a tap sent before it has
+    # taken focus types into nothing at all: the note is then empty, the editor
+    # discards it on the way out, and the run reaches an empty note list with
+    # nothing to link. One executed run failed exactly there, so the title is
+    # read back and the tap and the typing are retried until it is present.
+    for attempt in range(3):
+        tap_after_wait(
+            session,
+            device,
+            f"{label}-title-{attempt}",
+            "editor-title",
+            seconds=120,
+        )
+        device.adb_run("shell", "input", "text", NOTE_TITLE)
+        typed = False
+        for _ in range(15):
+            if title_typed(session.source()):
+                typed = True
+                break
+            time.sleep(1)
+        if typed:
+            break
+    else:
+        raise RuntimeError(f"{label} never got its note title into the editor")
     time.sleep(2)
     press_back(session)
     press_back(session)

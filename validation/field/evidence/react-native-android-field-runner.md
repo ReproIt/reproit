@@ -522,6 +522,23 @@ they did, not less. index-pack verifies those objects against the commit, and
 the emptiness of `git status` proves the files it received really are that
 commit's tree rather than merely being labelled with its number.
 
+### What the first executed notesnook benchmark found
+
+The first benchmark run of the observer reproduced the identity on affected
+runs 1 and 2 and then stopped in affected run 3, in `create_note`, with the
+note list empty and no note to link. The retained dump is the ordinary Notes
+screen with `buttons.add` and no `note-item-0` at all, which is what the
+application shows when the note was never created.
+
+The cause is the one step of the trigger that is not addressed by a testID the
+application publishes for it: the title is typed into the editor WebView with
+`input text` after a tap on `editor-title`, and a tap sent before that view has
+taken focus types into nothing. The note is then empty, the editor discards an
+empty note on the way out, and the run reaches a note list with nothing on it.
+It is a race, which is why the same code passed two runs before it. The
+observer now reads the title back out of the editor and retries the tap and the
+typing until it is there, and fails with that sentence if it never is.
+
 A one-run smoke of the committed campaign module, driven through Appium inside
 the pinned worker image with a recreated `pixel_6` AVD per observation, was run
 before the benchmark: affected reproduced
