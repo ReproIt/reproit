@@ -22,6 +22,17 @@ public static class Json
 
     public static byte[] CanonicalUtf8(object? value) => Encoding.UTF8.GetBytes(Canonical(value));
 
+    // Compact JSON in INSERTION order, matching Node's JSON.stringify and Python's json.dumps
+    // of the same values. The divergence marker and replayed JSON bodies are byte-compared
+    // against the Node reference, whose object order is insertion order, so the canonical
+    // (sorted) writer above is the wrong tool for them.
+    public static string Compact(object? value)
+    {
+        var builder = new StringBuilder();
+        WriteValue(builder, value, sorted: false);
+        return builder.ToString();
+    }
+
     // Unpadded base64url of the given bytes (the x-reproit-events header format).
     public static string Base64Url(byte[] bytes) =>
         Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
@@ -64,7 +75,7 @@ public static class Json
         }
     }
 
-    private static void WriteValue(StringBuilder builder, object? value)
+    private static void WriteValue(StringBuilder builder, object? value, bool sorted = true)
     {
         switch (value)
         {
@@ -87,10 +98,10 @@ public static class Json
                 WriteDouble(builder, number);
                 return;
             case IDictionary<string, object?> map:
-                WriteObject(builder, map);
+                WriteObject(builder, map, sorted);
                 return;
             case System.Collections.IEnumerable sequence:
-                WriteArray(builder, sequence);
+                WriteArray(builder, sequence, sorted);
                 return;
             default:
                 throw new NotSupportedException(
@@ -98,22 +109,27 @@ public static class Json
         }
     }
 
-    private static void WriteObject(StringBuilder builder, IDictionary<string, object?> map)
+    private static void WriteObject(
+        StringBuilder builder, IDictionary<string, object?> map, bool sorted)
     {
         builder.Append('{');
         var first = true;
-        foreach (var key in map.Keys.OrderBy(key => key, StringComparer.Ordinal))
+        var keys = sorted
+            ? map.Keys.OrderBy(key => key, StringComparer.Ordinal)
+            : (IEnumerable<string>)map.Keys;
+        foreach (var key in keys)
         {
             if (!first) builder.Append(',');
             first = false;
             WriteString(builder, key);
             builder.Append(':');
-            WriteValue(builder, map[key]);
+            WriteValue(builder, map[key], sorted);
         }
         builder.Append('}');
     }
 
-    private static void WriteArray(StringBuilder builder, System.Collections.IEnumerable sequence)
+    private static void WriteArray(
+        StringBuilder builder, System.Collections.IEnumerable sequence, bool sorted)
     {
         builder.Append('[');
         var first = true;
@@ -121,7 +137,7 @@ public static class Json
         {
             if (!first) builder.Append(',');
             first = false;
-            WriteValue(builder, item);
+            WriteValue(builder, item, sorted);
         }
         builder.Append(']');
     }
