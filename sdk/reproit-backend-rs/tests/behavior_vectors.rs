@@ -218,3 +218,99 @@ fn the_trigger_token_is_in_the_protocol_vocabulary() {
         );
     }
 }
+
+/// Serde JSON case values re-parsed into the ordered replay representation.
+#[cfg(feature = "instrument")]
+fn ordered(value: &Value) -> reproit_backend::ojson::OValue {
+    reproit_backend::ojson::parse(&serde_json::to_string(value).expect("case json"))
+        .expect("ordered parse")
+}
+
+#[cfg(feature = "instrument")]
+#[test]
+fn matching_vectors() {
+    let vectors = vectors();
+    for case in vectors["matching"]["cases"].as_array().unwrap() {
+        let actual = reproit_backend::replay::http_request_matches(
+            &ordered(&case["recorded"]),
+            &ordered(&case["live"]),
+        );
+        assert_eq!(
+            actual,
+            case["expect"]["matches"].as_bool().unwrap(),
+            "matching case {}",
+            case["name"]
+        );
+    }
+}
+
+#[cfg(feature = "instrument")]
+#[test]
+fn pg_matching_vectors() {
+    let vectors = vectors();
+    for case in vectors["matching"]["pgCases"].as_array().unwrap() {
+        let actual = reproit_backend::replay::pg_request_matches(
+            &ordered(&case["recorded"]),
+            &ordered(&case["live"]),
+        );
+        assert_eq!(
+            actual,
+            case["expect"]["matches"].as_bool().unwrap(),
+            "pg matching case {}",
+            case["name"]
+        );
+    }
+}
+
+#[cfg(feature = "instrument")]
+#[test]
+fn divergence_marker_starts_the_line_and_carries_required_fields() {
+    use reproit_backend::ojson::OValue;
+    let vectors = vectors();
+    let divergence = &vectors["divergence"];
+    let case = &divergence["cases"][0];
+    let events: Vec<Value> = case["capsuleExchanges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+        .map(|(index, exchange)| {
+            serde_json::json!({"kind": "effect", "sequence": index + 1, "exchange": exchange})
+        })
+        .collect();
+    let payload = serde_json::json!({
+        "format": "reproit-backend-capture",
+        "version": 2,
+        "operation": "GET /x",
+        "oracle": "backend-server-error",
+        "events": events,
+    });
+    let session = reproit_backend::replay::ReplaySession::from_text(
+        &serde_json::to_string(&payload).unwrap(),
+    )
+    .expect("session");
+    let probe = OValue::Obj(vec![
+        ("method".to_string(), OValue::Str("GET".to_string())),
+        (
+            "url".to_string(),
+            OValue::Str("http://svc/unknown".to_string()),
+        ),
+    ]);
+    assert!(session.match_exchange("http", &probe).is_none());
+    let prefix = divergence["markerPrefix"].as_str().unwrap();
+    let marker = session
+        .markers()
+        .into_iter()
+        .find(|line| line.starts_with(prefix))
+        .expect("marker line starts with the prefix");
+    let report: Value = serde_json::from_str(&marker[prefix.len()..]).expect("report json");
+    for field in divergence["reportFields"]["required"].as_array().unwrap() {
+        assert!(
+            report.get(field.as_str().unwrap()).is_some(),
+            "required report field {field}"
+        );
+    }
+    assert_eq!(report["consumed"], case["expect"]["consumed"]);
+    assert_eq!(report["total"], case["expect"]["total"]);
+    assert_eq!(report["expected"], case["expect"]["expectedRequest"]);
+}

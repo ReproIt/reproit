@@ -24,8 +24,15 @@ mod capture;
 mod framework;
 #[cfg(feature = "instrument")]
 pub mod instrument;
+#[cfg(feature = "instrument")]
+pub mod ojson;
+#[cfg(feature = "pg")]
+pub mod pg;
+#[cfg(feature = "instrument")]
+pub mod replay;
 pub use capture::{
-    Capture, CaptureConfig, CaptureStats, CAPTURE_FORMAT, CAPTURE_VERSION, SERVER_ERROR_ORACLE,
+    determinism_envelope, Capture, CaptureConfig, CaptureStats, CAPTURE_FORMAT, CAPTURE_VERSION,
+    SERVER_ERROR_ORACLE,
 };
 #[cfg(any(feature = "axum", feature = "actix", feature = "instrument"))]
 pub use framework::Recorder;

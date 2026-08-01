@@ -25,6 +25,9 @@ actix = ["dep:actix-web", "dep:futures-core"]
 # tokio provides the task-local ambient trace; apps using the framework
 # middleware already run on tokio.
 instrument = ["dep:tokio"]
+# The canonical DB driver wrap (tokio-postgres), with the replay connect
+# stub so an app boots with the database down.
+pg = ["instrument", "dep:tokio-postgres"]
 
 [dependencies]
 base64 = "0.22"
@@ -41,6 +44,7 @@ http-body = { version = "1", optional = true }
 tower-layer = { version = "0.3", optional = true }
 tower-service = { version = "0.3", optional = true }
 tokio = { workspace = true, optional = true }
+tokio-postgres = { version = "0.7", optional = true, features = ["with-serde_json-1"] }
 
 [dev-dependencies]
 # Examples and middleware tests serve real sockets; the library dependency
@@ -52,3 +56,7 @@ tower = { version = "0.5", features = ["util"] }
 [[example]]
 name = "hermetic_fixture"
 required-features = ["axum", "instrument"]
+
+[[example]]
+name = "replay_parity_probe"
+required-features = ["instrument"]
