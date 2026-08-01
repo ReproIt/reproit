@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "winui-trigger-verification",
+  "changeType": "maintenance",
+  "detail": "unigetui-mainview-keyup-3298 was the strongest remaining windows-winui candidate and it had three open questions: whether the unpackaged WinUI 3 publishes launch at all on the guest, whether keystrokes reach the application, and how to separate the KeyUp edge from the KeyDown edge without leaving the target's own automation tree. All three were answered by running it on the native x86_64 Windows guest in interactive session 1. Both revisions publish self-contained with WindowsPackageType None and WindowsAppSDKSelfContained true, so no Windows App Runtime install is needed, and both enter the UI Automation tree as WinUIDesktopWin32WindowClass. Keystrokes reach the application: after the UI Automation focus pattern moves focus to the QueryBlock search box, typing two virtual key codes puts 'ab' in its value. The trigger is press-and-hold F1 without releasing it, which is the only modifier-free navigating shortcut in the handler. On the affected revision fecaf3d4 the MainTitle text block still reads 'Discover Packages' for the entire time F1 is held and the page changes only on release; on the fixed revision 6bd24003 the page has already changed while F1 is still held. The destination has a positive marker rather than only an absent MainTitle: the Help page is a WebView pane with automation id 'WebView' plus BackButton, HomeButton, ReloadButton and BrowserButton. Containment was measured, not assumed: writing Disable<Manager> flag files into %LOCALAPPDATA%\\UniGetUI before launch stopped winget.exe from being spawned, where the uncontained launch spawned it, and program-scoped inbound and outbound firewall rules on the published executable stop the self-update download. This is a verified trigger, not a campaign. The three-plus-three run set, the neighboring-legal-behavior control and the corpus have not been run, so windows-winui stays Preview and its typed blocker now says exactly that. The record also states that DLSS Swapper needs a fresh revision pair, 750 or 829, because its first candidate was disqualified.",
+  "evidence": [
+    {
+      "path": "validation/field/qualification/windows-winui.json",
+      "sha256": "sha256:452c0e5f95c4ff7c002fbb7802043c2801372f87183eed0aad948f2535d614ce"
+    }
+  ]
+}

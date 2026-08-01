@@ -162,14 +162,27 @@
         "publicFeedsOnly": true,
         "signingRequired": false,
         "msix": false,
-        "verified": false
+        "verified": true
       },
       "whySuitable": "the shortcut handler is bound to KeyUp on the WinUI page, so a key released over the window is handled even when the key was pressed while the window did not have focus. The adapter exercises it exactly through its two primitives: set focus with the UI Automation focus pattern, deliver a key sequence, then read back which page the navigation tree reports as selected. It is a WinUI 3 XAML routed-event defect, meaningless outside a XAML input pipeline, so it is proper evidence for this adapter rather than for .NET generally",
-      "qualification": "selected-not-executed",
+      "qualification": "trigger-verified-campaign-not-executed",
+      "triggerVerification": {
+        "date": "2026-08-01",
+        "worker": "native x86_64 Windows VM, interactive session 1, scheduled task with /it /rl highest",
+        "build": "dotnet publish src/UniGetUI/UniGetUI.csproj, Release, win-x64, self-contained, WindowsPackageType None, WindowsAppSDKSelfContained true; both revisions published successfully and both launch unpackaged, so no Windows App Runtime install is needed",
+        "minimizedTrigger": "focus the QueryBlock search box inside MainView through the UI Automation focus pattern, then press and hold F1 without releasing it, observe, then release it and observe again. F1 is the only shortcut in the handler that takes no modifier and navigates, and holding it separates the KeyDown edge from the KeyUp edge without ever leaving the target's own automation tree, which is what the earlier note asked for",
+        "observed": {
+          "affected": "fecaf3d46cfdb32ed396a2e903a29d6dec40c2b5: MainTitle stays 'Discover Packages' for the whole time F1 is held, and the page changes only after F1 is released",
+          "fixed": "6bd24003bb3292d5f23760a3f36d652881dcb30c: the page has already changed while F1 is still held, and releasing it changes nothing further"
+        },
+        "observable": "the Help page replaces the MainTitle text block with a WebView pane whose automation id is 'WebView', alongside BackButton, HomeButton, ReloadButton and BrowserButton, so the destination has a positive marker rather than only the absence of MainTitle",
+        "containment": "the settings directory is a flag-file directory under %LOCALAPPDATA%\\UniGetUI. Creating Disable<Manager> flag files before launch stops winget from being spawned: the first uncontained launch spawned winget.exe, the contained launch spawned none. Program-scoped inbound and outbound Windows Firewall block rules on the published executable stop the self-update download",
+        "note": "the flag name that would disable the Cargo manager has not been found yet, so a 'Missing dependency (1/2) cargo-update' content dialog still appears and has to be dismissed through its SecondaryButton. Nothing is installed by dismissing it"
+      },
       "remaining": [
-        "prove the application starts with all package managers disabled so that no winget or scoop process is spawned during the run",
-        "define how the harness moves focus away from the window and back without leaving the target's own automation tree",
-        "build both revisions in the native x86_64 Windows VM and record the exact SDK versions"
+        "find the settings flag that disables the Cargo manager, or record dismissing its dependency dialog as part of the bounded setup",
+        "run three affected reproductions and three reached-observation fixed controls with a reset settings directory and retained per-run records",
+        "record neighboring legal behavior: selecting a navigation item through the UI Automation invoke pattern must move the page identically on both revisions, which proves the observation is not simply always reporting a change"
       ]
     },
     {
