@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "react-native-android",
   "gate": "S2-candidate-qualification",
-  "status": "candidates-selected",
+  "status": "candidates-executed-not-reproduced",
   "declaredBounds": {
     "os": "android",
     "arch": "x86_64",
@@ -205,7 +205,7 @@
       "affectedRevision": "de6378473fa261e495b4709672471613235b493a",
       "fixedRevision": "623da377db98dbc8576651aa066ef4000fbf2116",
       "whySuitable": "the mobile app's own navigation history lives in a Redux reducer in packages/app-mobile/utils/appReducer.ts. Deleting the current notebook removed the last history entry without pushing a replacement, so the history could empty out and the hardware back button stopped working. The fix pushes DEFAULT_ROUTE when the history would otherwise be empty. This is the defining shape of a React Native defect: the bug is pure JavaScript running on Hermes, but the trigger is a native Android event, KEYCODE_BACK delivered by UiAutomator2, and the observation is the native view hierarchy that the JS side drives. Neither half alone reproduces it, which is exactly what the react-native-android adapter has to bridge",
-      "qualification": "selected-not-executed",
+      "qualification": "executed-trigger-failure",
       "remaining": [
         "build the profileable variant at both revisions so the artifact is signed with the committed debug keystore",
         "reset the AVD so the Welcome notebook exists, since the trigger depends on first-run content",
@@ -213,6 +213,10 @@
         "state identity and authority: the platform back gesture must leave a screen the user navigated into",
         "minimize the trigger and verify neighboring legal behavior: back from settings works on both builds when no notebook was deleted",
         "prove three clean affected reproductions and three reached-observation fixed controls"
+      ],
+      "executionOutcome": "the profileable APK was built at both revisions and installed on a reset pixel_6 AVD on android-36 google_apis x86_64. The campaign launched net.cozic.joplin/.MainActivity, opened the Sidebar and found the Welcome! notebook row, then failed with 'UI node has no usable bounds' because find_node walks up to a clickable ancestor and the React Native touchable sets no clickable attribute, so the walk reaches the boundless root. The application, the revision pair and the identity are unaffected",
+      "executionEvidence": [
+        "validation/field/evidence/react-native-android-field-runner.md"
       ]
     },
     {
@@ -281,7 +285,7 @@
       "affectedRevision": "cdd2305aa0ae3bb5dcefe0691090a1d57cf53cb3",
       "fixedRevision": "5c86ff15ee99ac8f77abc19b9e58b98a705a9951",
       "whySuitable": "the library scanner keyed albums partly on release year, so one album whose tracks carried different or missing year tags was split into several albums in the UI. The fix changes the schema and the scanning helpers, with a drizzle migration. The trigger is entirely local: push a set of tagged audio files onto the AVD and let the app scan them, then read the artist screen. It is the third distinct adapter path in this target, media scanning driven from JavaScript over a native MediaStore read, and it is the only selected defect on the legacy bridge, since this revision sets newArchEnabled=false with Hermes on. That makes it the one candidate that would catch an adapter that silently assumes bridgeless",
-      "qualification": "selected-not-executed",
+      "qualification": "executed-trigger-failure",
       "remaining": [
         "build the release variant at both revisions, which the documented debug fallback signs with no secret",
         "author the audio fixture set: tracks of one album with differing and missing year tags, tagged deterministically and stored with the campaign",
@@ -290,6 +294,10 @@
         "minimize the trigger and verify neighboring legal behavior: two genuinely different albums by the same artist stay separate on both builds",
         "confirm the drizzle migration path does not require a pre-existing database, since the campaign installs onto a reset AVD",
         "prove three clean affected reproductions and three reached-observation fixed controls"
+      ],
+      "executionOutcome": "the release x86_64 split was built at both revisions, installed on a reset AVD, granted the media permission, and given all four committed audio fixtures, whose hashes reproduced byte-exactly under the pinned ffmpeg 7.1.5. The campaign reached the application's Home screen and then timed out waiting for an ARTISTS tab: at cdd2305a the top-level tabs are HOME, FOLDERS, PLAYLISTS and TRACKS, and the track count still read 0, so the trigger is authored against a navigation this revision does not have and does not wait for the media scan",
+      "executionEvidence": [
+        "validation/field/evidence/react-native-android-field-runner.md"
       ]
     }
   ],
@@ -310,10 +318,12 @@
     },
     {
       "code": "incomplete-evidence",
-      "kind": "build-input-missing",
-      "detail": "no APK has been built at any selected revision. Every selectedDefects entry is qualification 'selected-not-executed'; the React Native identity per revision, the existence of both revisions, the issue titles, and the pull request merge parents are verified, the runtime behaviour is not",
-      "command": null,
-      "evidence": []
+      "kind": "trigger-authoring-missing",
+      "detail": "the four application archives exist and the remote runner is executed, so the route, the reset, the containment and the cleanup audit are proven. Neither authored trigger reaches its observation: the music trigger waits for a tab this revision does not have, and the joplin trigger cannot address a React Native touchable that sets no clickable attribute",
+      "command": "validation/field/android/run-react-native-android-field-remote.sh --application joplin --affected-apk PATH --fixed-apk PATH",
+      "evidence": [
+        "validation/field/evidence/react-native-android-field-runner.md"
+      ]
     }
   ],
   "verification": {

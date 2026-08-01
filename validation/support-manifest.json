@@ -308,7 +308,7 @@
         "blockers": [
           {
             "code": "incomplete-evidence",
-            "detail": "no application campaign has been executed. 5 candidate defects across 3 application(s) are qualified with verified revisions. The campaign module and its container entry point existed with no committed caller at all; the bounded remote field runner is now committed and drives the campaign over the same zgx gateway to strix route the Android release gates use, because every locally installed Android system image is arm64-v8a and this target's bound is android-emulator/x86_64. What remains is four application archives, an affected and a fixed APK for joplin and the same pair for MissingCore/Music; none was built in this session, so the runner is committed unexercised",
+            "detail": "no application campaign has reached a reproduction. 5 candidate defects across 3 applications are qualified with verified revisions, and the four application archives the runner needed are now built: joplin assembleProfileable at de637847 and 623da377, and the MissingCore/Music assembleRelease x86_64 splits at cdd2305a and 5c86ff15. The runner is executed rather than committed unexercised. Its own preflight was unsatisfiable and is fixed, and both campaigns then ran on a reset pixel_6 AVD on android-36 google_apis x86_64 inside the pinned worker image with Docker network mode none, and both passed their cleanup audit. Both stopped in the authored trigger. The music trigger waits for an ARTISTS tab that does not exist at cdd2305a, where the tabs are HOME, FOLDERS, PLAYLISTS and TRACKS, and it does not wait for the media scan. The joplin trigger reaches the Welcome! notebook row and then cannot address it, because find_node walks up to a clickable ancestor and the React Native touchable sets no clickable attribute, so the walk reaches the boundless root",
             "command": "validation/field/android/run-react-native-android-field-remote.sh --application joplin --affected-apk PATH --fixed-apk PATH",
             "evidence": [
               "validation/field/qualification/react-native-android.json",
@@ -368,12 +368,13 @@
         "blockers": [
           {
             "code": "incomplete-evidence",
-            "detail": "no application campaign has been executed, and the qualified pool is now down to one buildable application. All five BlueWallet candidates are disqualified outright: package.json pins rn-qr-generator to an exact commit of https://github.com/BlueWallet/rn-qr-generator, which returns 404 upstream, so no working tree exists at any candidate revision without substituting a pinned dependency. Joplin installs, resolves its pods and compiles every native and application source file, but the Bundle React Native code and images phase fails because Metro addresses packages/app-mobile/index.js through /tmp while its haste map holds the resolved /private/tmp path; a build root outside that symlink is the only remaining input for an archive. Even with Joplin building, a second independent application is required and none is qualified",
-            "command": null,
+            "detail": "no application campaign has been executed, and the qualified pool holds one buildable application. All five BlueWallet candidates are disqualified outright: package.json pins rn-qr-generator to an exact commit of https://github.com/BlueWallet/rn-qr-generator, which returns 404 upstream, so no working tree exists at any candidate revision. The Joplin build blocker is closed by execution: under a build root outside the /tmp symlink, with DEVELOPMENT_TEAM forced empty and an ad-hoc CODE_SIGN_IDENTITY, both revisions of joplin-note-row-touch-target-15972 now reach ** BUILD SUCCEEDED **, produce Joplin.app with differing main.jsbundle digests, and launch and survive on a disposable iOS 26.2 simulator on the note list the defect lives on. What remains is the accessibility attribute the Joplin note row exposes, since an XCUITest predicate on its label does not match a visibly present row, and then the six runs; and a second independent application, because a campaign needs two and BlueWallet is excluded",
+            "command": "xcodebuild -workspace packages/app-mobile/ios/Joplin.xcworkspace -scheme Joplin -configuration Release -sdk iphonesimulator DEVELOPMENT_TEAM= CODE_SIGN_IDENTITY=-",
             "evidence": [
               "validation/field/qualification/react-native-ios.json",
               "validation/field/evidence/react-native-ios-candidate-execution.json",
-              "validation/field/evidence/react-native-ios-candidate-execution.md"
+              "validation/field/evidence/react-native-ios-candidate-execution.md",
+              "validation/field/evidence/react-native-ios-simulator-build.md"
             ]
           },
           {

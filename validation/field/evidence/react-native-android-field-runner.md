@@ -79,3 +79,76 @@ invisible to inspection and could only be found by running it:
 The first run is retained as the diagnostic it is: it proves the route, the
 uploads, the digest checks, the x86_64 and KVM assertions and the worker image
 build all work, and that the harness could never have got past its own preflight.
+
+## What the second and third executed runs found
+
+With the preflight answered, both campaigns were run for real on a fresh
+`pixel_6` AVD on `system-images;android-36;google_apis;x86_64`, booted with
+`-wipe-data -no-snapshot` inside the pinned worker image with Docker network
+mode none. Both reached a live application and both then stopped inside the
+authored trigger, on the application UI rather than on the harness plumbing.
+Neither campaign produced a reproduction, so neither is written up as one.
+
+The four application archives were built for this and are the ones under test:
+
+| archive | revision | sha256 |
+| --- | --- | --- |
+| joplin affected, `assembleProfileable` | `de6378473fa261e495b4709672471613235b493a` | `ada9aa8bc691a2a09e115e18d4b5f12ea37d9c1b58463429afc86221f9ee0211` |
+| joplin fixed, `assembleProfileable` | `623da377db98dbc8576651aa066ef4000fbf2116` | `61e244d5a48b841684ed78049b6f592776971ab12d1c63e339fc23809ac49835` |
+| music affected, `assembleRelease` x86_64 split | `cdd2305aa0ae3bb5dcefe0691090a1d57cf53cb3` | `b3cdf7d696796a83cce5b24507a32c48ece661390b890bffc9ed2f6f7e28466e` |
+| music fixed, `assembleRelease` x86_64 split | `5c86ff15ee99ac8f77abc19b9e58b98a705a9951` | `a4647bf41d7ac5cad72a545f6e6a18e1a409d252d01aad1172560a8f248e1dc4` |
+
+Two build inputs are recorded because they are not the upstream default. The
+Joplin profileable manifest reads `${usesCleartextTraffic}`, which no build type
+defines, so `joplin_profileable_init.gradle` has to be passed with
+`--init-script` or the manifest merger fails; that file was committed with no
+caller and this is the first recorded use of it. The Music release build runs a
+`sentry-cli` upload task that needs an upstream auth token, so it was built with
+`SENTRY_DISABLE_AUTO_UPLOAD=true`, and it emits per-ABI splits rather than one
+universal APK, so the campaign uses `app-x86_64-release.apk`.
+
+### music: executed and disqualified on the authored navigation
+
+`generate_react_native_music_fixtures.sh` had no caller either. It pins ffmpeg
+7.1.5 and asserts four exact hashes; the development machine has ffmpeg 8.1.2,
+strix has 7.1.5, and generating there reproduced all four committed hashes
+byte-exactly, so the fixture set is confirmed reproducible.
+
+The campaign then installed the affected APK, pushed all four fixtures, granted
+the media permission and reached the application's own Home screen. It timed out
+after 180 seconds in `capture_music_ui`, whose first wait requires both `HOME`
+and `ARTISTS` in the accessibility tree. The retained
+`music-affected-1-home-wait-failure.xml` shows the live screen at
+`cdd2305aa0ae3bb5dcefe0691090a1d57cf53cb3`: the top-level tabs are `HOME`,
+`FOLDERS`, `PLAYLISTS` and `TRACKS`, with no `ARTISTS` tab at all, and the track
+count still reads `0`. The trigger was authored against a navigation this
+revision does not have, and it also assumes the media scan has completed by the
+time the Home screen renders.
+
+### joplin: executed and disqualified on an unaddressable node
+
+The joplin campaign got further. It installed the profileable APK, launched
+`net.cozic.joplin/.MainActivity`, opened the Sidebar and found the `Welcome!`
+notebook row. It failed in `long_press_text` with
+`UI node has no usable bounds: 'Welcome!'`. `find_node` walks up from the
+matching node until it finds an ancestor with `clickable="true"`, and when no
+such ancestor exists it stops at the root, which carries no `bounds` attribute.
+The Joplin sidebar row is a React Native touchable that does not set
+`clickable`, so the walk always reaches the root and the long press can never be
+addressed. This is a defect in the campaign module's node resolution, not in the
+application: the row is present, named, and on screen.
+
+Both runs passed their cleanup audit with `avdDirectoryExists: false`, no
+remaining ADB devices, and every owned emulator and Appium process proven gone
+by start-clock-tick identity, so the ownership and reset half of the runner is
+now executed rather than asserted.
+
+## Exact missing input
+
+1. A Music trigger authored against the tabs this revision actually has, plus a
+   wait on the scan completing rather than on the Home screen rendering.
+2. Node resolution in `find_node` that can address a React Native touchable
+   which does not set `clickable`, so the joplin long press has usable bounds.
+
+Both are harness work on a proven route with the four archives already built.
+The applications, the revision pairs and the identities are unchanged.
