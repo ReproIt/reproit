@@ -170,6 +170,11 @@ docker build \
 
 if ((OVERALL == 0)); then
   docker image inspect "$IMAGE" --format '{{.Id}}' >"$EVIDENCE/image-id.txt"
+  IMAGE_ID="$(cat "$EVIDENCE/image-id.txt")"
+  if [[ ! "$IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "worker image has no usable content digest: $IMAGE_ID" >&2
+    exit 2
+  fi
   DEVICE_ARGS=(--device /dev/kvm)
   if [[ -c /dev/dri/renderD128 ]]; then
     DEVICE_ARGS+=(--device /dev/dri/renderD128)
@@ -187,7 +192,7 @@ if ((OVERALL == 0)); then
     --env REPROIT_CONTAINER_NETWORK=none \
     --env REPROIT_FIELD_AFFECTED_APK=/payload/affected.apk \
     --env REPROIT_FIELD_APPLICATION="$APPLICATION" \
-    --env REPROIT_FIELD_AVD_HOME=/android-avd \
+    --env REPROIT_FIELD_AVD_HOME=/android-avd/run \
     --env REPROIT_FIELD_CLI_COMMIT="$COMMIT" \
     --env REPROIT_FIELD_EVIDENCE=/evidence \
     --env REPROIT_FIELD_FIXED_APK=/payload/fixed.apk \
@@ -198,6 +203,7 @@ if ((OVERALL == 0)); then
     --env REPROIT_HOST_UID="$(id -u)" \
     --env REPROIT_OFFLINE=1 \
     --env REPROIT_SOURCE_ROOT=/repo \
+    --env REPROIT_WORKER_IMAGE="$IMAGE@$IMAGE_ID" \
     --volume "$SOURCE:/repo:Z" \
     --volume "$EVIDENCE:/evidence:Z" \
     --volume "$PAYLOAD:/payload:ro,Z" \

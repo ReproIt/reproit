@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -23,10 +24,13 @@ EMULATOR_VERSION = "36.2.12"
 EMULATOR_SHA256 = (
     "e4b47bf8b25304cf94a5a7c4e30a7224e0c19d196eb098c9f31f02b66f523d39"
 )
-WORKER_IMAGE = (
-    "reproit-android-x86-07cae9bc60e8a40263ee@"
-    "sha256:8868695edf32be4dcac6271e2b68f43a094c9a31b4dd4abaf9b22929b29c3730"
-)
+# The worker builds this image from validation/release/android-x86/Dockerfile and
+# tags it reproit-android-x86-<first 20 of the Dockerfile sha256>, so the NAME
+# pins the recipe exactly. The image is built per host and never pushed, so its
+# content digest is not reproducible across hosts and cannot be pinned here; the
+# worker passes the digest it actually built and it is retained as evidence.
+WORKER_IMAGE = "reproit-android-x86-07cae9bc60e8a40263ee"
+WORKER_IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
 OWNED_PROCESSES: list[dict] = []
 
 
@@ -150,10 +154,12 @@ def enforce_offline(device: Device) -> dict:
 
 
 def validate_runtime(device: Device) -> dict:
-    worker_image = os.environ.get("REPROIT_WORKER_IMAGE")
-    if worker_image != WORKER_IMAGE:
+    worker_image = os.environ.get("REPROIT_WORKER_IMAGE", "")
+    image_name, _, image_id = worker_image.partition("@")
+    if image_name != WORKER_IMAGE or WORKER_IMAGE_ID.match(image_id) is None:
         raise RuntimeError(
-            f"worker image provenance was {worker_image!r}, expected {WORKER_IMAGE!r}"
+            f"worker image provenance was {worker_image!r}, expected "
+            f"{WORKER_IMAGE}@sha256:<64 hex>"
         )
     android_environment = configure_android_environment(device.sdk)
     appium_version = subprocess.run(

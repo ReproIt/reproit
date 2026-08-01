@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "react-native-android-field-runner-preflight",
+  "changeType": "tooling",
+  "detail": "The react-native-android field runner was committed unexercised. Building the four application archives and invoking it for the first time, a music campaign against MissingCore/Music at cdd2305a and 5c86ff15 over the zgx gateway to strix, showed that it could never have reached a reproduction on any host. It aborted inside validate_runtime, before the first emulator boot, and then failed its own cleanup audit. Three harness defects are answered. First, validate_runtime required the environment variable REPROIT_WORKER_IMAGE and no caller in the repository set it; a repository-wide search matched the assertion and nothing else, so every campaign would have stopped with 'worker image provenance was None'. The worker now passes the identity of the image it built. Second, that assertion compared the variable against a hardcoded content digest, sha256:8868695e..., for an image the worker builds locally from validation/release/android-x86/Dockerfile and never pushes. A locally built image's content digest is a per-host artifact: the strix build produced sha256:501c6097... from the same Dockerfile, correctly tagged reproit-android-x86-07cae9bc60e8a40263ee. The pin is now the image name, which already embeds the first 20 hex characters of the Dockerfile digest and therefore pins the recipe exactly, and the built content digest is retained as evidence rather than guessed in advance. Third, REPROIT_FIELD_AVD_HOME was the bind mount /android-avd itself, and Device.stop clears its AVD home with shutil.rmtree, which cannot remove a mount point, so cleanup_audit reported avdDirectoryExists true and failed unconditionally. The AVD home is now /android-avd/run, a directory inside the mount that the campaign creates and can delete, which is the ownership the audit is trying to assert. This is tooling work on the validation harness, not a product fix: no runtime behaviour of the CLI changes, and no user-visible defect is being closed. The first run is retained as the diagnostic it is, because it does prove the route, the uploads, the per-archive digest checks, the native x86_64 and KVM assertions and the worker image build all work.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/react-native-android-field-runner.md",
+      "sha256": "sha256:e003d73960faaa0f7eef7b4faa79b3b10c173412530b09da38a3797bc0b80ff0"
+    }
+  ]
+}

@@ -7,7 +7,7 @@ repository-wide search for `REPROIT_FIELD_APPLICATION` matched the entry point
 and nothing else. The campaign therefore could not be started by anyone, on any
 host, without hand-assembling a Docker invocation.
 
-This change commits the missing caller as two files, modelled directly on
+The caller is committed as two files, modelled directly on
 `validation/release/run-android-x86-remote.sh` and its remote worker:
 
 - `validation/field/android/run-react-native-android-field-remote.sh`, the host
@@ -46,14 +46,36 @@ cache are shared rather than duplicated.
   extraction.
 - Container, AVD, and remote run-directory cleanup all run from traps.
 
-## Exact missing input
+## What the first executed run found
 
-Four application archives: `affected.apk` and `fixed.apk` for joplin, built at
-`de6378473fa261e495b4709672471613235b493a` and
-`623da377db98dbc8576651aa066ef4000fbf2116`, and the same pair for
-MissingCore/Music at `cdd2305aa0ae3bb5dcefe0691090a1d57cf53cb3` and
-`5c86ff15ee99ac8f77abc19b9e58b98a705a9951`. Both applications are React Native
-projects whose release Gradle build has to run somewhere with an Android SDK and
-a JDK; neither archive was produced in this session, so no campaign run has been
-executed and the runner is committed unexercised. That is stated here rather
-than implied: this change ships the caller, not the campaign.
+The runner shipped unexercised, and the first real invocation of it, a music
+campaign against APKs built at both selected revisions, did not reach a single
+reproduction. It stopped in `validate_runtime` before the first emulator boot.
+Three defects in the committed harness are answered here, each of which was
+invisible to inspection and could only be found by running it:
+
+1. `react_native_android_runtime.validate_runtime` required the environment
+   variable `REPROIT_WORKER_IMAGE`, and no caller in the repository ever set
+   it: a repository-wide search matched the assertion and nothing else. Every
+   campaign would have aborted with `worker image provenance was None`. The
+   worker now passes the identity of the image it actually built.
+2. The same assertion compared that variable against a hardcoded content
+   digest. The worker builds the image locally from
+   `validation/release/android-x86/Dockerfile` and never pushes it, so its
+   digest is a per-host build artifact and cannot be reproduced on another
+   machine; the strix build produced
+   `sha256:501c60972ec2f47beca5f6a6f609f0e3d60f1b21dc2117e3ab5262b5112744b5`
+   against a pin of `sha256:8868695e...`. The pin is now the image NAME, which
+   already embeds the first 20 hex of the Dockerfile digest and therefore pins
+   the recipe exactly, and the content digest is retained as evidence instead of
+   guessed in advance.
+3. `REPROIT_FIELD_AVD_HOME` was the bind mount `/android-avd` itself.
+   `Device.stop` removes its AVD home with `shutil.rmtree`, which cannot remove
+   a mount point, so `cleanup_audit` reported `avdDirectoryExists: True` and the
+   campaign failed its own cleanup audit unconditionally. The AVD home is now
+   `/android-avd/run`, a directory inside the mount that the campaign creates
+   and can therefore delete, which is also what the audit is trying to assert.
+
+The first run is retained as the diagnostic it is: it proves the route, the
+uploads, the digest checks, the x86_64 and KVM assertions and the worker image
+build all work, and that the harness could never have got past its own preflight.

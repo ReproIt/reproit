@@ -28,7 +28,6 @@ from react_native_android_runtime import (
     EMULATOR_SHA256,
     EMULATOR_VERSION,
     UIAUTOMATOR2_VERSION,
-    WORKER_IMAGE,
     cleanup_audit,
     enforce_offline,
     record_owned_process,
@@ -805,7 +804,7 @@ def runtime_evidence(device: Device, runtime_preflight: dict) -> dict:
         "emulatorVersion": EMULATOR_VERSION,
         "emulatorExecutable": "/android-sdk/emulator-36.2.12/emulator/emulator",
         "emulatorExecutableSha256": f"sha256:{EMULATOR_SHA256}",
-        "workerImage": WORKER_IMAGE,
+        "workerImage": runtime_preflight["workerImage"],
         "preflight": runtime_preflight,
         "network": (
             "Docker network mode none plus Android airplane mode, "
