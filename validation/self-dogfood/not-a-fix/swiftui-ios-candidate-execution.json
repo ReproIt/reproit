@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "swiftui-ios-candidate-execution",
+  "changeType": "maintenance",
+  "detail": "Records the first execution of the swiftui-ios candidate applications and cites the verified packageInstall CI gate. Four of the six qualified applications were built and driven on disposable simulators: damus and Aidoku return the fixed behavior on their affected revisions on iOS 26.2 and iOS 18.5, IceCubesApp does not build under the Xcode 26.2 Swift compiler, and dimeApp gained a proven ad-hoc signed launch recipe but no executed trigger. No campaign qualified, so the target stays Preview and no field benchmark was written. The packageInstall slot moves from missing to the rust job step that packages sdk/reproit-ios, verified by running validation/release/package-platform-sdks.sh locally. No runtime product behavior changes.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/swiftui-ios-candidate-execution.json",
+      "sha256": "sha256:f88c2f6f2c453ee7694bafb90ee2093d1f39331b8320609e6840f27b05b0e803"
+    }
+  ]
+}
