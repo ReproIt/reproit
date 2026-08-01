@@ -1,0 +1,194 @@
+{
+  "schemaVersion": 1,
+  "target": "linux-qt-quick",
+  "worker": {
+    "image": "sha256:8371c2351f251f4d7f41165a959f706ae7dc8d81222059e19520749fa1d67ffa",
+    "platform": "linux/amd64",
+    "network": "none"
+  },
+  "cleanCases": 2,
+  "adversarialCases": 2,
+  "confirmedFalsePositives": 0,
+  "unreachedObservations": 0,
+  "containersRemaining": 0,
+  "cases": [
+    {
+      "id": "kalk-clean-base",
+      "kind": "clean",
+      "application": "kalk-second-equals-clears-input-475907",
+      "repository": "https://invent.kde.org/utilities/kalk",
+      "revision": "662aa91d58160fca8538f01d7a35253d351214c4",
+      "fixture": null,
+      "variant": "default",
+      "why": "the ordinary equals flow on the fixed build: pressing equals a second time leaves the result on the display",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "variant": "default",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "memoryMeasurement": "unavailable",
+        "jsHeapMiB": null,
+        "elapsedSeconds": 12.7,
+        "atspiApplication": "kalk",
+        "afterTyping": [
+          "1+1",
+          "2"
+        ],
+        "afterFirstEquals": [
+          "2"
+        ],
+        "secondAction": "Return",
+        "afterSecondAction": [
+          "2"
+        ],
+        "neighboringLegalBehavior": {
+          "firstEqualsProducedResult": true,
+          "resultBeforeSecondAction": [
+            "2"
+          ]
+        },
+        "application": "kalk",
+        "revision": "fixed",
+        "run": 1
+      }
+    },
+    {
+      "id": "kalk-adversarial-explicit-backspace",
+      "kind": "adversarial",
+      "application": "kalk-second-equals-clears-input-475907",
+      "repository": "https://invent.kde.org/utilities/kalk",
+      "revision": "662aa91d58160fca8538f01d7a35253d351214c4",
+      "fixture": null,
+      "variant": "explicit-backspace",
+      "why": "backspacing the input away empties the display exactly as the defect does, and is entirely legal, so an oracle that reported an empty display rather than the equals path would call this a defect",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "variant": "explicit-backspace",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "memoryMeasurement": "unavailable",
+        "jsHeapMiB": null,
+        "elapsedSeconds": 14.387,
+        "atspiApplication": "kalk",
+        "afterTyping": [
+          "1+1",
+          "2"
+        ],
+        "afterFirstEquals": [
+          "2"
+        ],
+        "secondAction": "BackSpace x5",
+        "afterSecondAction": [],
+        "neighboringLegalBehavior": {
+          "firstEqualsProducedResult": true,
+          "resultBeforeSecondAction": [
+            "2"
+          ]
+        },
+        "application": "kalk",
+        "revision": "fixed",
+        "run": 1
+      }
+    },
+    {
+      "id": "elisa-clean-base",
+      "kind": "clean",
+      "application": "elisa-progress-indicator-padding-497592",
+      "repository": "https://invent.kde.org/multimedia/elisa",
+      "revision": "cf0f8b41917ec2de61fe6fc89335cf0939568600",
+      "fixture": null,
+      "variant": "default",
+      "why": "the ordinary playback view on the fixed build: the elapsed heading is zero padded",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "variant": "default",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "memoryMeasurement": "unavailable",
+        "jsHeapMiB": null,
+        "elapsedSeconds": 7.159,
+        "atspiApplication": "elisa",
+        "elapsedReading": "00:06",
+        "totalReading": "00:30",
+        "trackTitle": "fixture.wav",
+        "headings": [
+          "",
+          "",
+          "",
+          "",
+          "00:06",
+          "00:30",
+          "fixture.wav",
+          ""
+        ],
+        "elapsedIsZeroPadded": true,
+        "elapsedIsSingleDigitMinutes": false,
+        "neighboringLegalBehavior": {
+          "trackTitleReadsIdentically": "fixture.wav",
+          "durationSliderPresent": true
+        },
+        "application": "elisa",
+        "revision": "fixed",
+        "run": 1
+      }
+    },
+    {
+      "id": "elisa-adversarial-track-title",
+      "kind": "adversarial",
+      "application": "elisa-progress-indicator-padding-497592",
+      "repository": "https://invent.kde.org/multimedia/elisa",
+      "revision": "cf0f8b41917ec2de61fe6fc89335cf0939568600",
+      "fixture": null,
+      "variant": "track-title",
+      "why": "the track title is a heading in the same window that legitimately carries no zero-padded time, so an oracle that demanded every heading match the padded form would report it",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "variant": "track-title",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "exceptions": [],
+        "memoryMeasurement": "unavailable",
+        "jsHeapMiB": null,
+        "elapsedSeconds": 7.157,
+        "atspiApplication": "elisa",
+        "elapsedReading": "00:06",
+        "totalReading": "00:30",
+        "trackTitle": "fixture.wav",
+        "headings": [
+          "",
+          "",
+          "",
+          "",
+          "00:06",
+          "00:30",
+          "fixture.wav",
+          ""
+        ],
+        "elapsedIsZeroPadded": true,
+        "elapsedIsSingleDigitMinutes": false,
+        "neighboringLegalBehavior": {
+          "trackTitleReadsIdentically": "fixture.wav",
+          "durationSliderPresent": true
+        },
+        "application": "elisa",
+        "revision": "fixed",
+        "run": 1
+      }
+    }
+  ]
+}

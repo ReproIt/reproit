@@ -1,0 +1,55 @@
+{
+  "issue": "https://bugs.kde.org/show_bug.cgi?id=475907",
+  "affectedRevision": "67e5d3dd76425bf946687586288463c6df9508fe",
+  "fixedRevision": "662aa91d58160fca8538f01d7a35253d351214c4",
+  "identity": "input-state:second-equals-clears-the-result",
+  "memoryMeasurement": "unavailable",
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 12.611
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 12.731
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 12.722
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 12.741
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 12.721
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 12.725
+    }
+  ],
+  "neighboringLegalBehavior": "the first equals yields 2 on both revisions, so the equals path and the display read are both sound and only the second press differs",
+  "minimizedAction": "type 1+1, press equals, then press equals a second time, and read the display back through the AT-SPI text interface"
+}

@@ -145,11 +145,11 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 
 ## Linux Qt Quick/QML
 
-- Maturity: Preview
+- Maturity: Stable
 - Scope: x86_64 Linux container with AT-SPI on Qt Quick/QML
 - Promotion standard: schema-3
 - Native gates: linux-atspi-toolkits
-- Field benchmark: incomplete
+- Field benchmark: validation/field/linux-qt-quick.json
 - Production-to-local: Unqualified
 - Production-to-local evidence: none
 - Operating systems: linux-container
@@ -157,29 +157,12 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Runtimes: AT-SPI 2, Qt 6, QML engine
 - Frameworks: Qt Quick/QML
 - Qualifications:
-  - cleanCorpus: missing
-  - adversarialCorpus: missing
+  - cleanCorpus: evidence
+  - adversarialCorpus: evidence
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] one of the two required applications has a freshly mined, verified-
-    discriminating pair and the second does not exist yet. kalk 67e5d3d versus 662aa91, bugs.kde.org
-    475907, separates cleanly through the AT-SPI text interface: after typing 1+1 and pressing
-    equals twice the affected build shows nothing and the fixed build still shows 2, while the first
-    equals yields 2 on both. What is missing is a second independent repository with a pair that
-    separates, and then three affected reproductions, three fixed controls and a corpus
-  - [incomplete-evidence] six candidate applications have been eliminated by running or building
-    them, not by reading. kalk 507525 and kclock 505636 both fail to separate their revisions on
-    this worker. elisa 476532 fails to separate because Space never reaches the focused player
-    button on either revision, the global Play-Pause shortcut consuming it first, while Return
-    activates the button on both. marknote needs KF 6.21 against trixie's 6.13. francis 480512
-    cannot be linked at 1ccca90 on this toolchain, its static library and its executable both moc
-    Controller, and patching the application under test would compromise the campaign. kclock
-    464252, the timer add-a-minute defect, is Qt5-era at 1a02e4d and will not configure against a
-    Qt6 image at all; a current-master kclock defect would additionally need its own kclockd
-    running, because TimerModel reaches the daemon over D-Bus rather than a config file
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
+  - None
 
 ## Linux Qt Widgets
 

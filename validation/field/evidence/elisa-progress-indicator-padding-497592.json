@@ -1,0 +1,55 @@
+{
+  "issue": "https://bugs.kde.org/show_bug.cgi?id=497592",
+  "affectedRevision": "8286818ff1c55e9f45c0f64d4600e11655898a90",
+  "fixedRevision": "cf0f8b41917ec2de61fe6fc89335cf0939568600",
+  "identity": "progress-indicator:elapsed-time-minutes-not-zero-padded",
+  "memoryMeasurement": "unavailable",
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 7.223
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 7.156
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 7.176
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 7.093
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 7.142
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 7.107
+    }
+  ],
+  "neighboringLegalBehavior": "the track title heading in the same window reads identically on both revisions, so the same tree read returns unchanged strings for labels the formatter does not produce",
+  "minimizedAction": "open a short silent track and read the elapsed-position heading immediately before the Duration slider"
+}

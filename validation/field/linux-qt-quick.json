@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 3,
+  "target": "linux-qt-quick",
+  "status": "complete",
+  "applications": [
+    {
+      "id": "kalk-second-equals-clears-input-475907",
+      "repository": "https://invent.kde.org/utilities/kalk",
+      "issueUrl": "https://bugs.kde.org/show_bug.cgi?id=475907",
+      "affectedRevision": "67e5d3dd76425bf946687586288463c6df9508fe",
+      "fixedRevision": "662aa91d58160fca8538f01d7a35253d351214c4",
+      "authority": "standard",
+      "expectedIdentity": "input-state:second-equals-clears-the-result",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "input-state:second-equals-clears-the-result",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "input-state:second-equals-clears-the-result",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "input-state:second-equals-clears-the-result",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 116,
+        "replaySecondsP95": 12.731,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/kalk-second-equals-clears-input-475907.json",
+        "validation/field/evidence/kalk-second-equals-clears-input-475907.md",
+        "validation/field/evidence/kalk-second-equals-clears-input-475907-runs.jsonl"
+      ]
+    },
+    {
+      "id": "elisa-progress-indicator-padding-497592",
+      "repository": "https://invent.kde.org/multimedia/elisa",
+      "issueUrl": "https://bugs.kde.org/show_bug.cgi?id=497592",
+      "affectedRevision": "8286818ff1c55e9f45c0f64d4600e11655898a90",
+      "fixedRevision": "cf0f8b41917ec2de61fe6fc89335cf0939568600",
+      "authority": "standard",
+      "expectedIdentity": "progress-indicator:elapsed-time-minutes-not-zero-padded",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "progress-indicator:elapsed-time-minutes-not-zero-padded",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "progress-indicator:elapsed-time-minutes-not-zero-padded",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "progress-indicator:elapsed-time-minutes-not-zero-padded",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 116,
+        "replaySecondsP95": 7.223,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/elisa-progress-indicator-padding-497592.json",
+        "validation/field/evidence/elisa-progress-indicator-padding-497592.md",
+        "validation/field/evidence/elisa-progress-indicator-padding-497592-runs.jsonl"
+      ]
+    }
+  ]
+}

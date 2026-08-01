@@ -123,6 +123,7 @@ qualification levels.
 - Electron Linux: already satisfies every recorded qualification slot
 - Flutter iOS: already satisfies every recorded qualification slot
 - Linux GTK: already satisfies every recorded qualification slot
+- Linux Qt Quick/QML: already satisfies every recorded qualification slot
 - Linux Qt Widgets: already satisfies every recorded qualification slot
 - Linux wxWidgets: already satisfies every recorded qualification slot
 - SwiftUI iOS: already satisfies every recorded qualification slot
@@ -168,45 +169,6 @@ complete target-specific record validates.
     image. What is not yet built there is the campaign runner itself, so no scenario has run
 - Promotion gate:
   - Set `flutter-android.maturity` to `stable` only after the benchmark,
-    qualification slots, required-CI gates, and blockers validate together.
-- Qualification dependency:
-  - After Stable, run the target-specific fixture chain and then a distinct
-    independent application chain. Retain and validate both records.
-
-### Linux Qt Quick/QML
-
-- Target id: `linux-qt-quick`
-- Current maturity: Preview
-- Environment: linux-container; x86_64
-- Runtime bound: AT-SPI 2, Qt 6, QML engine
-- Framework bound: Qt Quick/QML
-- Native gates:
-  - `linux-atspi-toolkits`: required-ci in .github/workflows/native-gates.yml job `linux-containers`
-    ```sh
-    bash examples/qt-fixture/qt-atspi-e2e.sh
-    ```
-- Field benchmark to create: `validation/field/linux-qt-quick.json`
-- Open blockers:
-  - [incomplete-evidence] one of the two required applications has a freshly mined, verified-
-    discriminating pair and the second does not exist yet. kalk 67e5d3d versus 662aa91, bugs.kde.org
-    475907, separates cleanly through the AT-SPI text interface: after typing 1+1 and pressing
-    equals twice the affected build shows nothing and the fixed build still shows 2, while the first
-    equals yields 2 on both. What is missing is a second independent repository with a pair that
-    separates, and then three affected reproductions, three fixed controls and a corpus
-  - [incomplete-evidence] six candidate applications have been eliminated by running or building
-    them, not by reading. kalk 507525 and kclock 505636 both fail to separate their revisions on
-    this worker. elisa 476532 fails to separate because Space never reaches the focused player
-    button on either revision, the global Play-Pause shortcut consuming it first, while Return
-    activates the button on both. marknote needs KF 6.21 against trixie's 6.13. francis 480512
-    cannot be linked at 1ccca90 on this toolchain, its static library and its executable both moc
-    Controller, and patching the application under test would compromise the campaign. kclock
-    464252, the timer add-a-minute defect, is Qt5-era at 1a02e4d and will not configure against a
-    Qt6 image at all; a current-master kclock defect would additionally need its own kclockd
-    running, because TimerModel reaches the daemon over D-Bus rather than a config file
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
-- Promotion gate:
-  - Set `linux-qt-quick.maturity` to `stable` only after the benchmark,
     qualification slots, required-CI gates, and blockers validate together.
 - Qualification dependency:
   - After Stable, run the target-specific fixture chain and then a distinct
@@ -355,7 +317,7 @@ when this plan was generated. Each row is complete only at `IndependentQualified
 | `flutter-android` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `flutter-ios` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `linux-gtk` | Stable | Unqualified | Stable + `IndependentQualified` |
-| `linux-qt-quick` | Preview | Unqualified | Stable + `IndependentQualified` |
+| `linux-qt-quick` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `linux-qt-widgets` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `linux-wxwidgets` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `macos-ax` | Preview | Unqualified | Stable + `IndependentQualified` |

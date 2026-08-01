@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "linux-qt-quick-field-campaign",
+  "changeType": "tooling",
+  "detail": "Executes the Linux Qt Quick field campaign on the native x86_64 worker and promotes the target on the evidence it produced. Both applications and both defects were mined rather than taken from the recorded candidate list, which was assembled before the forge widening: kalk 475907 and elisa 497592 were found by searching each repository's own history for commits citing a bug id and taking the fix and its parent. Both were checked for discrimination before any of the twelve runs was spent. kalk 67e5d3d versus 662aa91 separates through the AT-SPI text interface, which this target needs because Qt Quick controls carry content on the text interface rather than the accessible name: pressing equals twice empties the affected display and leaves 2 on the fixed one, with the first equals yielding 2 on both. elisa 8286818 versus cf0f8b4 separates on the elapsed-position heading beside the Duration slider, which reads 0:09 on the affected revision and 00:09 on the fixed one. Four corpus subjects on the fixed revisions report nothing, including an input emptied by backspace, which looks exactly like the kalk defect and is legal. No runtime product behavior changes.",
+  "evidence": [
+    {
+      "path": "validation/field/linux-qt-quick.json",
+      "sha256": "sha256:b60e3146887e70c2b1c347aa1b577a39e97d527164bf677f0c3848b540a90f3d"
+    },
+    {
+      "path": "validation/field/corpus/linux-qt-quick.json",
+      "sha256": "sha256:5d3bf355aebf924b630670b08366277f8a8c88c9dccd6bf5b116141b6abe39d6"
+    }
+  ]
+}
