@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 1,
+  "target": "windows-winui",
+  "campaign": "unigetui-mainview-keyup-3298",
+  "status": "campaign-complete",
+  "issue": "https://github.com/Devolutions/UniGetUI/issues/3298",
+  "pullRequest": "https://github.com/Devolutions/UniGetUI/pull/3354",
+  "affectedRevision": "fecaf3d46cfdb32ed396a2e903a29d6dec40c2b5",
+  "fixedRevision": "6bd24003bb3292d5f23760a3f36d652881dcb30c",
+  "identity": "navigation-shortcut-fires-on-key-release-not-key-press",
+  "authority": "authored-contract: pull request 3354 moves the MainView shortcut handler from KeyUp to KeyDown",
+  "memoryMeasurement": "unavailable",
+  "minimizedAction": "focus the search box inside MainView through the UI Automation focus pattern, hold F1 without releasing it, observe the page, release F1, observe the page again",
+  "neighboringLegalBehavior": "F7 is bound to nothing in the same MainView handler. Held and released through the identical path on both exact revisions, the page stays on Discover Packages, so the observation does not simply report every key edge",
+  "observation": {
+    "automation": "Windows UI Automation",
+    "discoverPageMarker": "MainTitle text block named Discover Packages",
+    "helpPageMarker": "WebView pane with BackButton, HomeButton, ReloadButton and BrowserButton",
+    "affectedWhileHeld": "Discover Packages",
+    "affectedAfterRelease": "help-browser",
+    "fixedWhileHeld": "help-browser",
+    "fixedAfterRelease": "help-browser"
+  },
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26100.0",
+    "architecture": "X64",
+    "interactiveSessionId": 1,
+    "worker": "native x86_64 Windows VM through the existing three-hop SSH route",
+    "scheduledTaskLogonType": "Interactive",
+    "appModel": "unpackaged, WindowsPackageType None, WindowsAppSDKSelfContained true",
+    "buildSdk": "8.0.422",
+    "networkPolicy": "program-scoped Windows Firewall inbound and outbound block rules on the published executable",
+    "packageManagerContainment": "22 Disable<Manager> and notice flag files written into a fresh %LOCALAPPDATA%\\UniGetUI before every launch; no winget, scoop, choco, npm, cargo or pip process was observed in any run",
+    "boundedSetup": "the administrator notice content dialog is acknowledged through its PrimaryButton before the trigger; the Cargo dependency dialog did not appear in any campaign run because the manager flags suppress it, and every record carries dependencyDialogDismissed false"
+  },
+  "builds": {
+    "affected": {
+      "executableSha256": "C5DB922775BAAB31770BEEB0144ED5FDEAC0704D4D59D6C8472E0BE825F2908B",
+      "assemblySha256": "C5FA1F61EBEFDDDDFF8452DA096D98825D90DCD5D89E3AAA5D39C99732639A97",
+      "result": "publish succeeded, 0 errors"
+    },
+    "fixed": {
+      "executableSha256": "C5DB922775BAAB31770BEEB0144ED5FDEAC0704D4D59D6C8472E0BE825F2908B",
+      "assemblySha256": "DC55B3A6A3DA0F11C569ECFF223CDC55DE091262716B32968FD5AE1759E37B9B",
+      "result": "publish succeeded, 0 errors"
+    }
+  },
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 60.520643299999996,
+      "jsHeapMiB": null,
+      "startedAt": "2026-08-01T02:45:43.8386643+00:00",
+      "finishedAt": "2026-08-01T02:46:44.3593076+00:00",
+      "processId": 9188,
+      "readinessMilliseconds": 43205,
+      "identity": "navigation-shortcut-fires-on-key-release-not-key-press",
+      "pageWhileKeyHeld": "Discover Packages",
+      "pageAfterKeyReleased": "help-browser",
+      "rawRecordSha256": "45145DD9A917A462BBFE27C916EA8692F92D20973D28A51598E44716E0D7B141"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 61.301997199999995,
+      "jsHeapMiB": null,
+      "startedAt": "2026-08-01T02:46:47.9511358+00:00",
+      "finishedAt": "2026-08-01T02:47:49.2531330+00:00",
+      "processId": 2056,
+      "readinessMilliseconds": 43863,
+      "identity": "navigation-shortcut-fires-on-key-release-not-key-press",
+      "pageWhileKeyHeld": "Discover Packages",
+      "pageAfterKeyReleased": "help-browser",
+      "rawRecordSha256": "260F967CE72E59F858AD8F8EE324DE600B80DC2449567951B3F79959848CF3B0"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 61.403095799999996,
+      "jsHeapMiB": null,
+      "startedAt": "2026-08-01T02:47:52.7384309+00:00",
+      "finishedAt": "2026-08-01T02:48:54.1415267+00:00",
+      "processId": 4832,
+      "readinessMilliseconds": 43941,
+      "identity": "navigation-shortcut-fires-on-key-release-not-key-press",
+      "pageWhileKeyHeld": "Discover Packages",
+      "pageAfterKeyReleased": "help-browser",
+      "rawRecordSha256": "99559D8A7D4AACA5FBA106281DA4B6F0999EDE2EA31D03622E6B2910AE2F6C85"
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 65.4072475,
+      "jsHeapMiB": null,
+      "startedAt": "2026-08-01T02:48:57.6832531+00:00",
+      "finishedAt": "2026-08-01T02:50:03.0905006+00:00",
+      "processId": 12728,
+      "readinessMilliseconds": 44393,
+      "identity": null,
+      "pageWhileKeyHeld": "help-browser",
+      "pageAfterKeyReleased": "help-browser",
+      "rawRecordSha256": "447C9B02F0B7419B8819AFF6B9FE4FBA9DCA382EE1E54132FE5B82BE69FCBFB5"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 64.5444357,
+      "jsHeapMiB": null,
+      "startedAt": "2026-08-01T02:50:06.5735537+00:00",
+      "finishedAt": "2026-08-01T02:51:11.1179894+00:00",
+      "processId": 12420,
+      "readinessMilliseconds": 43253,
+      "identity": null,
+      "pageWhileKeyHeld": "help-browser",
+      "pageAfterKeyReleased": "help-browser",
+      "rawRecordSha256": "4B7EAA37F439F5E584122BE55EA93722F97B3207891D67D60355E1F5BA876F71"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 64.78883189999999,
+      "jsHeapMiB": null,
+      "startedAt": "2026-08-01T02:51:14.6156052+00:00",
+      "finishedAt": "2026-08-01T02:52:19.4044371+00:00",
+      "processId": 4080,
+      "readinessMilliseconds": 43449,
+      "identity": null,
+      "pageWhileKeyHeld": "help-browser",
+      "pageAfterKeyReleased": "help-browser",
+      "rawRecordSha256": "CDC4BCB9B39B14509C998DAF43C5E6B56B66A04AFE3B22F4A2F2B6F293D5FF26"
+    }
+  ],
+  "controls": [
+    {
+      "role": "affected-control",
+      "run": 1,
+      "revision": "fecaf3d46cfdb32ed396a2e903a29d6dec40c2b5",
+      "triggerKey": "F7",
+      "elapsedSeconds": 57.855728299999996,
+      "identity": null,
+      "pageWhileKeyHeld": "Discover Packages",
+      "pageAfterKeyReleased": "Discover Packages",
+      "rawRecordSha256": "28AB7BEB962BCCAFB5F17FF8C917DC28B8EF80E87EE2556233714B4E5E87B9BC"
+    },
+    {
+      "role": "fixed-control",
+      "run": 1,
+      "revision": "6bd24003bb3292d5f23760a3f36d652881dcb30c",
+      "triggerKey": "F7",
+      "elapsedSeconds": 57.723928199999996,
+      "identity": null,
+      "pageWhileKeyHeld": "Discover Packages",
+      "pageAfterKeyReleased": "Discover Packages",
+      "rawRecordSha256": "9C12761DD0A46A936559CD1CEAF400298181BCC40C31ACD93167F81100FB79C1"
+    }
+  ],
+  "harness": "validation/field/windows/run-unigetui-mainview-keyup.ps1"
+}

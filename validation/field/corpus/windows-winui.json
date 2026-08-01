@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "target": "windows-winui",
+  "worker": {
+    "image": "native-windows-vm:Microsoft-Windows-NT-10.0.26100.0",
+    "platform": "windows/x86_64/WinUI3/UIA",
+    "network": "none"
+  },
+  "cleanCases": 1,
+  "adversarialCases": 2,
+  "confirmedFalsePositives": 0,
+  "unreachedObservations": 0,
+  "containersRemaining": 0,
+  "cases": [
+    {
+      "id": "dlss829-fixed-minimize-clean",
+      "kind": "clean",
+      "application": "DLSS Swapper",
+      "repository": "https://github.com/beeradmoore/dlss-swapper",
+      "revision": "09bfaa388cbab84cf8f416576b6e401d64f98e10",
+      "fixture": "validation/field/windows/run-windows-winui-corpus.ps1",
+      "variant": "fixed revision, fresh portable StoredData, minimize then close then relaunch",
+      "why": "the fixed application is a clean subject driven through the exact defect trigger, so it must complete the minimize, close and relaunch sequence and place its window back on screen without reporting the sentinel-position defect",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "observable": "BoundingRectangle of the relaunched top-level window",
+        "secondLaunchOrigin": "156,156",
+        "secondLaunchVisualState": "Normal",
+        "offscreen": false,
+        "cleanLaunch": true,
+        "networkPolicy": "program-scoped Windows Firewall inbound and outbound block rules",
+        "rawRecordSha256": "4DBBAE0D83F436DF2A48E3F213F5AF8E1815F9980F37EDCEEA719F4E61812D54"
+      }
+    },
+    {
+      "id": "dlss829-affected-normal-close-adversarial",
+      "kind": "adversarial",
+      "application": "DLSS Swapper",
+      "repository": "https://github.com/beeradmoore/dlss-swapper",
+      "revision": "8cd0ccccce1470844d4e3f9294eecbbad3c25672",
+      "fixture": "validation/field/windows/run-windows-winui-corpus.ps1",
+      "variant": "affected revision, fresh portable StoredData, close from the normal visual state with no minimize",
+      "why": "the same defective build runs the same persist-on-exit and restore path through the same window pattern, so it superficially matches the defect, but closing from the normal state is legal and must not be classified as the sentinel-position failure",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "observable": "BoundingRectangle of the relaunched top-level window",
+        "secondLaunchOrigin": "52,52",
+        "secondLaunchVisualState": "Normal",
+        "offscreen": false,
+        "cleanLaunch": true,
+        "networkPolicy": "program-scoped Windows Firewall inbound and outbound block rules",
+        "rawRecordSha256": "B6F245150BA0AE2390DBAB60FE74032E92E4BDA7243E0C89CD1ACF2F73FA4AC7"
+      }
+    },
+    {
+      "id": "unigetui-affected-unbound-key-adversarial",
+      "kind": "adversarial",
+      "application": "UniGetUI",
+      "repository": "https://github.com/Devolutions/UniGetUI",
+      "revision": "fecaf3d46cfdb32ed396a2e903a29d6dec40c2b5",
+      "fixture": "validation/field/windows/run-windows-winui-corpus.ps1",
+      "variant": "affected revision, fresh settings flags, hold and release F7 instead of F1",
+      "why": "the same defective build, the same focused search box and the same page observation across both key edges, but F7 is bound to nothing in the MainView handler, so a page move here would be a false positive on the key-timing identity",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "observable": "which page the WinUI navigation shows across both key edges",
+        "triggerKey": "F7",
+        "pageWhileKeyHeld": "Discover Packages",
+        "pageAfterKeyReleased": "Discover Packages",
+        "cleanLaunch": true,
+        "networkPolicy": "program-scoped Windows Firewall inbound and outbound block rules",
+        "rawRecordSha256": "6B45D485E4F03F1033E8BE92D97A34EEAEADB8369C25DF263D8E9BC4D11B636D"
+      }
+    }
+  ]
+}

@@ -127,6 +127,7 @@ qualification levels.
 - Web Firefox: already satisfies every recorded qualification slot
 - Web WebKit: already satisfies every recorded qualification slot
 - Windows Avalonia: already satisfies every recorded qualification slot
+- Windows WinUI 3: already satisfies every recorded qualification slot
 - Windows WPF: already satisfies every recorded qualification slot
 
 ## Preview target worklists
@@ -400,41 +401,6 @@ complete target-specific record validates.
   - After Stable, run the target-specific fixture chain and then a distinct
     independent application chain. Retain and validate both records.
 
-### Windows WinUI 3
-
-- Target id: `windows-winui`
-- Current maturity: Preview
-- Environment: windows-x86_64-interactive; x86_64
-- Runtime bound: .NET, UI Automation, WinAppSDK
-- Framework bound: WinUI 3
-- Native gates:
-  - `windows-uia`: required-ci in .github/workflows/native-gates.yml job `windows-uia`; route:
-    black@zgx-5a09.local -> strix -> reproit@localhost:2223
-    ```sh
-    powershell validation/backends/run-windows-desktop.ps1
-    ```
-- Field benchmark to create: `validation/field/windows-winui.json`
-- Open blockers:
-  - [incomplete-evidence] no application campaign has been executed. 7 candidate defects across 2
-    independent applications (DLSS Swapper, UniGetUI) remain qualified, but neither application has
-    three clean affected reproductions and three reached-observation fixed controls. Two candidates
-    were executed on the native x86_64 Windows guest. dlss-swapper-non-nvidia-crash-590 is
-    disqualified: its NvAPI call already sits inside a catch block at the affected revision, so on a
-    machine with no NVIDIA driver the process survives both the settings and the games navigation
-    and there is nothing for the fix to remove. unigetui-mainview-keyup-3298 is trigger-verified:
-    both revisions build and launch unpackaged, and holding F1 separates the two revisions exactly,
-    but the three-plus-three run set, the neighboring-legal-behavior control and the corpus have not
-    been run. DLSS Swapper therefore needs a fresh revision pair, either 750 or 829, built with the
-    .NET 10 SDK before this target has two independent applications
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
-- Promotion gate:
-  - Set `windows-winui.maturity` to `stable` only after the benchmark,
-    qualification slots, required-CI gates, and blockers validate together.
-- Qualification dependency:
-  - After Stable, run the target-specific fixture chain and then a distinct
-    independent application chain. Retain and validate both records.
-
 ## All-target production-to-local qualification
 
 The following checklist covers every target, including the targets that were Stable
@@ -461,7 +427,7 @@ when this plan was generated. Each row is complete only at `IndependentQualified
 | `web-firefox` | Stable | FixtureQualified | Stable + `IndependentQualified` |
 | `web-webkit` | Stable | FixtureQualified | Stable + `IndependentQualified` |
 | `windows-avalonia` | Stable | Unqualified | Stable + `IndependentQualified` |
-| `windows-winui` | Preview | Unqualified | Stable + `IndependentQualified` |
+| `windows-winui` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `windows-wpf` | Stable | Unqualified | Stable + `IndependentQualified` |
 
 For each row, use this atomic sequence:

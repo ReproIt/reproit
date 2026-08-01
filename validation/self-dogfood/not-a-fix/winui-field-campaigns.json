@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "winui-field-campaigns",
+  "changeType": "maintenance",
+  "detail": "windows-winui reaches Stable on two executed independent application campaigns and a corpus, all run on the native x86_64 Windows guest in interactive session 1 against unpackaged WinUI 3 publishes. UniGetUI, issue 3298, pull request 3354, affected fecaf3d4 and fixed 6bd24003: the minimized trigger focuses the search box through the UI Automation focus pattern and holds F1 without releasing it, which separates the KeyDown edge from the KeyUp edge without ever leaving the target's own automation tree. Three affected runs held on Discover Packages for the whole hold and moved to the Help browser pane only on release, all three landing on the single identity navigation-shortcut-fires-on-key-release-not-key-press. Three fixed runs reached the same observation point with the navigation already complete while the key was down and reported nothing. DLSS Swapper, issue 829, pull request 830, affected 8cd0cccc and fixed 09bfaa38, built fresh with the .NET 10.0.302 SDK after candidate 590 was disqualified: minimize and close both go through the UI Automation window pattern, never a raw Win32 call, which was the open question in the candidate record. Three affected runs relaunched at -32000,-32000 while reporting WindowVisualState Normal, on the single identity restored-window-parks-at-minimized-sentinel-position; three fixed runs returned the window to the on-screen origin of their own first launch, 26,26 then 78,78 then 130,130. Each application has a neighbouring legal control on both exact revisions: F7, which the MainView handler does not bind, leaves the page on Discover Packages; a close from the normal visual state runs the identical persist path and comes back on screen. The corpus is one clean and two adversarial subjects, every one offline behind program-scoped Windows Firewall block rules, every one reaching observation, zero false positives. Two harness defects were found and fixed by running rather than by reading: the settings flag list contained both DisableDotNet and DisableDotnet, which collide on a case-insensitive filesystem and made New-Item fail, and the page observation assigned to $home, which PowerShell owns as a read-only automatic variable. Both failed all eight runs before the fix and all eight pass after it. Containment was measured: an uncontained UniGetUI launch spawns winget.exe, and no campaign or corpus run spawned any package manager process. Bounded setup is recorded rather than hidden: the administrator notice and the multiplayer advisory are dismissed through their own buttons and install nothing. The guest was left with zero scheduled tasks, zero owned firewall rules, zero leftover processes, and no application state directories.",
+  "evidence": [
+    {
+      "path": "validation/field/windows-winui.json",
+      "sha256": "sha256:70e701f9cf60de93cac9af22ce8b844343437609a7cf2e9842d902b79e68cd65"
+    },
+    {
+      "path": "validation/field/corpus/windows-winui.json",
+      "sha256": "sha256:d40f25650fb255b78bb80779d3fe34e44597087f12abb3ebd40829c2ce8309b7"
+    },
+    {
+      "path": "validation/field/evidence/unigetui-mainview-keyup-3298.json",
+      "sha256": "sha256:76a2e20af707269a46d6641135cb494a1d2fa53064c72419e9d421314ab7e65c"
+    },
+    {
+      "path": "validation/field/evidence/dlss-swapper-minimized-window-position-829.json",
+      "sha256": "sha256:4bb3a1443cbff489a4d8fec881726440478f190010e666cca063e2ccb1cf3690"
+    }
+  ]
+}

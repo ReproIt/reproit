@@ -1,0 +1,174 @@
+{
+  "schemaVersion": 1,
+  "target": "windows-winui",
+  "campaign": "dlss-swapper-minimized-window-position-829",
+  "status": "campaign-complete",
+  "issue": "https://github.com/beeradmoore/dlss-swapper/issues/829",
+  "pullRequest": "https://github.com/beeradmoore/dlss-swapper/pull/830",
+  "affectedRevision": "8cd0ccccce1470844d4e3f9294eecbbad3c25672",
+  "fixedRevision": "09bfaa388cbab84cf8f416576b6e401d64f98e10",
+  "identity": "restored-window-parks-at-minimized-sentinel-position",
+  "authority": "platform: Windows parks a minimized window at the -32000 sentinel coordinate, so a restored window may never be placed there",
+  "memoryMeasurement": "unavailable",
+  "minimizedAction": "minimize the window through the UI Automation window pattern, close it through the same pattern, then relaunch and read the window's bounding rectangle",
+  "neighboringLegalBehavior": "closing the window through the same window pattern from its normal visual state runs the identical persist-on-exit path; on both exact revisions the relaunched window returns to its on-screen position, so the observation is not simply reporting every close",
+  "observation": {
+    "automation": "Windows UI Automation",
+    "observable": "BoundingRectangle of the top-level window on the second launch",
+    "sentinelThreshold": -30000,
+    "affectedSecondLaunch": "-32000,-32000 with WindowVisualState Normal",
+    "fixedSecondLaunch": "the same on-screen origin the first launch used"
+  },
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26100.0",
+    "architecture": "X64",
+    "interactiveSessionId": 1,
+    "worker": "native x86_64 Windows VM through the existing three-hop SSH route",
+    "scheduledTaskLogonType": "Interactive",
+    "appModel": "unpackaged, WindowsPackageType None, WindowsAppSDKSelfContained true",
+    "buildSdk": "10.0.302",
+    "buildConfiguration": "Release_Portable, win-x64, self-contained",
+    "networkPolicy": "program-scoped Windows Firewall inbound and outbound block rules on the published executable",
+    "stateContainment": "the portable configuration keeps all state in <publish>\\StoredData, which is removed before and after every run",
+    "boundedSetup": "the first launch of a fresh portable profile shows a multiplayer advisory content dialog; every run dismissed exactly one notice through its CloseButton and installed nothing"
+  },
+  "builds": {
+    "affected": {
+      "executableSha256": "220629250DA368CF64D07768C1F0693F9E5B8E1F7DD6E2C109E9A5D280B873A3",
+      "assemblySha256": "16339D953C334A892B1EC44BFF4A933F51E931CE96971725EFB21952FACE4E8D",
+      "buildLogSha256": "4EBF27B5A7A7063478F0F402EF7087FCD454E376ABD036E7FCA378FE6564FA1C",
+      "result": "publish succeeded, exit 0"
+    },
+    "fixed": {
+      "executableSha256": "8E313AE8FE2E47F3164A7CBF805610EBC47128DBFFC28A348E4061EF6B6A65F3",
+      "assemblySha256": "115A5F9EB936467F6771AE2D72A9D90BD4CF5BE4598D8FFB49384001863C69FD",
+      "buildLogSha256": "A9EC4C8FA1FF6B580D3EEB5A25ABE906580A41A0A0FC5A68E7B842A857E3A804",
+      "result": "publish succeeded, exit 0"
+    }
+  },
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 71.1656382,
+      "jsHeapMiB": null,
+      "startedAt": "2026-08-01T02:59:02.4768473+00:00",
+      "finishedAt": "2026-08-01T03:00:13.6424855+00:00",
+      "firstProcessId": 11216,
+      "secondProcessId": 11832,
+      "readinessMilliseconds": 51911,
+      "identity": "restored-window-parks-at-minimized-sentinel-position",
+      "firstLaunchOrigin": "26,26",
+      "secondLaunchOrigin": "-32000,-32000",
+      "rawRecordSha256": "2F5B0289EC6E151DC853C6FA33121DD48E49A6F235DE6087F6923B9AF58D38A1"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 70.8999041,
+      "jsHeapMiB": null,
+      "startedAt": "2026-08-01T03:00:17.1106694+00:00",
+      "finishedAt": "2026-08-01T03:01:28.0105735+00:00",
+      "firstProcessId": 4080,
+      "secondProcessId": 4592,
+      "readinessMilliseconds": 51643,
+      "identity": "restored-window-parks-at-minimized-sentinel-position",
+      "firstLaunchOrigin": "78,78",
+      "secondLaunchOrigin": "-32000,-32000",
+      "rawRecordSha256": "3F6A3F435AC08241421A69A7EFF852D49BD63A53F7BED043F9E4D99B35886132"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 71.5846165,
+      "jsHeapMiB": null,
+      "startedAt": "2026-08-01T03:01:31.3676378+00:00",
+      "finishedAt": "2026-08-01T03:02:42.9522543+00:00",
+      "firstProcessId": 12040,
+      "secondProcessId": 11208,
+      "readinessMilliseconds": 52280,
+      "identity": "restored-window-parks-at-minimized-sentinel-position",
+      "firstLaunchOrigin": "130,130",
+      "secondLaunchOrigin": "-32000,-32000",
+      "rawRecordSha256": "A223BC61F9F0F4AB85B53EBC857E0A30784BA1B206B4AABFFFA56683FEFA7664"
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 76.2890944,
+      "jsHeapMiB": null,
+      "startedAt": "2026-08-01T03:02:46.3328129+00:00",
+      "finishedAt": "2026-08-01T03:04:02.6219073+00:00",
+      "firstProcessId": 8824,
+      "secondProcessId": 11572,
+      "readinessMilliseconds": 56964,
+      "identity": null,
+      "firstLaunchOrigin": "26,26",
+      "secondLaunchOrigin": "26,26",
+      "rawRecordSha256": "666DDBAE868C61BE44129CC65401B51A1ED63D42E099A805A96929BF59DF9BE8"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 71.0890658,
+      "jsHeapMiB": null,
+      "startedAt": "2026-08-01T03:04:05.9875383+00:00",
+      "finishedAt": "2026-08-01T03:05:17.0766041+00:00",
+      "firstProcessId": 5716,
+      "secondProcessId": 12460,
+      "readinessMilliseconds": 51756,
+      "identity": null,
+      "firstLaunchOrigin": "78,78",
+      "secondLaunchOrigin": "78,78",
+      "rawRecordSha256": "18C0A36EF60AF2A81B6F30D261DF0F2A4D379639974CFA5F6B7B1B130A659623"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "elapsedSeconds": 71.1404672,
+      "jsHeapMiB": null,
+      "startedAt": "2026-08-01T03:05:20.4490980+00:00",
+      "finishedAt": "2026-08-01T03:06:31.5895652+00:00",
+      "firstProcessId": 11772,
+      "secondProcessId": 11668,
+      "readinessMilliseconds": 51847,
+      "identity": null,
+      "firstLaunchOrigin": "130,130",
+      "secondLaunchOrigin": "130,130",
+      "rawRecordSha256": "BF735A77DD57F24468DC8F1A5656EE5E54230D80F6193B953DFC1ACE9D609700"
+    }
+  ],
+  "controls": [
+    {
+      "role": "affected-control",
+      "run": 1,
+      "revision": "8cd0ccccce1470844d4e3f9294eecbbad3c25672",
+      "trigger": "close from the normal visual state, no minimize",
+      "elapsedSeconds": 66.5971027,
+      "identity": null,
+      "firstLaunchOrigin": "26,26",
+      "secondLaunchOrigin": "26,26",
+      "rawRecordSha256": "1FEF8805A06DD5011FAB0FC919864731317C7B092289235D69A6000E5AAA051D"
+    },
+    {
+      "role": "fixed-control",
+      "run": 1,
+      "revision": "09bfaa388cbab84cf8f416576b6e401d64f98e10",
+      "trigger": "close from the normal visual state, no minimize",
+      "elapsedSeconds": 66.7962707,
+      "identity": null,
+      "firstLaunchOrigin": "78,78",
+      "secondLaunchOrigin": "78,78",
+      "rawRecordSha256": "0357FA5F31239835C67C00516945FC8460B8A8F89F6979A2A55B91A75C050850"
+    }
+  ],
+  "harness": "validation/field/windows/run-dlss-swapper-window-position.ps1"
+}
