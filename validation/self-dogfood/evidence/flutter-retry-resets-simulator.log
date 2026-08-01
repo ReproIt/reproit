@@ -1,0 +1,50 @@
+macos-flutter failed 5 of the last 11 native-backend-gates runs, including twice
+in a row on 2022766. Not a regression from recent work: it also failed on
+8536a3a and 7070c1e, spanning commits before and after the runner consolidation.
+
+MECHANISM, from the retained job log (run on 2022766, job 91354282915):
+
+  09:52:39  Retrying the built Flutter application after the bounded VM-service stall
+  09:52:59  Xcode build done.   7.0s
+  09:57:59  output contract idle timeout after 300 seconds
+
+The build takes SEVEN SECONDS on the retry and then flutter drive emits nothing
+at all for the full 300. The app does launch: the simulator log shows the Runner
+process, preceded by
+
+  Runner[12880:9d6a] (libCoreFSCache.dylib) Errors found! Invalidating cache...
+
+run-flutter-drive.sh already names this failure in its own header: "Flutter's
+iOS launcher waits indefinitely when a launched app never publishes its
+VM-service URI." So the mode was known and a retry existed.
+
+WHY THE RETRY DID NOT HELP. It retried with --no-build on the SAME simulator.
+with-ios-simulator.sh creates exactly one device and wraps the whole script, so
+the UDID is fixed across both attempts. The retry therefore re-tested the build,
+which was never at fault, while holding the wedged device constant. Both
+attempts stalled identically, which is exactly what that predicts.
+
+FIX: erase and reboot the simulator before retrying. Erase keeps the same UDID,
+so the outer cleanup and its deletion audit still apply unchanged. The boot wait
+is bounded at 60 polls of 2 seconds and says so if it gives up, because an
+unbooted device would fail the retry for a different reason and hide the one
+being fixed.
+
+VERIFIED on a real device before shipping, not reasoned about:
+
+  created 4584C408-E838-4171-BF55-ED33FE91FC7B
+  state before: Booted
+  erase exit=0
+  rebooted: yes
+  probe simulator deleted
+
+HONEST BOUND. This is a well-founded hypothesis backed by the mechanism and the
+log, not a proven cure: the stall is intermittent, so the only proof is the
+failure rate over the next several runs. If it persists, the next variable to
+take is the runtime itself rather than the device.
+
+A note on my own measurement while diagnosing this: I first reported "retry
+attempts logged: 0" after grepping a log fetch that had returned a two-line
+BlobNotFound stub. The grep was counting nothing. The retry does fire. Same
+vacuous-measurement class this repository keeps paying for, met inside the
+diagnosis of another one.

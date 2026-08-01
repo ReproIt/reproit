@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "flutter-retry-resets-simulator",
+  "changeType": "tooling",
+  "detail": "macos-flutter failed 5 of the last 11 native-backend-gates runs, including twice consecutively on one commit, and it spans commits from before and after today's runner work so it is not a regression from it. The mechanism is visible in the retained job log: on the retry the Xcode build completes in 7 seconds and then flutter drive emits nothing for the full 300-second idle bound. The app does launch, and the simulator log shows libCoreFSCache reporting Errors found and invalidating its cache just before the silence. run-flutter-drive.sh already names this failure in its header, that Flutter's iOS launcher waits indefinitely when a launched app never publishes its VM-service URI, and a retry already existed. The retry did not help because it retried with --no-build on the SAME simulator: with-ios-simulator.sh creates exactly one device and wraps the whole script, so the UDID is fixed across both attempts and the retry re-tested the build, which was never at fault, while holding the wedged device constant. The fix erases and reboots the device before retrying. Erase keeps the same UDID so the outer cleanup and its deletion audit apply unchanged, and the boot wait is bounded and reports when it gives up, because an unbooted device would fail the retry for a different reason and mask this one. The sequence was verified on a real simulator before shipping rather than reasoned about. Honest bound: this is a well-founded hypothesis, not a proven cure, because the stall is intermittent and only the failure rate over the next several runs can confirm it. No product code changes.",
+  "evidence": [
+    {
+      "path": "validation/self-dogfood/evidence/flutter-retry-resets-simulator.log",
+      "sha256": "sha256:d5a45b29d60bf8385d0cac3095a2dcf5dbf93b0a9f8ed698fb9e666007445804"
+    }
+  ]
+}
