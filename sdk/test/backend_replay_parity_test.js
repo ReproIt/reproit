@@ -194,8 +194,34 @@ function rubySide() {
   return JSON.parse(lines[lines.length - 1]);
 }
 
+function javaSide() {
+  var fs = require('fs');
+  var os = require('os');
+  var sdk = path.join(root, 'reproit-backend-java');
+  var out = fs.mkdtempSync(path.join(os.tmpdir(), 'reproit-java-parity-'));
+  var compiled = child_process.spawnSync(
+    'javac',
+    [
+      '-d', out,
+      '-sourcepath', path.join(sdk, 'src/main/java'),
+      path.join(sdk, 'src/test/java/dev/reproit/backend/ReplayParityMain.java'),
+    ],
+    { encoding: 'utf8' },
+  );
+  assert.strictEqual(
+    compiled.status, 0, 'java compile failed: ' + (compiled.error || compiled.stderr));
+  var result = child_process.spawnSync(
+    'java', ['-cp', out, 'dev.reproit.backend.ReplayParityMain'],
+    { input: JSON.stringify(CAPSULE), encoding: 'utf8' },
+  );
+  assert.strictEqual(result.status, 0, 'java side failed: ' + (result.error || result.stderr));
+  var lines = result.stdout.trim().split('\n');
+  return JSON.parse(lines[lines.length - 1]);
+}
+
 var node = nodeSide();
 var python = pythonSide();
+var java = javaSide();
 
 assert.deepStrictEqual(python.serve, node.serve, 'served SSE exchange must match byte for byte');
 assert.strictEqual(
@@ -208,6 +234,18 @@ assert.strictEqual(
   node.marker,
   'the REPROIT:DIVERGENCE marker line must match byte for byte',
 );
+assert.deepStrictEqual(java.serve, node.serve, 'java served SSE exchange must match byte for byte');
+assert.strictEqual(
+  java.divergedBody,
+  node.divergedBody,
+  'the java served 599 divergence body must match byte for byte',
+);
+assert.strictEqual(
+  java.marker,
+  node.marker,
+  'the java REPROIT:DIVERGENCE marker line must match byte for byte',
+);
+console.log('PASS: java replay is byte-identical to the Node reference (serve, 599, marker)');
 var report = JSON.parse(node.marker.slice('REPROIT:DIVERGENCE '.length));
 assert.deepStrictEqual(report.bodyDelta, {
   kind: 'message',
