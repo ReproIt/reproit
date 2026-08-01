@@ -1,0 +1,55 @@
+{
+  "issue": "https://github.com/jurplel/qView/issues/453",
+  "affectedRevision": "9f6c225451bb060af8fafd948839432a6de32f4a",
+  "fixedRevision": "e28cbe7b8521959777f40ad6a43b62b4ee243b28",
+  "identity": "window-state:resized-after-fullscreen-round-trip",
+  "memoryMeasurement": "unavailable",
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.937
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.92
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.937
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.936
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.929
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 0.931
+    }
+  ],
+  "neighboringLegalBehavior": "the same full-screen round trip performed from a maximized window restores both the maximized geometry and the X11 maximized state on the affected build, so only the window-size restore path is wrong",
+  "minimizedAction": "open the View menu, click Enter Full Screen, then activate Exit Full Screen, and read the frame extents back before and after the round trip"
+}

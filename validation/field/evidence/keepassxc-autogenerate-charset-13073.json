@@ -1,0 +1,55 @@
+{
+  "issue": "https://github.com/keepassxreboot/keepassxc/issues/13073",
+  "affectedRevision": "caa7d1476134d86c1cf769081d8460933f4cd11c",
+  "fixedRevision": "58a2919650f814e042daf0f51fe7c76705f0288c",
+  "identity": "generator-settings:new-entry-password-ignores-saved-length",
+  "memoryMeasurement": "unavailable",
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 4.386
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 4.301
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 4.478
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 4.493
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 3.973
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 5.761
+    }
+  ],
+  "neighboringLegalBehavior": "the same stored configuration used through the explicit Tools then Password Generator dialog is honoured on the affected build, so the settings write itself is not what fails",
+  "minimizedAction": "store a password-generator configuration with a distinctive length, open Entries then New Entry, and read the character count of the auto-generated password field"
+}

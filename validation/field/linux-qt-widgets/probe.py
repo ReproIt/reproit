@@ -30,7 +30,7 @@ from atspi_helpers import (
     walk,
 )
 
-WAIT_SECONDS = 20
+WAIT_SECONDS = 40
 
 
 def run_command(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -88,6 +88,26 @@ def process_windows(process_id: int, window_class: str) -> list[dict[str, object
             }
         )
     return windows
+
+
+def x11_window_survey() -> str:
+    """Every mapped X11 window, so a failed lookup says what was on screen."""
+    result = subprocess.run(
+        ["xdotool", "search", "--onlyvisible", "--name", ".*"],
+        text=True,
+        capture_output=True,
+        timeout=WAIT_SECONDS,
+    )
+    lines = []
+    for window_id in result.stdout.split():
+        properties = subprocess.run(
+            ["xprop", "-id", window_id, "WM_CLASS", "_NET_WM_PID", "WM_NAME"],
+            text=True,
+            capture_output=True,
+            timeout=WAIT_SECONDS,
+        )
+        lines.append(f"{window_id}: {properties.stdout.strip()!r}")
+    return "; ".join(lines) or "no mapped windows"
 
 
 def process_main_window_id(process_id: int, window_class: str) -> str:
@@ -370,10 +390,16 @@ def probe_qview_maximized(
     try:
         application = find_application(r"qview")
         window = find_node(application, {"frame"}, r".+")
-        window_id = wait_until(
-            lambda: process_main_window_id(process.pid, "qview"),
-            "visible process-owned qView X11 window",
-        )
+        try:
+            window_id = wait_until(
+                lambda: process_main_window_id(process.pid, "qview"),
+                "visible process-owned qView X11 window",
+            )
+        except RuntimeError as error:
+            raise RuntimeError(
+                f"{error}; pid={process.pid} poll={process.poll()} "
+                f"windows={x11_window_survey()}"
+            ) from error
         maximize_click_point = maximize_with_titlebar(
             process.pid,
             str(window_id),
@@ -408,6 +434,7 @@ def qview_result(
     target: dict[str, object],
     config_path: pathlib.Path,
     elapsed_seconds: float,
+    variant: str,
 ) -> dict[str, object]:
     roundtrip = maximized["roundtrip"]
     post_states = set(roundtrip["postStates"])
@@ -420,12 +447,20 @@ def qview_result(
         "_NET_WM_STATE_MAXIMIZED_VERT",
         "_NET_WM_STATE_MAXIMIZED_HORZ",
     }.issubset(post_states)
+    # The default observable is the non-maximized round trip, which is the one
+    # PR #623 changes. The maximized round trip is the scenario the issue title
+    # names, so it is carried as its own corpus variant.
+    if variant == "maximized-roundtrip":
+        preserved = atspi_maximized_restored and x11_maximized_restored
+    else:
+        preserved = bool(target["geometryPreserved"])
     return {
         "identity": (
             None
-            if target["geometryPreserved"]
+            if preserved
             else "window-state:resized-after-fullscreen-round-trip"
         ),
+        "variant": variant,
         "observationReached": True,
         "cleanLaunch": True,
         "exceptions": [],
@@ -471,7 +506,11 @@ def qview_result(
     }
 
 
-def probe_qview(binary: str, run_root: pathlib.Path) -> dict[str, object]:
+def probe_qview(
+    binary: str,
+    run_root: pathlib.Path,
+    variant: str,
+) -> dict[str, object]:
     image = run_root / "fixture.ppm"
     write_qview_image(image)
     config_path = write_qview_config(run_root / "home")
@@ -486,6 +525,7 @@ def probe_qview(binary: str, run_root: pathlib.Path) -> dict[str, object]:
         target,
         config_path,
         time.monotonic() - started,
+        variant,
     )
 
 
@@ -505,7 +545,7 @@ def create_database(cli: str, database: pathlib.Path, home: pathlib.Path) -> Non
         raise RuntimeError(f"database creation did not confirm success: {result.stdout!r}")
 
 
-def write_keepass_config(path: pathlib.Path) -> None:
+def write_keepass_config(path: pathlib.Path, length: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "\n".join(
@@ -516,7 +556,7 @@ def write_keepass_config(path: pathlib.Path) -> None:
                 "[PasswordGenerator]",
                 "AdvancedMode=false",
                 "EnsureEvery=true",
-                "Length=7",
+                f"Length={length}",
                 "LowerCase=false",
                 "Numbers=true",
                 "SpecialChars=false",
@@ -651,6 +691,7 @@ def open_keepass_new_entry(
 def probe_keepass_generator_control(
     application: object,
     process_id: int,
+    expected_length: int,
 ) -> dict[str, object]:
     cancel_action = do_action(
         find_node(application, {"push button"}, r"^cancel$")
@@ -683,10 +724,11 @@ def probe_keepass_generator_control(
         generator,
         "password-generator dialog",
     )
-    if configured_length != 7 or generated_count != 7:
+    if configured_length != expected_length or generated_count != expected_length:
         raise RuntimeError(
-            "explicit generator did not honor configured length 7: "
-            f"length={configured_length}, generated={generated_count}"
+            "explicit generator did not honor configured length "
+            f"{expected_length}: length={configured_length}, "
+            f"generated={generated_count}"
         )
     return {
         "explicitGeneratorDialog": node_record(generator),
@@ -708,14 +750,17 @@ def keepass_result(
     new_entry: dict[str, object],
     generator_control: dict[str, object],
     elapsed_seconds: float,
+    length: int,
+    variant: str,
 ) -> dict[str, object]:
     generated_count = new_entry["generatedCount"]
     return {
         "identity": (
             None
-            if generated_count == 7
+            if generated_count == length
             else "generator-settings:new-entry-password-ignores-saved-length"
         ),
+        "variant": variant,
         "observationReached": True,
         "cleanLaunch": True,
         "exceptions": [],
@@ -725,7 +770,7 @@ def keepass_result(
         "atspiApplication": application.name,
         "generatedPasswordField": new_entry["generatedRecord"],
         "generatedPasswordCharacterCount": generated_count,
-        "configuredPasswordLength": 7,
+        "configuredPasswordLength": length,
         **launch_actions,
         "newEntryAction": new_entry["newEntryAction"],
         "newEntryMenuAction": new_entry["newEntryMenuAction"],
@@ -737,12 +782,14 @@ def probe_keepassxc(
     binary: str,
     cli: str,
     run_root: pathlib.Path,
+    variant: str,
 ) -> dict[str, object]:
+    length = 32 if variant == "configured-length-32" else 7
     home = run_root / "home"
     home.mkdir(parents=True, exist_ok=True)
     database = run_root / "campaign.kdbx"
     config = run_root / "keepassxc.ini"
-    write_keepass_config(config)
+    write_keepass_config(config, length)
     create_database(cli, database, home)
     old_config = os.environ.get("KPXC_CONFIG")
     os.environ["KPXC_CONFIG"] = str(config)
@@ -755,6 +802,7 @@ def probe_keepassxc(
         generator_control = probe_keepass_generator_control(
             application,
             process.pid,
+            length,
         )
         return keepass_result(
             application,
@@ -762,6 +810,8 @@ def probe_keepassxc(
             new_entry,
             generator_control,
             time.monotonic() - started,
+            length,
+            variant,
         )
     finally:
         stop(process)
@@ -796,14 +846,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--application", choices=("qview", "keepassxc"), required=True)
     parser.add_argument("--revision", choices=("affected", "fixed"), required=True)
     parser.add_argument("--run", type=int, choices=range(1, 4), required=True)
+    parser.add_argument(
+        "--variant",
+        choices=("default", "maximized-roundtrip", "configured-length-32"),
+        default="default",
+    )
     parser.add_argument("--output", type=pathlib.Path, required=True)
-    return parser.parse_args()
+    arguments = parser.parse_args()
+    allowed = {
+        "qview": {"default", "maximized-roundtrip"},
+        "keepassxc": {"default", "configured-length-32"},
+    }
+    if arguments.variant not in allowed[arguments.application]:
+        parser.error(
+            f"{arguments.variant!r} is not a {arguments.application} variant"
+        )
+    return arguments
 
 
 def main() -> None:
     args = parse_args()
     run_root = pathlib.Path("/tmp/reproit-field") / (
-        f"{args.application}-{args.revision}-{args.run}"
+        f"{args.application}-{args.revision}-{args.variant}-{args.run}"
     )
     if run_root.exists():
         shutil.rmtree(run_root)
@@ -814,16 +878,19 @@ def main() -> None:
             result = probe_qview(
                 f"/opt/reproit/qview-{args.revision}",
                 run_root,
+                args.variant,
             )
         else:
             result = probe_keepassxc(
                 f"/opt/reproit/keepassxc-{args.revision}",
                 f"/opt/reproit/keepassxc-cli-{args.revision}",
                 run_root,
+                args.variant,
             )
     except Exception as error:
         result = {
             "identity": None,
+            "variant": args.variant,
             "observationReached": False,
             "cleanLaunch": True,
             "exceptions": [f"{type(error).__name__}: {error}"],

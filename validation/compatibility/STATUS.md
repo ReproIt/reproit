@@ -136,6 +136,12 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 4
     application(s) are qualified with verified revisions, but none has three clean affected
     reproductions and three reached-observation fixed controls
+  - [incomplete-evidence] only one of the five qualified candidates is admissible to the benchmark
+    record. validation/field/check-benchmark.py accepts a GitHub HTTPS repository and a GitHub issue
+    URL and nothing else, and four of the five candidates live on gitlab.gnome.org. rnote is the
+    single GitHub-hosted subject, so a second GitHub-hosted GTK 4 application with a verified
+    affected and fixed pair must be mined, or the benchmark and corpus validators must be extended
+    to accept a named set of additional forges
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
 
@@ -161,16 +167,22 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 5
     application(s) are qualified with verified revisions, but none has three clean affected
     reproductions and three reached-observation fixed controls
+  - [incomplete-evidence] none of the five qualified candidates is admissible to the benchmark
+    record. validation/field/check-benchmark.py accepts a GitHub HTTPS repository and a GitHub issue
+    URL and nothing else, and all five candidates live on invent.kde.org with bugs.kde.org issue
+    ids. Two GitHub-hosted Qt Quick applications with verified affected and fixed pairs must be
+    mined, or the benchmark and corpus validators must be extended to accept a named set of
+    additional forges
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
 
 ## Linux Qt Widgets
 
-- Maturity: Preview
+- Maturity: Stable
 - Scope: x86_64 Linux container with AT-SPI on Qt Widgets
 - Promotion standard: schema-3
 - Native gates: linux-atspi-toolkits
-- Field benchmark: incomplete
+- Field benchmark: validation/field/linux-qt-widgets.json
 - Production-to-local: Unqualified
 - Production-to-local evidence: none
 - Operating systems: linux-container
@@ -178,16 +190,12 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Runtimes: AT-SPI 2, Qt 6
 - Frameworks: Qt Widgets
 - Qualifications:
-  - cleanCorpus: missing
-  - adversarialCorpus: missing
+  - cleanCorpus: evidence
+  - adversarialCorpus: evidence
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 3
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
+  - None
 
 ## Linux wxWidgets
 
@@ -211,6 +219,22 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 5
     application(s) are qualified with verified revisions, but none has three clean affected
     reproductions and three reached-observation fixed controls
+  - [incomplete-evidence] one of the two required applications now has a worker image and a proven
+    trigger and the other has neither. wxMaxima compiles at e5c410e884c3f1b24c54ac1179c16c3cf0283247
+    and 684d2ed4e106fc0fc174f5537129bfd13ba68b93 in an x86_64 bookworm container, and the retained
+    AT-SPI records show the Greek Letters view check menu item reporting checked on the affected
+    revision and unchecked on the fixed one from a clean profile. What is missing is a second
+    independent application: validation/field/linux-wxwidgets/ carries only the wxMaxima subject,
+    and no benchmark record exists because a complete benchmark needs exactly two
+  - [incomplete-evidence] the second application is chosen and its build is proven, but its probe is
+    unwritten. poedit c4fe890ef72c8c8cbc6b9b8cc1784dba10447798 configures and links a real binary on
+    Debian trixie with libwxgtk3.2-dev plus libwxgtk-webview3.2-dev and --without-cpprest --without-
+    cld2; bookworm cannot host it because configure demands wxWidgets 3.2.4. Its observation channel
+    is also settled by reading src/fileviewer.cpp at that revision: FileViewer::ShowError paints a
+    wxStaticText reading 'Source code not found' when GetFilename resolves nothing, which is exactly
+    what the empty BeforeLast(':') produces for a reference carrying no line number. What remains is
+    a two-distribution worker image, a .po fixture whose entry references a source file without a
+    line number, and three affected plus three fixed runs
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
 
