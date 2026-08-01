@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "react-native-ios-joplin-campaign",
+  "changeType": "maintenance",
+  "detail": "The first React Native iOS application campaign is complete and retained, with its corpus. joplin, issue 15972, affected 7d90db0b and fixed 2fa45a5a, ran on disposable iPhone 16 Pro simulators on iOS 26.2 through Appium 3.5.2 and the XCUITest driver 11.16.2, at CLI commit 72c78b2dad9d88b6643d15343ada88396d08dd73. The observable was measured before any run was spent on it: XCUITest reports the note row as an XCUIElementTypeButton whose frame is the pressable that NoteItem.tsx's fix changes, 370 by 20 on the affected revision and 402 by 52 on the fixed one, a growth of exactly the 16pt padding on all four sides, with both revisions centring the row identically at (201, 137). One absolute tap at (201, 118) is therefore a fair trigger for both rather than two triggers compared against each other. Three affected reproductions all landed on react-native-layout:note-row-padding-outside-touch-target with the tap swallowed and the note list still shown; three fixed controls all reached the same observation with the identical coordinate opening the note. The minimized trigger is one tap, not a sequence. Neighbouring legal behaviour is the same tap moved to 9pt above the centre, inside the hit area on both revisions, and it opens the note on both, so the oracle is not merely reporting that taps near a row edge sometimes fail. The corpus is one clean and two adversarial subjects with zero false positives and zero unreached observations; the sharpest adversarial subject taps the defective build one point inside the boundary of its own 20pt hit area, 10pt from the coordinate that does reproduce, so a trigger classifying by proximity rather than by hit area would report there and does not. The campaign was first executed against a placeholder commit while the driver was uncommitted, and was then re-executed in full against the real commit rather than recorded with false provenance. The benchmark is pending: this is one application of the two Stable requires, and the second must come from outside the original pool because BlueWallet is unmaterializable. No promotion is claimed.",
+  "evidence": [
+    {
+      "path": "validation/field/react-native-ios.json",
+      "sha256": "sha256:622d94a60afecd1cc8162ab71262808e848e55ced08ab672140f47d266e37931"
+    },
+    {
+      "path": "validation/field/corpus/react-native-ios.json",
+      "sha256": "sha256:7919ece48e8eb312c77bee1fbaa20d863bf7060cf5872def295cbcb366eb7562"
+    },
+    {
+      "path": "validation/field/evidence/joplin-note-row-touch-target-15972.json",
+      "sha256": "sha256:fd6f6b1ddc1c903453f7f65d9c9dd40b785c41f97acaa46ab0151d3756da3525"
+    }
+  ]
+}

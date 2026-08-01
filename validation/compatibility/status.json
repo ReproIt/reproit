@@ -458,7 +458,7 @@
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",
-          "detail": "one of the two required application campaigns is complete. joplin, issue 15004, affected de637847 and fixed 623da377, ran on a pixel_6 AVD on android-36 google_apis x86_64 recreated per run and booted with -wipe-data -no-snapshot, inside the pinned worker image with Docker network mode none: three affected reproductions all landing on react-native-navigation:hardware-back-exits-app-after-deleted-notebook, three fixed controls all reaching the same observation and returning to the note list, neighbouring legal behaviour holding on both revisions, and a passing cleanup audit. The second application is not complete. The MissingCore/Music campaign seeds correctly now, with MediaStore confirmed to hold all four fixtures before the application launches, and it stops on the application: the media permission is granted and the library still reports zero tracks for the full 300 second bound. What makes this application ingest an already-populated volume, whether its onboarding scan runs before the grant lands and is never retried or whether it needs a rescan driven from settings, is the exact remaining input"
+          "detail": "one of the two required application campaigns is complete. joplin, issue 15004, affected de637847 and fixed 623da377: three affected reproductions all landing on react-native-navigation:hardware-back-exits-app-after-deleted-notebook, three fixed controls all returning to the note list, neighbouring legal behaviour holding on both revisions, and a passing cleanup audit. MissingCore/Music is discarded rather than retried: with all four fixtures confirmed in MediaStore before launch and the media permission granted, its library reports zero tracks for the full 300 second bound, which is a property of that application and not a gap in the harness. streetwriters/notesnook replaces it. It is qualified offline with a skippable signup, its release signingConfig uses the committed debug.keystore, and notesnook-unlink-notebook-10053 has a verified pair, affected 14f727d6 and fixed 7c3fdab6, whose diff is confined to one screen: in single-select mode the fix writes an explicit deselected state so a notebook the user removed no longer stays linked. Both revisions are bootstrapped. Its Android build has not completed: syspolicyd on the build host is wedged and processes Gradle spawns sleep in _dyld_start, so the autolinking node and the editor bundle's vite both stall, though the same commands run instantly from a shell. The autolink config is fed from a file to avoid one of them and the build is driven by a bounded retry loop because Gradle resumes, which has carried it into compilation"
         },
         {
           "code": "incomplete-evidence",
@@ -476,10 +476,10 @@
         "react-native-ios"
       ],
       "promotionStandard": "schema-3",
-      "fieldBenchmark": null,
+      "fieldBenchmark": "validation/field/react-native-ios.json",
       "qualifications": {
-        "cleanCorpus": "missing",
-        "adversarialCorpus": "missing",
+        "cleanCorpus": "evidence",
+        "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
         "manualReview": "field-benchmark"
       },
@@ -503,11 +503,7 @@
       "promotionBlockers": [
         {
           "code": "incomplete-evidence",
-          "detail": "the build blocker is closed and the observable is measured, but no campaign has been run. Both revisions of joplin-note-row-touch-target-15972 build, install and launch on a disposable simulator. XCUITest reports the note row as an XCUIElementTypeButton whose frame is the pressable the fix changes: affected x=16 y=127 w=370 h=20, fixed x=0 y=111 w=402 h=52, both centred at (201, 137). One tap at (201, 118) is swallowed on the affected build and opens the note on the fixed one, executed on both. A campaign driver is committed on that observable and has never obtained a WebDriverAgent session: four device and server configurations were executed and each reaches 'Launching WebDriverAgent on the device' and then waits on connect ECONNREFUSED, while the standalone probes that measured the observable obtain sessions reliably against the same Appium, driver, derived data and bundles. Stale xcodebuild runners were one real cause and are reaped now, but were not sufficient. Isolating the difference between the probe and the driver by bisection is the first missing input; a second independent application, since BlueWallet is excluded outright, is the second"
-        },
-        {
-          "code": "incomplete-evidence",
-          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
+          "detail": "one of the two required application campaigns is complete, and the corpus is retained and passing. joplin, issue 15972, affected 7d90db0b and fixed 2fa45a5a, ran on disposable iPhone 16 Pro simulators on iOS 26.2: three affected reproductions all landing on react-native-layout:note-row-padding-outside-touch-target with the note row hit area measured at 370 by 20 and the tap at (201, 118) swallowed, three fixed controls all reaching the same observation with the hit area at 402 by 52 and the identical coordinate opening the note, neighbouring legal behaviour holding on both revisions, and the owned simulator deleted. The corpus is one clean and two adversarial subjects with zero false positives. The second application is what remains: BlueWallet is excluded outright because a pinned dependency repository returns 404, and streetwriters/notesnook is bootstrapped with its pods resolving at both revisions but is not built"
         }
       ]
     },

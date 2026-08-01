@@ -1,0 +1,73 @@
+{
+ "schemaVersion": 3,
+ "target": "react-native-ios",
+ "status": "pending",
+ "applications": [
+  {
+   "id": "joplin-note-row-touch-target-15972",
+   "repository": "https://github.com/laurent22/joplin",
+   "issueUrl": "https://github.com/laurent22/joplin/issues/15972",
+   "affectedRevision": "7d90db0bf68c7ea2803227f9e6277bb3cf697fb3",
+   "fixedRevision": "2fa45a5a05daa597d52b73fce120e9242a6c6860",
+   "authority": "platform",
+   "expectedIdentity": "react-native-layout:note-row-padding-outside-touch-target",
+   "affectedReproductions": [
+    {
+     "status": "reproduced",
+     "identity": "react-native-layout:note-row-padding-outside-touch-target",
+     "cleanLaunch": true,
+     "observationReached": true
+    },
+    {
+     "status": "reproduced",
+     "identity": "react-native-layout:note-row-padding-outside-touch-target",
+     "cleanLaunch": true,
+     "observationReached": true
+    },
+    {
+     "status": "reproduced",
+     "identity": "react-native-layout:note-row-padding-outside-touch-target",
+     "cleanLaunch": true,
+     "observationReached": true
+    }
+   ],
+   "fixedReproductions": [
+    {
+     "status": "not_reproduced",
+     "identity": null,
+     "cleanLaunch": true,
+     "observationReached": true
+    },
+    {
+     "status": "not_reproduced",
+     "identity": null,
+     "cleanLaunch": true,
+     "observationReached": true
+    },
+    {
+     "status": "not_reproduced",
+     "identity": null,
+     "cleanLaunch": true,
+     "observationReached": true
+    }
+   ],
+   "minimized": true,
+   "controls": [
+    "fixed-revision",
+    "neighboring-legal-behavior"
+   ],
+   "manualReview": "confirmed-target-bug",
+   "metrics": {
+    "setupSeconds": 2820,
+    "replaySecondsP95": 59.731,
+    "peakMemoryMiB": null,
+    "memoryMeasurement": "unavailable"
+   },
+   "evidence": [
+    "validation/field/evidence/joplin-note-row-touch-target-15972.json",
+    "validation/field/evidence/joplin-note-row-touch-target-15972.md",
+    "validation/field/evidence/joplin-note-row-touch-target-15972-runs.jsonl"
+   ]
+  }
+ ]
+}

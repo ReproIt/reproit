@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "target": "react-native-ios",
+  "worker": {
+    "image": "xcode-26.2-ios-26.2-simulator:react-native-ios-72c78b2dad9d",
+    "platform": "ios-simulator/arm64",
+    "network": "none"
+  },
+  "cleanCases": 1,
+  "adversarialCases": 2,
+  "confirmedFalsePositives": 0,
+  "unreachedObservations": 0,
+  "containersRemaining": 0,
+  "cases": [
+    {
+      "id": "joplin-fixed-row-centre-clean",
+      "kind": "clean",
+      "application": "joplin",
+      "repository": "https://github.com/laurent22/joplin",
+      "revision": "2fa45a5a05daa597d52b73fce120e9242a6c6860",
+      "fixture": "validation/field/apple/react_native_ios_campaign.py",
+      "variant": "fixed revision, first-launch container, a tap on the row centre",
+      "why": "the plainest legal use of the control on the fixed build: the centre of a note row is inside the hit area on any revision and must open the note without the oracle naming the defect",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "observable": "whether the tap opens the note",
+        "hitAreaRect": {
+          "y": 111,
+          "x": 0,
+          "width": 402,
+          "height": 52
+        },
+        "tapPoint": {
+          "x": 201,
+          "y": 137
+        },
+        "noteOpened": true,
+        "noteListStillShown": false,
+        "identity": null,
+        "observationReached": true,
+        "cleanLaunch": true
+      }
+    },
+    {
+      "id": "joplin-affected-row-centre-adversarial",
+      "kind": "adversarial",
+      "application": "joplin",
+      "repository": "https://github.com/laurent22/joplin",
+      "revision": "7d90db0bf68c7ea2803227f9e6277bb3cf697fb3",
+      "fixture": "validation/field/apple/react_native_ios_campaign.py",
+      "variant": "affected revision, first-launch container, the same centre tap",
+      "why": "the defective build driven through the same gesture on the same row, which superficially matches the defect, but the centre is inside even the shrunken hit area so the note legally opens and must not be classified as the swallowed-tap failure",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "observable": "whether the tap opens the note",
+        "hitAreaRect": {
+          "y": 127,
+          "x": 16,
+          "width": 370,
+          "height": 20
+        },
+        "tapPoint": {
+          "x": 201,
+          "y": 137
+        },
+        "noteOpened": true,
+        "noteListStillShown": false,
+        "identity": null,
+        "observationReached": true,
+        "cleanLaunch": true
+      }
+    },
+    {
+      "id": "joplin-affected-hit-area-edge-adversarial",
+      "kind": "adversarial",
+      "application": "joplin",
+      "repository": "https://github.com/laurent22/joplin",
+      "revision": "7d90db0bf68c7ea2803227f9e6277bb3cf697fb3",
+      "fixture": "validation/field/apple/react_native_ios_campaign.py",
+      "variant": "affected revision, first-launch container, 9pt above the centre, which is just inside the affected hit area",
+      "why": "the sharpest adversarial subject: the defective build tapped 9pt above the centre, one point inside the boundary of its own 20pt hit area and 10pt from the coordinate that does reproduce, so a trigger that classified by proximity rather than by the hit area would report here and must not",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "observable": "whether the tap opens the note",
+        "hitAreaRect": {
+          "y": 127,
+          "x": 16,
+          "width": 370,
+          "height": 20
+        },
+        "tapPoint": {
+          "x": 201,
+          "y": 128
+        },
+        "noteOpened": true,
+        "noteListStillShown": false,
+        "identity": null,
+        "observationReached": true,
+        "cleanLaunch": true
+      }
+    }
+  ]
+}

@@ -267,7 +267,7 @@
       "affectedRevision": "14f727d6e630f60299f1ceae42e48685e87cba8f",
       "fixedRevision": "7c3fdab6eec0c083ef4c3b12ff16ba0d2f8aff2c",
       "whySuitable": "the link-notebooks screen saved only the notebooks present in the selection store, so in single-select mode a notebook the user removed was never marked deselected and the note stayed linked. The fix diffs the initial selection against the current one and writes an explicit deselected state. This is a second, independent application whose defect class is persisted-state divergence rather than layout or navigation, and its observation is a database-backed list re-read after leaving and re-entering the screen, so the adapter has to hold an observation across a screen transition rather than within one render",
-      "qualification": "selected-not-executed",
+      "qualification": "selected-build-in-progress",
       "remaining": [
         "build the release variant at both revisions, which the committed debug keystore signs with no secret",
         "confirm the signup screen's Skip path reaches local-only mode on the affected build and record that as reset evidence",
@@ -275,7 +275,8 @@
         "state identity and authority: a link the user removed must not survive the save",
         "minimize the trigger and verify neighboring legal behavior: the same removal in multi-select mode persists correctly on both builds, which is the exact boundary the fix draws",
         "prove three clean affected reproductions and three reached-observation fixed controls"
-      ]
+      ],
+      "executionOutcome": "selected as the replacement second application. The pair is verified by diff: apps/mobile/app/screens/link-notebooks/index.tsx, and in single-select mode the fix diffs the initial selection against the current one and writes an explicit deselected state, so on the affected build a notebook the user removed stays linked. Both revisions are bootstrapped and the iOS pods resolve at both. The Android build has not completed because processes Gradle spawns stall in _dyld_start behind a wedged syspolicyd on the build host"
     },
     {
       "id": "music-duplicate-albums-247",
@@ -286,7 +287,7 @@
       "affectedRevision": "cdd2305aa0ae3bb5dcefe0691090a1d57cf53cb3",
       "fixedRevision": "5c86ff15ee99ac8f77abc19b9e58b98a705a9951",
       "whySuitable": "the library scanner keyed albums partly on release year, so one album whose tracks carried different or missing year tags was split into several albums in the UI. The fix changes the schema and the scanning helpers, with a drizzle migration. The trigger is entirely local: push a set of tagged audio files onto the AVD and let the app scan them, then read the artist screen. It is the third distinct adapter path in this target, media scanning driven from JavaScript over a native MediaStore read, and it is the only selected defect on the legacy bridge, since this revision sets newArchEnabled=false with Hermes on. That makes it the one candidate that would catch an adapter that silently assumes bridgeless",
-      "qualification": "executed-application-behaviour-blocked",
+      "qualification": "discarded-application-will-not-ingest",
       "remaining": [
         "build the release variant at both revisions, which the documented debug fallback signs with no secret",
         "author the audio fixture set: tracks of one album with differing and missing year tags, tagged deterministically and stored with the campaign",
@@ -296,7 +297,7 @@
         "confirm the drizzle migration path does not require a pre-existing database, since the campaign installs onto a reset AVD",
         "prove three clean affected reproductions and three reached-observation fixed controls"
       ],
-      "executionOutcome": "seeding is correct and proven: MediaStore's scan_file and scan_volume are called through the content provider, the audio volume is queried back, and all four fixtures are confirmed indexed before the application launches. The campaign stops on the application: after the media permission is granted the library still reports zero tracks for the full 300 second bound. What makes this application ingest an already-populated volume is the remaining input",
+      "executionOutcome": "discarded rather than retried. Seeding is correct and proven: MediaStore's scan_file and scan_volume are called through the content provider and the audio volume is queried back, confirming all four fixtures indexed before the application launches. With the media permission then granted, the application's library reports zero tracks for the full 300 second bound. That is a property of this application, not a gap in the harness, so it is not the second application for this target",
       "executionEvidence": [
         "validation/field/evidence/react-native-android-field-runner.md"
       ]
@@ -306,8 +307,8 @@
     {
       "code": "incomplete-evidence",
       "kind": "second-application-missing",
-      "detail": "joplin is complete and retained. MissingCore/Music reaches its home screen with the media permission granted and an empty library, so the target has one of the two independent application campaigns Stable requires",
-      "command": "validation/field/android/run-react-native-android-field-remote.sh --application music --affected-apk PATH --fixed-apk PATH --fixture-dir PATH",
+      "detail": "joplin is complete and retained. MissingCore/Music is discarded because it will not ingest an already populated MediaStore volume. streetwriters/notesnook is selected as the second application, is bootstrapped at both revisions, and its Android build has not completed because processes Gradle spawns stall in _dyld_start behind a wedged syspolicyd on the build host",
+      "command": "validation/field/android/run-react-native-android-field-remote.sh --application notesnook --affected-apk PATH --fixed-apk PATH",
       "evidence": [
         "validation/field/react-native-android.json",
         "validation/field/evidence/react-native-android-field-runner.md"

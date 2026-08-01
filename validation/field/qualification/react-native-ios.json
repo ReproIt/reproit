@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "react-native-ios",
   "gate": "S2-candidate-qualification",
-  "status": "candidates-executed-none-qualified",
+  "status": "one-application-campaign-complete",
   "declaredBounds": {
     "os": "ios-simulator",
     "arch": "arm64",
@@ -332,7 +332,7 @@
         "verified": true
       },
       "whySuitable": "the strongest adapter-level candidate in this set. On the affected revision the row padding sits on the outer wrapper view rather than on the pressable, so the padded band around a note title is drawn but is not part of the hit area: a tap landing there is swallowed and the note does not open. The fix moves paddingLeft, paddingRight, paddingTop and paddingBottom onto the pressable. Nothing about this is visible to a JavaScript-only harness, because the styles are identical and only the native view that receives the touch differs; it can be seen only by sending a real coordinate tap through XCUITest into the RN view hierarchy and then asking the accessibility tree whether the note screen was pushed. That is precisely what the react-native-ios adapter owns. Entirely offline and needs no account",
-      "qualification": "executed-observable-verified",
+      "qualification": "executed-reproduced",
       "remaining": [
         "build the affected and fixed revisions for the simulator with CODE_SIGNING_ALLOWED=NO and a scheme that excludes ShareExtension, and record the exact command and result",
         "state how the harness computes the padding coordinate from the row's accessibility frame, since a centre tap opens the note on both revisions and would not separate them",
@@ -340,10 +340,10 @@
         "run three affected reproductions and three fixed controls on a reset simulator with reset evidence",
         "record neighboring legal behavior: a tap on the note title itself must still open the note on the affected build"
       ],
-      "executionOutcome": "both revisions build, install and launch on a disposable simulator, and the observable is measured rather than assumed. The note row is an XCUIElementTypeButton whose frame is the pressable the fix changes: affected x=16 y=127 w=370 h=20, fixed x=0 y=111 w=402 h=52, both centred at (201, 137). One tap at (201, 118) is swallowed on the affected build and opens the note on the fixed one, executed on both. No benchmark has been run: the committed campaign driver has never obtained a WebDriverAgent session across four executed configurations, while the probes that measured this obtain them reliably",
+      "executionOutcome": "complete campaign. Three affected reproductions all landing on react-native-layout:note-row-padding-outside-touch-target, three fixed controls all opening the note from the identical coordinate, neighbouring legal behaviour holding on both revisions, a corpus of one clean and two adversarial subjects with zero false positives, and the owned simulator deleted. The note row is an XCUIElementTypeButton whose frame is the pressable the fix changes: 370 by 20 affected, 402 by 52 fixed, both centred at (201, 137), so one absolute tap at (201, 118) is a fair trigger for both",
       "executionEvidence": [
-        "validation/field/evidence/react-native-ios-candidate-execution.json",
-        "validation/field/evidence/react-native-ios-candidate-execution.md",
+        "validation/field/evidence/joplin-note-row-touch-target-15972.json",
+        "validation/field/evidence/joplin-note-row-touch-target-15972.md",
         "validation/field/evidence/react-native-ios-simulator-build.md"
       ]
     },
@@ -440,19 +440,13 @@
   "blockers": [
     {
       "code": "incomplete-evidence",
-      "detail": "BlueWallet cannot be materialized at any candidate revision because a pinned dependency repository has been deleted upstream. Joplin's build blocker is closed: under a build root outside the /tmp symlink, with an ad-hoc signing identity, both revisions of joplin-note-row-touch-target-15972 build, install and launch on a disposable simulator. What remains for this application is the note row's accessibility addressing and then the six runs; what remains for the target is a second independent application, since a campaign needs two",
-      "command": "xcodebuild -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO",
+      "kind": "second-application-missing",
+      "detail": "joplin is complete and retained with its corpus. BlueWallet is excluded outright because package.json pins rn-qr-generator to an exact commit of a repository that returns 404, so the second independent application has to come from outside the original pool. streetwriters/notesnook is bootstrapped at both revisions with its pods resolving, and is the nearest candidate",
+      "command": "validation/field/apple/react_native_ios_campaign.py --affected-app PATH --fixed-app PATH --evidence PATH --cli-commit SHA --runs 3",
       "evidence": [
-        "validation/field/evidence/react-native-ios-candidate-execution.json",
-        "validation/field/evidence/react-native-ios-candidate-execution.md",
+        "validation/field/react-native-ios.json",
         "validation/field/evidence/react-native-ios-simulator-build.md"
       ]
-    },
-    {
-      "code": "incomplete-evidence",
-      "detail": "the BlueWallet affected revisions span React Native 0.72.14 through 0.85.3, so no single CocoaPods and Xcode recipe is known to build all of them. The 0.72 candidate is the most likely to fail toolchain resolution on the current host. The four Joplin candidates are all pinned to React Native 0.81.6, so a single recipe covers them, but they carry a different cost: the iOS project lives in a Yarn workspace monorepo, so the build must first install and build the workspace packages that packages/app-mobile depends on before pod install can run",
-      "command": null,
-      "evidence": []
     }
   ],
   "rejectedCandidates": [

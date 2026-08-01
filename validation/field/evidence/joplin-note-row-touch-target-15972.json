@@ -1,0 +1,229 @@
+{
+  "schemaVersion": 1,
+  "target": "react-native-ios",
+  "cliCommit": "72c78b2dad9d88b6643d15343ada88396d08dd73",
+  "application": "joplin",
+  "repository": "https://github.com/laurent22/joplin",
+  "issue": "https://github.com/laurent22/joplin/issues/15972",
+  "affectedRevision": "7d90db0bf68c7ea2803227f9e6277bb3cf697fb3",
+  "fixedRevision": "2fa45a5a05daa597d52b73fce120e9242a6c6860",
+  "identity": "react-native-layout:note-row-padding-outside-touch-target",
+  "memoryMeasurement": "unavailable",
+  "webDriverAgentDerivedData": "/Users/obsidian/reproit-field-rn/wda",
+  "affected": [
+    {
+      "run": 1,
+      "status": "reproduced",
+      "identity": "react-native-layout:note-row-padding-outside-touch-target",
+      "cleanLaunch": true,
+      "observationReached": true,
+      "exceptions": [],
+      "elapsedSeconds": 59.731,
+      "jsHeapMiB": null,
+      "hitAreaRect": {
+        "y": 127,
+        "x": 16,
+        "width": 370,
+        "height": 20
+      },
+      "tapPoint": {
+        "x": 201,
+        "y": 118
+      },
+      "noteOpened": false,
+      "noteListStillShown": true,
+      "rowTitlePresentAfterTap": true,
+      "simulator": {
+        "udid": "90CD05F8-7A43-48CB-A026-F358A7145FA9",
+        "deviceType": "iPhone 16 Pro",
+        "runtime": "com.apple.CoreSimulator.SimRuntime.iOS-26-2",
+        "reset": "the application container, destroyed and recreated by reinstall"
+      }
+    },
+    {
+      "run": 2,
+      "status": "reproduced",
+      "identity": "react-native-layout:note-row-padding-outside-touch-target",
+      "cleanLaunch": true,
+      "observationReached": true,
+      "exceptions": [],
+      "elapsedSeconds": 22.024,
+      "jsHeapMiB": null,
+      "hitAreaRect": {
+        "y": 127,
+        "x": 16,
+        "width": 370,
+        "height": 20
+      },
+      "tapPoint": {
+        "x": 201,
+        "y": 118
+      },
+      "noteOpened": false,
+      "noteListStillShown": true,
+      "rowTitlePresentAfterTap": true,
+      "simulator": {
+        "udid": "90CD05F8-7A43-48CB-A026-F358A7145FA9",
+        "deviceType": "iPhone 16 Pro",
+        "runtime": "com.apple.CoreSimulator.SimRuntime.iOS-26-2",
+        "reset": "the application container, destroyed and recreated by reinstall"
+      }
+    },
+    {
+      "run": 3,
+      "status": "reproduced",
+      "identity": "react-native-layout:note-row-padding-outside-touch-target",
+      "cleanLaunch": true,
+      "observationReached": true,
+      "exceptions": [],
+      "elapsedSeconds": 15.987,
+      "jsHeapMiB": null,
+      "hitAreaRect": {
+        "y": 127,
+        "x": 16,
+        "width": 370,
+        "height": 20
+      },
+      "tapPoint": {
+        "x": 201,
+        "y": 118
+      },
+      "noteOpened": false,
+      "noteListStillShown": true,
+      "rowTitlePresentAfterTap": true,
+      "simulator": {
+        "udid": "90CD05F8-7A43-48CB-A026-F358A7145FA9",
+        "deviceType": "iPhone 16 Pro",
+        "runtime": "com.apple.CoreSimulator.SimRuntime.iOS-26-2",
+        "reset": "the application container, destroyed and recreated by reinstall"
+      }
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "status": "not_reproduced",
+      "identity": null,
+      "cleanLaunch": true,
+      "observationReached": true,
+      "exceptions": [],
+      "elapsedSeconds": 16.617,
+      "jsHeapMiB": null,
+      "hitAreaRect": {
+        "y": 111,
+        "x": 0,
+        "width": 402,
+        "height": 52
+      },
+      "tapPoint": {
+        "x": 201,
+        "y": 118
+      },
+      "noteOpened": true,
+      "noteListStillShown": false,
+      "rowTitlePresentAfterTap": true,
+      "simulator": {
+        "udid": "90CD05F8-7A43-48CB-A026-F358A7145FA9",
+        "deviceType": "iPhone 16 Pro",
+        "runtime": "com.apple.CoreSimulator.SimRuntime.iOS-26-2",
+        "reset": "the application container, destroyed and recreated by reinstall"
+      }
+    },
+    {
+      "run": 2,
+      "status": "not_reproduced",
+      "identity": null,
+      "cleanLaunch": true,
+      "observationReached": true,
+      "exceptions": [],
+      "elapsedSeconds": 17.575,
+      "jsHeapMiB": null,
+      "hitAreaRect": {
+        "y": 111,
+        "x": 0,
+        "width": 402,
+        "height": 52
+      },
+      "tapPoint": {
+        "x": 201,
+        "y": 118
+      },
+      "noteOpened": true,
+      "noteListStillShown": false,
+      "rowTitlePresentAfterTap": true,
+      "simulator": {
+        "udid": "90CD05F8-7A43-48CB-A026-F358A7145FA9",
+        "deviceType": "iPhone 16 Pro",
+        "runtime": "com.apple.CoreSimulator.SimRuntime.iOS-26-2",
+        "reset": "the application container, destroyed and recreated by reinstall"
+      }
+    },
+    {
+      "run": 3,
+      "status": "not_reproduced",
+      "identity": null,
+      "cleanLaunch": true,
+      "observationReached": true,
+      "exceptions": [],
+      "elapsedSeconds": 16.393,
+      "jsHeapMiB": null,
+      "hitAreaRect": {
+        "y": 111,
+        "x": 0,
+        "width": 402,
+        "height": 52
+      },
+      "tapPoint": {
+        "x": 201,
+        "y": 118
+      },
+      "noteOpened": true,
+      "noteListStillShown": false,
+      "rowTitlePresentAfterTap": true,
+      "simulator": {
+        "udid": "90CD05F8-7A43-48CB-A026-F358A7145FA9",
+        "deviceType": "iPhone 16 Pro",
+        "runtime": "com.apple.CoreSimulator.SimRuntime.iOS-26-2",
+        "reset": "the application container, destroyed and recreated by reinstall"
+      }
+    }
+  ],
+  "neighboringLegalBehavior": "a tap 9pt above the row centre is inside the hit area on both revisions and opens the note on both",
+  "neighboring": {
+    "affected": {
+      "identity": null,
+      "observationReached": true,
+      "tapPoint": {
+        "x": 201,
+        "y": 128
+      },
+      "hitAreaRect": {
+        "y": 127,
+        "x": 16,
+        "width": 370,
+        "height": 20
+      },
+      "noteOpened": true
+    },
+    "fixed": {
+      "identity": null,
+      "observationReached": true,
+      "tapPoint": {
+        "x": 201,
+        "y": 128
+      },
+      "hitAreaRect": {
+        "y": 111,
+        "x": 0,
+        "width": 402,
+        "height": 52
+      },
+      "noteOpened": true
+    }
+  },
+  "minimizedAction": "one tap at the row centre offset 19pt upward, which is inside the painted row on both revisions and inside the pressable only on the fixed one",
+  "cleanup": {
+    "deleted": "90CD05F8-7A43-48CB-A026-F358A7145FA9",
+    "simulatorRemains": false
+  }
+}

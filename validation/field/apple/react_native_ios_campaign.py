@@ -189,6 +189,16 @@ class Appium:
             **{
                 "appium:wdaLocalPort": self.wda_port,
                 "appium:derivedDataPath": str(self.derived),
+                # Run the already-built runner instead of rebuilding it. The
+                # WebDriverAgent scheme carries a build post-action that shells
+                # out, and every one of those shells stalls in _dyld_start on
+                # this host, so build-for-testing never returns, the runner is
+                # never launched, and the session waits on a port nothing will
+                # answer. Nine wedged shells were piled up behind it. Skipping
+                # the build skips the post-action, and it is also the correct
+                # thing on its own terms: WebDriverAgent is fixed test
+                # infrastructure and rebuilding it per run measures nothing.
+                "appium:usePrebuiltWDA": True,
             },
         )
 
@@ -312,8 +322,15 @@ def observe(
         clean_launch = device.running()
         session.screenshot(device.evidence / f"{label}-screen.png")
         (device.evidence / f"{label}-source.xml").write_text(after, encoding="utf-8")
+        # The opened note repeats its own title, so the tapped row's title is
+        # present either way and cannot say which screen this is. The note
+        # list's LAST row can: it is on screen only while the list is. The
+        # first executed fixed run proved this, reading the note open with
+        # "1. Welcome to Joplin!" still present and "5. Joplin Privacy Policy"
+        # gone.
         still_listed = LAST_ROW in after
-        observation_reached = ROW in before and (still_listed or ROW not in after)
+        row_title_present = ROW in after
+        observation_reached = ROW in before and clean_launch
         identity = IDENTITY if still_listed else None
     finally:
         try:
@@ -331,6 +348,8 @@ def observe(
         "hitAreaRect": rect,
         "tapPoint": point,
         "noteOpened": not still_listed,
+        "noteListStillShown": still_listed,
+        "rowTitlePresentAfterTap": row_title_present,
         "simulator": reset,
     }
 
