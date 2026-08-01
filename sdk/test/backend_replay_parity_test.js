@@ -194,6 +194,17 @@ function rubySide() {
   return JSON.parse(lines[lines.length - 1]);
 }
 
+function goSide() {
+  var result = child_process.spawnSync('go', ['run', './parityprobe'], {
+    cwd: path.join(root, 'reproit-backend-go'),
+    input: JSON.stringify(CAPSULE),
+    encoding: 'utf8',
+  });
+  assert.strictEqual(result.status, 0, 'go side failed: ' + (result.error || result.stderr));
+  var lines = result.stdout.trim().split('\n');
+  return JSON.parse(lines[lines.length - 1]);
+}
+
 var node = nodeSide();
 var python = pythonSide();
 
@@ -230,3 +241,21 @@ assert.strictEqual(
   'the ruby REPROIT:DIVERGENCE marker line must match byte for byte',
 );
 console.log('PASS: ruby replay is byte-identical to the Node reference (serve, 599, marker)');
+
+var goReplay = goSide();
+assert.deepStrictEqual(
+  goReplay.serve,
+  node.serve,
+  'go served SSE exchange must match byte for byte',
+);
+assert.strictEqual(
+  goReplay.divergedBody,
+  node.divergedBody,
+  'the go served 599 divergence body must match byte for byte',
+);
+assert.strictEqual(
+  goReplay.marker,
+  node.marker,
+  'the go REPROIT:DIVERGENCE marker line must match byte for byte',
+);
+console.log('PASS: go replay is byte-identical to the Node reference (serve, 599, marker)');

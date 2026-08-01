@@ -87,10 +87,49 @@ Canonical wire bytes (compact, recursively sorted keys) are pinned against the N
 a golden test. `sdk/test/oracle_contract_test.js` pins the `backend-server-error` tagging
 contract.
 
+## Capsule parity: exchange capture and hermetic replay
+
+The boundary is explicit and opt-in (Go has no monkeypatching): route outbound HTTP through
+`Transport` (or the client `WrapClient` returns) and database traffic through the
+`SQLDriver` wrap of any `database/sql` driver, or the explicit `RunDB` closure. Every
+dependency exchange (request AND response) is recorded on the ambient trace, bounded
+(8 KiB body budget with full-byte sha256 identity beyond it, 32 name-sorted headers, 64
+rows, 128 stream chunk boundaries) and redacted at source. Streaming responses (SSE /
+chunked) record their observed chunk boundaries as the app consumes the body; an
+abandoned body records nothing.
+
+```go
+sql.Register("reproit-pg", &reproit.SQLDriver{Base: pqDriver})
+db, _ := sql.Open("reproit-pg", dsn)
+client := reproit.WrapClient(nil)
+```
+
+With `REPROIT_REPLAY` naming a capture payload, the SAME boundaries serve the recorded
+exchanges: no socket is opened and `SQLDriver.Open` returns a connect stub, so the app
+boots with every dependency down. Matching is strict per-operation ordinals; recorded
+`$reproit` placeholders wildcard; the first unmatched call emits a `REPROIT:DIVERGENCE`
+stderr line (byte-identical to the Node reference, `bodyDelta` naming the first differing
+chat message or byte offset) and answers 599 (HTTP) or an error (db). The envelope pins
+TZ, the `ReplayNow` clock offset, and the seeded RNG (`math/rand`'s global source plus
+`NewReplayRNG`).
+
+Named capability gaps, recorded rather than papered over:
+
+- `time.Now` cannot be patched process wide; code must read `reproit.ReplayNow()` to see
+  the capture moment.
+- `math/rand/v2`'s global source cannot be reseeded; only the v1 global source and
+  `NewReplayRNG` pin. `crypto/rand` is unpinnable by design.
+- The `database/sql` driver API exposes no server command tag, so the recorded `command`
+  is derived from the statement's leading verb.
+- Context-less driver calls (`driver.Stmt.Exec/Query` without context) carry no ambient
+  trace and pass through unrecorded.
+
 ## Tests
 
 ```sh
 cd sdk/reproit-backend-go
 go test ./...        # unit + net/http e2e against a stub ingest, zero dependencies
 cd fiber && go test ./...  # Fiber v2 adapter (separate module)
+node ../test/backend_replay_parity_test.js  # byte parity against the Node reference
+../../validation/backend/go-hermetic-e2e/run.sh  # money test under PORTABILITY
 ```

@@ -32,6 +32,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 )
 
 const (
@@ -44,7 +45,39 @@ const (
 	// maxDBRows caps rows recorded per db result; beyond it the result is
 	// marked truncated.
 	maxDBRows = 64
+	// MaxStreamChunks caps recorded stream chunk boundaries per exchange
+	// (SSE / chunked responses, the LLM streaming shape). Beyond it the
+	// boundaries are marked truncated and replay fails closed rather than
+	// serve a wrong stream shape.
+	MaxStreamChunks = 128
 )
+
+// exchangeCounters mirrors the Node reference's stats(): how many exchanges
+// were recorded, how many bodies were reduced to identity, and how many
+// capture attempts failed closed (including the per-trace event cap:
+// MaxEvents overflow drops the exchange and counts here, never breaks the
+// host request).
+var exchangeCounters struct {
+	captured  atomic.Uint64
+	truncated atomic.Uint64
+	failed    atomic.Uint64
+}
+
+// ExchangeStats is a point-in-time snapshot of the instrument counters.
+type ExchangeStats struct {
+	CapturedExchanges uint64
+	TruncatedBodies   uint64
+	FailedCaptures    uint64
+}
+
+// InstrumentStats returns a snapshot of the outbound-exchange counters.
+func InstrumentStats() ExchangeStats {
+	return ExchangeStats{
+		CapturedExchanges: exchangeCounters.captured.Load(),
+		TruncatedBodies:   exchangeCounters.truncated.Load(),
+		FailedCaptures:    exchangeCounters.failed.Load(),
+	}
+}
 
 // ContextWithTrace makes trace the ambient trace for Transport and RunDB
 // calls made with the returned context. The net/http middleware does this
@@ -127,7 +160,11 @@ func recordHTTPExchange(
 	response *http.Response,
 	responseBody *bodyCollector,
 ) {
-	defer func() { _ = recover() }()
+	defer func() {
+		if recover() != nil {
+			exchangeCounters.failed.Add(1)
+		}
+	}()
 	requestValue := map[string]any{
 		"method": request.Method,
 		"url":    requestURL(request),
@@ -144,10 +181,21 @@ func recordHTTPExchange(
 	for key, value := range boundedHeaders(response.Header) {
 		responseValue[key] = value
 	}
-	for key, value := range responseBody.result(response.Header.Get("Content-Type")) {
+	contentType := response.Header.Get("Content-Type")
+	for key, value := range responseBody.result(contentType) {
 		responseValue[key] = value
 	}
-	_ = trace.Exchange(EffectCall, ExchangeOptions{
+	// Stream shape (SSE / chunked): observed chunk boundaries, so the whole
+	// stream is ONE logical exchange and replay can re-serve it chunk for
+	// chunk. A truncated inline body already fails closed, so boundaries are
+	// only kept for bodies recorded verbatim.
+	if responseValue["truncated"] != true {
+		stream := responseBody.stream(strings.Contains(contentType, "text/event-stream"))
+		if stream != nil {
+			responseValue["stream"] = stream
+		}
+	}
+	err := trace.Exchange(EffectCall, ExchangeOptions{
 		Resource: request.URL.Host,
 		Key:      request.Method + " " + urlPathAndQuery(requestURL(request)),
 		Exchange: map[string]any{
@@ -156,6 +204,13 @@ func recordHTTPExchange(
 			"response": responseValue,
 		},
 	})
+	if err != nil {
+		// The trace finished or hit its event cap; the exchange is dropped
+		// and counted, the host request goes on.
+		exchangeCounters.failed.Add(1)
+		return
+	}
+	exchangeCounters.captured.Add(1)
 }
 
 func requestURL(request *http.Request) string {
@@ -167,11 +222,15 @@ func requestURL(request *http.Request) string {
 
 // bodyCollector hashes every byte while retaining at most the inline budget,
 // so a truncated body still carries provable identity without unbounded
-// memory.
+// memory. It also records the observed chunk boundaries (one push per Read
+// the app performed), bounded by MaxStreamChunks; boundaries past the cap
+// are counted, never guessed.
 type bodyCollector struct {
-	digest hash.Hash
-	held   bytes.Buffer
-	total  int
+	digest            hash.Hash
+	held              bytes.Buffer
+	total             int
+	boundaries        []int
+	droppedBoundaries int
 }
 
 func newBodyCollector() *bodyCollector {
@@ -184,6 +243,11 @@ func (c *bodyCollector) push(chunk []byte) {
 	}
 	c.total += len(chunk)
 	c.digest.Write(chunk)
+	if len(c.boundaries) < MaxStreamChunks {
+		c.boundaries = append(c.boundaries, len(chunk))
+	} else {
+		c.droppedBoundaries++
+	}
 	if remaining := MaxExchangeBodyBytes - c.held.Len(); remaining > 0 {
 		if len(chunk) > remaining {
 			c.held.Write(chunk[:remaining])
@@ -200,6 +264,7 @@ func (c *bodyCollector) result(contentType string) map[string]any {
 		return nil
 	}
 	if c.total > MaxExchangeBodyBytes {
+		exchangeCounters.truncated.Add(1)
 		return map[string]any{
 			"bodyBytes":  json.Number(strconv.Itoa(c.total)),
 			"bodySha256": hex.EncodeToString(c.digest.Sum(nil)),
@@ -209,12 +274,35 @@ func (c *bodyCollector) result(contentType string) map[string]any {
 	return boundedBody(c.held.Bytes(), contentType)
 }
 
+// stream renders the observed chunk boundaries as byte lengths. Recorded
+// when the response is a stream (SSE always; anything else only when it
+// actually arrived in more than one chunk, since a single-chunk body replays
+// identically without them). Boundaries past the cap are counted, never
+// guessed, and replay fails closed on the truncation marker.
+func (c *bodyCollector) stream(isEventStream bool) map[string]any {
+	if c == nil || len(c.boundaries) == 0 {
+		return nil
+	}
+	if !isEventStream && len(c.boundaries) < 2 && c.droppedBoundaries == 0 {
+		return nil
+	}
+	chunks := make([]any, 0, len(c.boundaries))
+	for _, length := range c.boundaries {
+		chunks = append(chunks, json.Number(strconv.Itoa(length)))
+	}
+	if c.droppedBoundaries > 0 {
+		return map[string]any{"chunks": chunks, "truncated": true}
+	}
+	return map[string]any{"chunks": chunks}
+}
+
 // boundedBody renders body fields for an already-buffered payload.
 func boundedBody(body []byte, contentType string) map[string]any {
 	if len(body) == 0 {
 		return nil
 	}
 	if len(body) > MaxExchangeBodyBytes {
+		exchangeCounters.truncated.Add(1)
 		digest := sha256.Sum256(body)
 		return map[string]any{
 			"bodyBytes":  json.Number(strconv.Itoa(len(body))),
@@ -353,12 +441,16 @@ func RunDB(
 		return outcome, err
 	}
 	func() {
-		defer func() { _ = recover() }()
+		defer func() {
+			if recover() != nil {
+				exchangeCounters.failed.Add(1)
+			}
+		}()
 		request := map[string]any{"text": text}
 		if len(values) > 0 {
 			request["values"] = values
 		}
-		_ = trace.Exchange(dbEffectKind(text), ExchangeOptions{
+		recordErr := trace.Exchange(dbEffectKind(text), ExchangeOptions{
 			Resource: "pg",
 			Key:      truncate(text, 256),
 			Exchange: map[string]any{
@@ -367,6 +459,11 @@ func RunDB(
 				"response": dbOutcomeValue(outcome, err),
 			},
 		})
+		if recordErr != nil {
+			exchangeCounters.failed.Add(1)
+			return
+		}
+		exchangeCounters.captured.Add(1)
 	}()
 	return outcome, err
 }
