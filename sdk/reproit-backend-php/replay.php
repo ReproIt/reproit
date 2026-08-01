@@ -29,6 +29,124 @@ require_once __DIR__ . '/exchange.php';
 
 const DIVERGENCE_MARKER = 'REPROIT:DIVERGENCE ';
 
+/**
+ * Wire-parity JSON: compact, insertion order preserved, slashes and unicode
+ * unescaped, exactly the bytes Node's JSON.stringify emits for the same
+ * parse-ordered value. The divergence marker and replayed JSON bodies use
+ * THIS encoding, never canonical_json: canonical sorting would re-order keys
+ * the Node reference leaves in place and break the byte-compare parity pin.
+ */
+function marker_json(mixed $value): string
+{
+    $encoded = json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    return $encoded === false ? 'null' : $encoded;
+}
+
+/**
+ * Sentinel for "the request carries no body field at all", distinct from a
+ * recorded JSON null (which is a value the matcher wildcards on). PHP's `??`
+ * cannot tell the two apart, so presence is probed with array_key_exists and
+ * absence is carried as this singleton.
+ */
+final class Absent
+{
+    private static ?self $instance = null;
+
+    public static function value(): self
+    {
+        return self::$instance ??= new self();
+    }
+}
+
+/** The body of a request array, or the Absent sentinel when the key is gone. */
+function body_or_absent(?array $request): mixed
+{
+    if ($request === null || !\array_key_exists('body', $request)) {
+        return Absent::value();
+    }
+    return $request['body'];
+}
+
+/**
+ * One operation's identity for ordinal matching: HTTP is method plus path
+ * and query, database is the exact statement text.
+ */
+function operation_key(string $protocol, array $request): string
+{
+    if ($protocol === 'http') {
+        return (string) ($request['method'] ?? '') . ' '
+            . path_and_query((string) ($request['url'] ?? ''));
+    }
+    return (string) ($request['text'] ?? '');
+}
+
+/** The messages array of an OpenAI/Anthropic-shaped chat body, else null. */
+function chat_messages(mixed $body): ?array
+{
+    $messages = \is_array($body) ? ($body['messages'] ?? null) : null;
+    return \is_array($messages) && array_is_list($messages) ? $messages : null;
+}
+
+function delta_bytes(mixed $value): string
+{
+    return \is_string($value) ? $value : marker_json($value);
+}
+
+/**
+ * Locate the first difference between a recorded request body and a live
+ * one, modulo redaction placeholders. Null when there is nothing to report
+ * (either body absent, or no difference the matcher would object to).
+ * Chat-shaped bodies name the first differing message index (prompt drift);
+ * unknown shapes fall back to the byte offset of the first differing byte.
+ */
+function body_delta(mixed $recorded, mixed $live): ?array
+{
+    if ($recorded instanceof Absent || $live instanceof Absent) {
+        return null;
+    }
+    if (replay_matches($recorded, $live)) {
+        return null;
+    }
+    $recordedMessages = chat_messages($recorded);
+    $liveMessages = chat_messages($live);
+    if ($recordedMessages !== null && $liveMessages !== null) {
+        $bound = min(\count($recordedMessages), \count($liveMessages));
+        $index = null;
+        for ($i = 0; $i < $bound; $i++) {
+            if (!replay_matches($recordedMessages[$i], $liveMessages[$i])) {
+                $index = $i;
+                break;
+            }
+        }
+        // All shared indexes match: the drift is a longer or shorter
+        // conversation, and the first differing message is the first
+        // unshared one. If lengths also agree the drift is outside
+        // `messages`; fall through to bytes.
+        if ($index === null && \count($recordedMessages) !== \count($liveMessages)) {
+            $index = $bound;
+        }
+        if ($index !== null) {
+            return [
+                'kind' => 'message',
+                'firstDifferingMessage' => $index,
+                'recordedMessages' => \count($recordedMessages),
+                'liveMessages' => \count($liveMessages),
+            ];
+        }
+    }
+    $recordedBytes = delta_bytes($recorded);
+    $liveBytes = delta_bytes($live);
+    $bound = min(\strlen($recordedBytes), \strlen($liveBytes));
+    $offset = $bound;
+    for ($i = 0; $i < $bound; $i++) {
+        if ($recordedBytes[$i] !== $liveBytes[$i]) {
+            $offset = $i;
+            break;
+        }
+    }
+    return ['kind' => 'byte', 'offset' => $offset];
+}
+
 /** Deterministic xorshift64* stream, identical to the other SDKs. */
 final class ReplayRng
 {
@@ -125,20 +243,31 @@ final class ReplaySession
         return $this->diverged;
     }
 
-    /** Strict next-unconsumed match. Returns the exchange or null. */
+    /**
+     * Strict per-operation ordinal match, the Node reference policy: within
+     * one operation (method plus path for HTTP, statement text for the
+     * database) exchanges are consumed in recorded order, so pooled database
+     * clients and tool-call loops that interleave operations still match
+     * exactly. Returns the exchange or null (divergence).
+     */
     public function match(string $protocol, array $probe): ?array
     {
+        $key = operation_key($protocol, $probe);
         foreach ($this->entries as $index => $entry) {
             if ($entry['consumed'] || ($entry['exchange']['protocol'] ?? null) !== $protocol) {
                 continue;
             }
-            // Strict ordering within a protocol: the first unconsumed
-            // exchange is the only candidate; skipping it would be a fuzzy
-            // match.
+            if (operation_key($protocol, $entry['exchange']['request'] ?? []) !== $key) {
+                continue;
+            }
             if (request_matches($protocol, $entry['exchange']['request'] ?? [], $probe)) {
                 $this->entries[$index]['consumed'] = true;
                 return $entry['exchange'];
             }
+            // Strict ordinal within an operation: the next unconsumed
+            // exchange of THIS operation is the only candidate; skipping it
+            // silently would be a fuzzy match. Other operations' exchanges
+            // may interleave, which is why the key filters above.
             break;
         }
         $this->diverge($protocol, $probe);
@@ -148,17 +277,27 @@ final class ReplaySession
     public function diverge(string $protocol, array $probe): void
     {
         $this->diverged = true;
-        $expected = null;
+        $key = operation_key($protocol, $probe);
         $consumed = 0;
+        $sameKey = null;
+        $sameProtocol = null;
         foreach ($this->entries as $entry) {
             if ($entry['consumed']) {
                 $consumed++;
                 continue;
             }
-            if ($expected === null && ($entry['exchange']['protocol'] ?? null) === $protocol) {
-                $expected = $entry['exchange']['request'] ?? null;
+            if (($entry['exchange']['protocol'] ?? null) !== $protocol) {
+                continue;
+            }
+            $request = $entry['exchange']['request'] ?? [];
+            $sameProtocol ??= $request;
+            if ($sameKey === null && operation_key($protocol, $request) === $key) {
+                $sameKey = $request;
             }
         }
+        $expected = $sameKey ?? $sameProtocol;
+        // Field order mirrors the Node reference so the marker line is
+        // byte-comparable across SDKs; marker_json for the same reason.
         $report = [
             'protocol' => $protocol,
             'got' => $probe,
@@ -166,11 +305,19 @@ final class ReplaySession
             'consumed' => $consumed,
             'total' => \count($this->entries),
         ];
+        // Prompt drift: when the recorded and live bodies both exist and
+        // differ, name WHERE they differ (see body_delta).
+        $delta = $expected === null
+            ? null
+            : body_delta(body_or_absent($expected), body_or_absent($probe));
+        if ($delta !== null) {
+            $report['bodyDelta'] = $delta;
+        }
         // Written raw to stderr: the line must be byte-identical to the
         // Node, Rust, and Ruby SDKs' so one CLI parser reads every platform.
         $handle = fopen('php://stderr', 'w');
         if ($handle !== false) {
-            fwrite($handle, DIVERGENCE_MARKER . canonical_json($report) . "\n");
+            fwrite($handle, DIVERGENCE_MARKER . marker_json($report) . "\n");
             fclose($handle);
         }
     }
@@ -274,9 +421,50 @@ function serve_http(ReplaySession $session, array $probe): array
     $text = match (true) {
         $body === null => '',
         \is_string($body) => $body,
-        default => canonical_json($body),
+        // marker_json, not canonical_json: byte-identical to the Node
+        // reference's JSON.stringify of the same recorded body.
+        default => marker_json($body),
     };
-    return ['status' => (int) ($response['status'] ?? 200), 'headers' => $headers, 'body' => $text];
+    $served = [
+        'status' => (int) ($response['status'] ?? 200),
+        'headers' => $headers,
+        'body' => $text,
+    ];
+    $stream = $response['stream'] ?? null;
+    if (\is_array($stream) && \is_array($stream['chunks'] ?? null)) {
+        if (($stream['truncated'] ?? false) === true) {
+            // The capture kept the body but not every chunk boundary;
+            // serving a guessed stream shape would be a silent lie. Fail
+            // closed with the named reason.
+            $session->diverge('http', $probe + ['streamBoundariesTruncated' => true]);
+            return diverged_599('truncated-stream-boundaries');
+        }
+        $served['chunks'] = split_chunks($text, $stream['chunks']);
+    }
+    return $served;
+}
+
+/**
+ * Split a replayed body at the recorded chunk boundaries (byte lengths).
+ * Redaction can change body byte counts, so lengths are clamped and the last
+ * chunk absorbs any remainder: the CHUNK COUNT (the stream shape the app
+ * observed) is preserved exactly, the recorded content never padded.
+ *
+ * @return list<string>
+ */
+function split_chunks(string $body, array $lengths): array
+{
+    $chunks = [];
+    $offset = 0;
+    $count = \count($lengths);
+    foreach (array_values($lengths) as $index => $length) {
+        $last = $index === $count - 1;
+        $size = \is_int($length) && $length > 0 ? $length : 0;
+        $end = $last ? \strlen($body) : min($offset + $size, \strlen($body));
+        $chunks[] = substr($body, $offset, $end - $offset);
+        $offset = $end;
+    }
+    return $chunks;
 }
 
 function diverged_599(string $reason): array
@@ -326,6 +514,15 @@ function pin_envelope(?array $envelope): void
     if (\is_string($tz) && $tz !== '' && in_array($tz, timezone_identifiers_list(), true)) {
         date_default_timezone_set($tz);
     }
+    // Seed the process Mersenne stream (mt_rand/mt_srand, and rand which
+    // aliases it since PHP 7.1) from the capture's replaySeed, so replayed
+    // code drawing from mt_rand is deterministic run to run. Named gap, not
+    // pinnable: random_bytes/random_int are CSPRNG by design and accept no
+    // seed, so code drawing from them stays nondeterministic in replay.
+    $seed = $envelope['replaySeed'] ?? null;
+    if (\is_string($seed) && $seed !== '') {
+        mt_srand((int) hexdec(substr($seed, 0, 8)));
+    }
 }
 
 /**
@@ -346,4 +543,41 @@ function rng_for(?array $envelope): ?ReplayRng
         return null;
     }
     return new ReplayRng((int) hexdec(str_pad(substr($seed, 0, 16), 16, '0')));
+}
+
+/**
+ * The SDK-owned clock seam. `time()`/`microtime()` cannot be intercepted
+ * without an extension (see pin_envelope for the measured evidence), so the
+ * envelope's clock pin is expressed as an interface the application reads
+ * instead of the ambient clock: in replay mode `Instrument::clock()` returns
+ * a PinnedClock offset to the capture instant; everywhere else it returns
+ * the system clock, so app code needs no mode branch of its own.
+ */
+interface Clock
+{
+    /** Wall-clock now in epoch milliseconds. */
+    public function nowMs(): int;
+}
+
+final class SystemClock implements Clock
+{
+    public function nowMs(): int
+    {
+        return (int) (microtime(true) * 1000);
+    }
+}
+
+final class PinnedClock implements Clock
+{
+    private int $offsetMs;
+
+    public function __construct(int $observedAtMs)
+    {
+        $this->offsetMs = $observedAtMs - (int) (microtime(true) * 1000);
+    }
+
+    public function nowMs(): int
+    {
+        return (int) (microtime(true) * 1000) + $this->offsetMs;
+    }
 }

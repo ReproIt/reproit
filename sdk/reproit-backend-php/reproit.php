@@ -13,3 +13,5 @@ require_once __DIR__ . '/exchange.php';
 require_once __DIR__ . '/replay.php';
 require_once __DIR__ . '/instrument.php';
 require_once __DIR__ . '/capture.php';
+require_once __DIR__ . '/pdo.php';
+require_once __DIR__ . '/psr18.php';

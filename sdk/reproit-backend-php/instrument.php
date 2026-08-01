@@ -129,6 +129,19 @@ final class Instrument
         return $session === null ? null : observed_at_ms($session->envelope());
     }
 
+    /**
+     * The SDK clock seam: a PinnedClock offset to the capture instant in
+     * replay mode, the system clock otherwise. PHP cannot intercept time()
+     * process wide without an extension (pin_envelope documents the measured
+     * evidence), so an app that wants replay-anchored time reads THIS clock
+     * instead of the ambient one; no mode branch needed in app code.
+     */
+    public static function clock(): Clock
+    {
+        $observed = self::replayObservedAtMs();
+        return $observed === null ? new SystemClock() : new PinnedClock($observed);
+    }
+
     /** @return array<string, int> */
     public static function stats(): array
     {

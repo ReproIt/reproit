@@ -32,6 +32,11 @@ require_once __DIR__ . '/trace.php';
 // finding context (`context.reproitCapture`).
 const CAPTURE_FORMAT = 'reproit-backend-capture';
 const CAPTURE_VERSION = 1;
+// Version stamped when any event carries a captured dependency `exchange` or
+// an envelope stamp. Older readers reject it with a named version error
+// instead of silently evaluating a payload whose replay semantics they do
+// not understand.
+const CAPTURE_VERSION_EXCHANGES = 2;
 // First-class registry oracle id for an operation that returned HTTP 5xx.
 const SERVER_ERROR_ORACLE = 'backend-server-error';
 
@@ -52,23 +57,66 @@ function valid_token(mixed $value): bool
 }
 
 /**
+ * Where and when the capture happened, and a seed that makes REPLAY runs
+ * deterministic. Honesty note: the seed does not reproduce the randomness
+ * the app drew in production; it pins the replay's.
+ */
+function determinism_envelope(?int $observedAtMs = null): array
+{
+    $envelope = [
+        'observedAtMs' => $observedAtMs ?? (int) (microtime(true) * 1000),
+        'tz' => date_default_timezone_get(),
+        'runtime' => 'php ' . PHP_VERSION,
+        'os' => PHP_OS_FAMILY,
+        'arch' => php_uname('m'),
+        'replaySeed' => bin2hex(random_bytes(8)),
+    ];
+    $digest = getenv('REPROIT_IMAGE_DIGEST') ?: null;
+    if (valid_token($digest)) {
+        $envelope['imageDigest'] = (string) $digest;
+    }
+    return $envelope;
+}
+
+/** Payload version for a set of events: 2 when any event carries a captured
+ * dependency exchange or an envelope stamp, 1 otherwise. */
+function payload_version(array $events): int
+{
+    foreach ($events as $event) {
+        if (!\is_array($event)) {
+            continue;
+        }
+        if (\is_array($event['exchange'] ?? null)
+            || \array_key_exists('at', $event)
+            || \array_key_exists('monoNs', $event)
+        ) {
+            return CAPTURE_VERSION_EXCHANGES;
+        }
+    }
+    return CAPTURE_VERSION;
+}
+
+/**
  * The replayable capture object (`reproit debug replay-capture` input).
  * Trailing effect events are dropped first when the payload exceeds the
  * context budget; a payload that stays oversized with only start/return
  * left is omitted entirely (null value).
  */
-function capture_payload(array $operation): array
+function capture_payload(array $operation, ?array $envelope = null): array
 {
     $events = array_values($operation['events']);
     $droppedEffects = 0;
     while (true) {
         $value = [
             'format' => CAPTURE_FORMAT,
-            'version' => CAPTURE_VERSION,
+            'version' => payload_version($events),
             'operation' => $operation['operation'],
             'oracle' => SERVER_ERROR_ORACLE,
             'events' => $events,
         ];
+        if ($envelope !== null) {
+            $value['envelope'] = $envelope;
+        }
         if (\strlen(canonical_json($value)) <= MAX_CAPTURE_JSON_BYTES) {
             return [$value, $droppedEffects];
         }
@@ -498,21 +546,7 @@ final class Capture
 
     private function envelopeAttributes(array $first): array
     {
-        $attributes = [
-            'observedAtMs' => \is_int($first['at'] ?? null)
-                ? $first['at']
-                : (int) (microtime(true) * 1000),
-            'tz' => date_default_timezone_get(),
-            'runtime' => 'php ' . PHP_VERSION,
-            'os' => PHP_OS_FAMILY,
-            'arch' => php_uname('m'),
-            'replaySeed' => bin2hex(random_bytes(8)),
-        ];
-        $digest = getenv('REPROIT_IMAGE_DIGEST') ?: null;
-        if (valid_token($digest)) {
-            $attributes['imageDigest'] = (string) $digest;
-        }
-        return $attributes;
+        return determinism_envelope(\is_int($first['at'] ?? null) ? $first['at'] : null);
     }
 
     private function send(array $batch, float $deadline): bool

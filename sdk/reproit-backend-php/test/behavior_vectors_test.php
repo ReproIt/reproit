@@ -177,6 +177,94 @@ foreach ($vectors['redaction']['structureCases'] as $case) {
     );
 }
 
+// Matching: the replay matcher over the shared http cases (method, path and
+// query of the original URL, body modulo $reproit placeholders).
+foreach ($vectors['matching']['cases'] as $case) {
+    $actual = \ReproitBackend\request_matches('http', $case['recorded'], $case['live']);
+    check(
+        'matching ' . $case['name'],
+        $actual === $case['expect']['matches'],
+        'got ' . var_export($actual, true)
+    );
+}
+
+// Matching, pg: exact statement text, values modulo placeholders.
+foreach ($vectors['matching']['pgCases'] as $case) {
+    $actual = \ReproitBackend\request_matches('pg', $case['recorded'], $case['live']);
+    check(
+        'matching pg ' . $case['name'],
+        $actual === $case['expect']['matches'],
+        'got ' . var_export($actual, true)
+    );
+}
+
+// Divergence: an unmatched call writes the marker at line START on stderr
+// with the required report fields. The marker rides the raw stream, so a
+// child process pins what a CLI parser would actually see.
+$case = $vectors['divergence']['cases'][0];
+$capsule = [
+    'format' => 'reproit-backend-capture',
+    'version' => 2,
+    'operation' => 'GET /x',
+    'oracle' => 'backend-server-error',
+    'events' => array_map(
+        fn (array $exchange, int $index) => [
+            'kind' => 'effect',
+            'sequence' => $index + 1,
+            'exchange' => $exchange,
+        ],
+        $case['capsuleExchanges'],
+        array_keys($case['capsuleExchanges'])
+    ),
+];
+$capsulePath = tempnam(sys_get_temp_dir(), 'reproit-php-vectors');
+file_put_contents($capsulePath, json_encode($capsule));
+$live = $case['live'];
+$script = 'require "' . __DIR__ . '/../reproit.php";'
+    . '$session = ReproitBackend\ReplaySession::load("' . $capsulePath . '");'
+    . '$served = ReproitBackend\serve_http($session, '
+    . var_export(['method' => $live['method'], 'url' => $live['url']], true) . ');'
+    . 'echo $served["status"];';
+$process = proc_open(
+    [PHP_BINARY, '-r', $script],
+    [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $pipes
+);
+$status = stream_get_contents($pipes[1]);
+$stderr = stream_get_contents($pipes[2]);
+fclose($pipes[1]);
+fclose($pipes[2]);
+proc_close($process);
+unlink($capsulePath);
+check('divergence serves 599', trim((string) $status) === '599', 'got ' . $status);
+$prefix = $vectors['divergence']['markerPrefix'];
+$marker = null;
+foreach (explode("\n", (string) $stderr) as $line) {
+    // prefixMustStartLine: anything prepended breaks the CLI's match.
+    if (str_starts_with($line, $prefix)) {
+        $marker = $line;
+        break;
+    }
+}
+check('divergence marker starts a stderr line', $marker !== null, $stderr);
+$report = json_decode(substr((string) $marker, \strlen($prefix)), true);
+foreach ($vectors['divergence']['reportFields']['required'] as $field) {
+    check(
+        'divergence report carries ' . $field,
+        \is_array($report) && \array_key_exists($field, $report)
+    );
+}
+check(
+    'divergence consumed count',
+    ($report['consumed'] ?? null) === $case['expect']['consumed']
+);
+check('divergence total count', ($report['total'] ?? null) === $case['expect']['total']);
+check(
+    'divergence names the expected request',
+    same($report['expected'] ?? null, $case['expect']['expectedRequest']),
+    'got ' . json_encode($report['expected'] ?? null)
+);
+
 // The trigger token vocabulary; iOS and RN both shipped user-action.
 $token = $vectors['triggerTokens']['bySdkKind']['backend'];
 check('trigger token allowed', in_array($token, $vectors['triggerTokens']['allowed'], true));
