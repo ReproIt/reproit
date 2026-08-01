@@ -80,7 +80,7 @@ Stable atomic targets: 16. Preview: 5. Experimental: 0.
 | Backend contracts | Stable | schema-3 | linux | x86_64 | 0 |
 | Jetpack Compose Android | Stable | schema-3 | android-emulator | x86_64 | 0 |
 | Electron Linux | Stable | schema-3 | linux | x86_64 | 0 |
-| Flutter Android | Preview | schema-3 | android-emulator | x86_64 | 4 |
+| Flutter Android | Preview | schema-3 | android-emulator | x86_64 | 3 |
 | Flutter iOS | Stable | schema-3 | ios-simulator | arm64 | 0 |
 | Linux GTK | Stable | schema-3 | linux-container | x86_64 | 0 |
 | Linux Qt Quick/QML | Stable | schema-3 | linux-container | x86_64 | 0 |

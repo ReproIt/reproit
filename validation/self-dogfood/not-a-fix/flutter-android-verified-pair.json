@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "flutter-android-verified-pair",
+  "changeType": "tooling",
+  "detail": "Builds both LocalSend profile APKs on the x86_64 executor and verifies the pair discriminates before any campaign run is spent. LocalSend 3ec2d77 against 9e4a598, issue 2904: a prepare-upload request on loopback carrying exactly one text file puts the receive page into the state under test, and with the message 'https://example.com some extra text' the affected build reads 'sent you a link:' while the fixed build reads 'sent you a message:'. A bare URL stays a link on both revisions, so the link path is untouched and only the whitespace case moves, which is both the neighbouring legal control and the adversarial corpus subject. Two constraints were measured on the way. The profile-mode tree dumps are registered but empty, debugDumpApp returning only 'WidgetsFlutterBinding - PROFILE MODE' and debugDumpRenderTree returning nothing, so the channel that carries the observable is the platform accessibility hierarchy read through uiautomator, which attaches a UiAutomation and makes Flutter produce semantics. Separately, two containers cannot share the lane SDK through a :Z mount, because each relabels it exclusively and steals it from the other, which surfaced as a bogus 'No Android SDK found'. Adds the WebSocket VM service client the probe needs, since the worker image carries none. No runtime product behavior changes.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/flutter-android-discrimination.jsonl",
+      "sha256": "sha256:ce5d0867f963fd9675addbb35f58c1efc0c940001f2b641e18198bff49d90759"
+    }
+  ]
+}
