@@ -1,17 +1,17 @@
 JOURNEY claimed role=a
-FUZZ:OBS {"elements":[],"sig":"3fb8f697","labels":["ReproIt SwiftUI Fixture","Reveal detail","ReproItMacSwiftUIFixture"]}
-EXPLORE:STATE {"elements":[],"sig":"3fb8f697","labels":["ReproIt SwiftUI Fixture","Reveal detail","ReproItMacSwiftUIFixture"]}
+FUZZ:OBS {"sig":"3fb8f697","elements":[],"labels":["ReproIt SwiftUI Fixture","Reveal detail","ReproItMacSwiftUIFixture"]}
+EXPLORE:STATE {"sig":"3fb8f697","elements":[],"labels":["ReproIt SwiftUI Fixture","Reveal detail","ReproItMacSwiftUIFixture"]}
 FUZZ:ACT tap:Reveal detail
-FUZZ:OBS {"elements":[],"sig":"c6f43652","labels":["Hide detail","Detail revealed","ReproIt SwiftUI Fixture","ReproItMacSwiftUIFixture"]}
-EXPLORE:STATE {"elements":[],"sig":"c6f43652","labels":["Hide detail","Detail revealed","ReproIt SwiftUI Fixture","ReproItMacSwiftUIFixture"]}
-EXPLORE:EDGE {"from":"3fb8f697","to":"c6f43652","action":"tap:Reveal detail"}
+FUZZ:OBS {"sig":"c6f43652","elements":[],"labels":["Detail revealed","ReproIt SwiftUI Fixture","ReproItMacSwiftUIFixture","Hide detail"]}
+EXPLORE:STATE {"sig":"c6f43652","elements":[],"labels":["Detail revealed","ReproIt SwiftUI Fixture","ReproItMacSwiftUIFixture","Hide detail"]}
+EXPLORE:EDGE {"from":"3fb8f697","action":"tap:Reveal detail","to":"c6f43652"}
 FUZZ:ACT tap:Hide detail
-FUZZ:OBS {"elements":[],"sig":"fb4b80b0","labels":["ReproIt SwiftUI Fixture","ReproItMacSwiftUIFixture","Reveal detail"]}
-EXPLORE:STATE {"elements":[],"sig":"fb4b80b0","labels":["ReproIt SwiftUI Fixture","ReproItMacSwiftUIFixture","Reveal detail"]}
-EXPLORE:EDGE {"from":"c6f43652","to":"fb4b80b0","action":"tap:Hide detail"}
+FUZZ:OBS {"sig":"fb4b80b0","elements":[],"labels":["ReproIt SwiftUI Fixture","Reveal detail","ReproItMacSwiftUIFixture"]}
+EXPLORE:STATE {"sig":"fb4b80b0","elements":[],"labels":["ReproIt SwiftUI Fixture","Reveal detail","ReproItMacSwiftUIFixture"]}
+EXPLORE:EDGE {"from":"c6f43652","action":"tap:Hide detail","to":"fb4b80b0"}
 FUZZ:ACT tap:Reveal detail
-FUZZ:OBS {"elements":[],"sig":"c6f43652","labels":["Hide detail","Detail revealed","ReproIt SwiftUI Fixture","ReproItMacSwiftUIFixture"]}
-EXPLORE:EDGE {"from":"fb4b80b0","to":"c6f43652","action":"tap:Reveal detail"}
+FUZZ:OBS {"sig":"c6f43652","elements":[],"labels":["Detail revealed","ReproIt SwiftUI Fixture","ReproItMacSwiftUIFixture","Hide detail"]}
+EXPLORE:EDGE {"from":"fb4b80b0","action":"tap:Reveal detail","to":"c6f43652"}
 FUZZ:ACT back
 JOURNEY[a] step: explored 3 states
 JOURNEY DONE

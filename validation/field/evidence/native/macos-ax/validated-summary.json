@@ -1,19 +1,19 @@
 {
-  "commit": "414c1a14c7d60e1127a7738834e995020366fed0",
+  "commit": "79e178175a4de92f07eb4b7cb3c6714b0ec2f824",
   "gates": [
     {
       "architectures": [
         "arm64"
       ],
-      "commit": "414c1a14c7d60e1127a7738834e995020366fed0",
+      "commit": "79e178175a4de92f07eb4b7cb3c6714b0ec2f824",
       "executor": {
         "architecture": "arm64",
         "os": "darwin"
       },
-      "finishedAt": "2026-07-31T22:24:39.467739Z",
+      "finishedAt": "2026-08-01T02:05:49.143830Z",
       "gateId": "macos-ax",
-      "logSha256": "075740b0fb99cc174ecfad5513213588f6a647b5dda2bbab905cb16482f0e700",
-      "startedAt": "2026-07-31T22:24:30.812914Z"
+      "logSha256": "cc54b8c0b157a6031e0784cdde9d397832a48ec783c5cbf533404fd44e188638",
+      "startedAt": "2026-08-01T02:05:36.090348Z"
     }
   ],
   "schema": 2

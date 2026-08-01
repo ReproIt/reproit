@@ -2,15 +2,21 @@
 
 This directory retains the canonical Windows UIA native gate result from a
 clean detached Windows checkout at commit
-`8cd2e7f63dd86740f1686d59e047cd8def7eeae1`.
+`79e178175a4de92f07eb4b7cb3c6714b0ec2f824`.
 
 The collector ran with:
 
 ```sh
-COMMIT=8cd2e7f63dd86740f1686d59e047cd8def7eeae1
-REPROIT_GATE_OUTPUT_DIR="target/reproit-validation/windows-8cd2e7f63dd8" \
+COMMIT=79e178175a4de92f07eb4b7cb3c6714b0ec2f824
+REPROIT_GATE_OUTPUT_DIR="target/reproit-validation/windows-79e178175a4d" \
   ./validation/causal/run-windows-remote.sh "$COMMIT"
 ```
+
+This rerun replaces the `8cd2e7f63dd86740f1686d59e047cd8def7eeae1` evidence,
+which predates commit `24f00b8`. Before that fix the harness spelled the
+runner `reproit __uia`, which clap refuses, so the gate had been red since
+`d957df5`. The fix is an ancestor of the commit above, so this is the first
+exact-commit evidence taken from a pushed tree that contains it.
 
 The collector cloned and detached the native Windows checkout at the exact
 commit, confirmed a clean worktree, ran the elevated interactive
@@ -37,8 +43,8 @@ copies under the ignored target evidence directory.
 Artifact SHA-256 values:
 
 - `windows-uia.json`:
-  `93d45b97475264873fd2783d4df637d20d1ad097e64cc146bc0876fbe533341a`
+  `ab0c8c6e55db54e26f3205e0f5831c23897a3909bdc265854f867d766793db1b`
 - `windows-uia.log`:
-  `0ab59ad85972898bf71ae087191791f42e07c63059ef321be7fa10314c1c92dc`
+  `ecd107c8f6b8318db98f9a9f3b566edd3f2245f7bc767ee9c6565ac2dc948b49`
 - `validated-summary.json`:
-  `bc1fb9178827e1a9ef1fb259f5746849d668c6c317b1d503d6035f09e74f97f6`
+  `ea58e5822a5f4e2272380f806f474114ec548af5d74b8169cbc6984d4b0e97fa`

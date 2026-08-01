@@ -463,14 +463,13 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] no exact-commit evidence is recorded for the windows-uia native gate.
-    Running it on the native x86_64 Windows guest showed the gate had been red since d957df5 because
-    the harness spelled the runner `reproit __uia`, which clap refuses; with the harness fix applied
-    the gate passes on all three fixtures, but that run patched the checkout, so exact-commit
-    evidence still needs one rerun at a pushed commit containing the fix
-  - [incomplete-evidence] no application campaign has been executed. 8 candidate defects across 2
+  - [incomplete-evidence] no application campaign has been executed. 7 candidate defects across 2
     independent applications (DLSS Swapper, UniGetUI) are qualified with verified revisions, but
-    neither has three clean affected reproductions and three reached-observation fixed controls
+    neither has three clean affected reproductions and three reached-observation fixed controls. One
+    of the eight, dlss-swapper-non-nvidia-crash-590, was executed on the native x86_64 Windows guest
+    and disqualified: the affected revision does not reproduce there. Its NvAPI call sits inside a
+    catch block, so on a machine with no NVIDIA driver the process survives both the settings and
+    the games navigation and there is nothing for the fixed revision to differ from
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
 

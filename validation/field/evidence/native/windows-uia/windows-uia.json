@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "gateId": "windows-uia",
-  "commit": "8cd2e7f63dd86740f1686d59e047cd8def7eeae1",
-  "startedAt": "2026-07-29T07:47:17.066628Z",
-  "finishedAt": "2026-07-29T07:56:08.816347Z",
+  "commit": "79e178175a4de92f07eb4b7cb3c6714b0ec2f824",
+  "startedAt": "2026-08-01T01:48:15.492365Z",
+  "finishedAt": "2026-08-01T01:57:25.597562Z",
   "executor": {
     "os": "windows",
     "architecture": "amd64"
@@ -24,6 +24,6 @@
   },
   "resetStrategy": "fixture process cleanup, fresh builds, and an interactive Windows session",
   "cleanupStrategy": "fixture process and temporary artifact cleanup",
-  "logSha256": "0ab59ad85972898bf71ae087191791f42e07c63059ef321be7fa10314c1c92dc",
-  "logPath": "C:\\lab\\evidence-8cd2e7f63dd8\\windows-uia.log"
+  "logSha256": "ecd107c8f6b8318db98f9a9f3b566edd3f2245f7bc767ee9c6565ac2dc948b49",
+  "logPath": "C:\\lab\\evidence-79e178175a4d\\windows-uia.log"
 }

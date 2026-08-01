@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "native-gate-evidence-refresh",
+  "changeType": "maintenance",
+  "detail": "The retained windows-uia exact-commit evidence was taken at 8cd2e7f63dd86740f1686d59e047cd8def7eeae1, which predates commit 24f00b8. Before that fix the harness spelled the runner 'reproit __uia', which clap refuses, so the gate had been red since d957df5 and two Stable claims, windows-wpf and windows-avalonia, rested on evidence from before the break. This commit replaces it with a fresh collection at 79e178175a4de92f07eb4b7cb3c6714b0ec2f824, a pushed commit that contains the fix, run through validation/causal/run-windows-remote.sh on the native x86_64 Windows guest. The collector cloned and detached the exact commit, refused a dirty worktree, ran the elevated interactive gate, and returned a ZIP that check-native-evidence.py accepted; WPF, Avalonia, and WinUI all passed. The remote cleanup audit found zero leftover checkouts, evidence directories, archives, batch files, markers, logs, scheduled tasks, fixture processes, cargo or rustc processes, and PID-isolated cargo target directories; the reusable %TEMP%\\reproit-windows-backends directory carried timestamps from this exact run and was removed and reverified absent. The macos-ax evidence is refreshed the same way, from 414c1a14 to the same 79e1781, on this permissioned macOS host. This closes the windows-winui exact-commit blocker. It does not promote windows-winui: that target still needs a two-application field campaign and a corpus. The same commit also records an executed negative result: dlss-swapper-non-nvidia-crash-590 was built and driven on the guest and does not reproduce, because the NvAPI call it blames already sits inside a catch block at the affected revision, so both navigations survive and there is no observable difference for the fix to remove. That candidate is marked executed-and-disqualified rather than left as a live lead.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/native/windows-uia/validated-summary.json",
+      "sha256": "sha256:ea58e5822a5f4e2272380f806f474114ec548af5d74b8169cbc6984d4b0e97fa"
+    },
+    {
+      "path": "validation/field/evidence/native/macos-ax/validated-summary.json",
+      "sha256": "sha256:db27ae4e7b66f72e06587f64f7bc1568c8342808566899017c26b9431c168c5a"
+    }
+  ]
+}

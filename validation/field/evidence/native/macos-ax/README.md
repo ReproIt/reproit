@@ -1,7 +1,7 @@
 # macOS AX exact native evidence
 
 This directory retains the canonical `macos-ax` native release gate for the
-clean commit `414c1a14c7d60e1127a7738834e995020366fed0`.
+clean commit `79e178175a4de92f07eb4b7cb3c6714b0ec2f824`.
 
 - Executor: native macOS arm64
 - Toolchain: Rust 1.88.0 and the pinned Xcode installation
@@ -11,11 +11,11 @@ clean commit `414c1a14c7d60e1127a7738834e995020366fed0`.
 - Captured log: `macos-ax.log`
 - Validated summary: `validated-summary.json`
 - Result SHA-256:
-  `341ceb3d29ca579fd1dfc13d1899a0c8fa759b5ece5a93fce6ed9feb27bdcb2f`
+  `609109dc1382bcc5aecb04f1ecf4a355e2abc8fae81e242976962216ca7497a7`
 - Log SHA-256:
-  `075740b0fb99cc174ecfad5513213588f6a647b5dda2bbab905cb16482f0e700`
+  `cc54b8c0b157a6031e0784cdde9d397832a48ec783c5cbf533404fd44e188638`
 - Validated summary SHA-256:
-  `123a25817da17c2545c6ca25870f9c2b1490efdeb071ec2acc0600c8a3763e84`
+  `db27ae4e7b66f72e06587f64f7bc1568c8342808566899017c26b9431c168c5a`
 
 The gate read the native Accessibility tree, executed three actions, observed
 three structural states and three edges, and emitted every required completion
@@ -24,4 +24,7 @@ The host already holds the granted Accessibility permission the gate needs.
 
 The gate's automation mode is still `permissioned-self-hosted`, so macOS
 Accessibility cannot reach Stable on this evidence alone: a Stable target must
-release-gate every owned fixture through required CI.
+release-gate every owned fixture through required CI. That change needs a
+macOS runner registered with the repository, on a host where a human has
+granted Accessibility to the runner's process tree. The repository has zero
+self-hosted runners registered, so the mode cannot be raised honestly yet.

@@ -1,19 +1,19 @@
 {
-  "commit": "8cd2e7f63dd86740f1686d59e047cd8def7eeae1",
+  "commit": "79e178175a4de92f07eb4b7cb3c6714b0ec2f824",
   "gates": [
     {
       "architectures": [
         "x86_64"
       ],
-      "commit": "8cd2e7f63dd86740f1686d59e047cd8def7eeae1",
+      "commit": "79e178175a4de92f07eb4b7cb3c6714b0ec2f824",
       "executor": {
         "architecture": "amd64",
         "os": "windows"
       },
-      "finishedAt": "2026-07-29T07:56:08.816347Z",
+      "finishedAt": "2026-08-01T01:57:25.597562Z",
       "gateId": "windows-uia",
-      "logSha256": "0ab59ad85972898bf71ae087191791f42e07c63059ef321be7fa10314c1c92dc",
-      "startedAt": "2026-07-29T07:47:17.066628Z"
+      "logSha256": "ecd107c8f6b8318db98f9a9f3b566edd3f2245f7bc767ee9c6565ac2dc948b49",
+      "startedAt": "2026-08-01T01:48:15.492365Z"
     }
   ],
   "schema": 2

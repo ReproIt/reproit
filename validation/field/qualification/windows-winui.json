@@ -338,12 +338,17 @@
         "verified": false
       },
       "whySuitable": "the affected revision calls DriverSettingsSession.CreateAndLoad through NvAPIWrapper without first checking that nvapi64.dll can be loaded, so on a machine with no NVIDIA driver the process dies while opening the settings or game page. The fix probes the library with LoadLibrary and degrades instead. The native x86_64 Windows VM has no NVIDIA GPU, so the reproduction condition is the environment we already have rather than something the harness must fabricate, exactly as the react-native-ios offline-import candidate is defined by its offline path. The adapter drives it with one navigation action and one observation: click the settings item in the UI Automation navigation tree, then ask whether the window and its automation tree still exist. It is the cheapest possible liveness oracle and it needs no game library, no network and no swap",
-      "qualification": "selected-not-executed",
-      "remaining": [
-        "confirm the crash is a process exit rather than a caught exception, so the observable is a definite absent automation tree and not a timeout",
-        "issue 599, [BUG] 1.2.0.2 Crash on Game and Settings, reports the same fault on the game page and is closed by the same pull request; decide whether it can carry a second trigger or only widens this one",
-        "build both revisions in the native x86_64 Windows VM and record the exact SDK versions"
-      ]
+      "qualification": "executed-and-disqualified",
+      "executionResult": {
+        "date": "2026-08-01",
+        "worker": "native x86_64 Windows VM, interactive session 1, no NVIDIA GPU",
+        "build": "dotnet publish with C:\\lab\\dotnet9 SDK 9.0.102, Release_Portable, win-x64, self-contained, WindowsPackageType None, WindowsAppSDKSelfContained true; both revisions published successfully",
+        "affectedRevisionObserved": "d2dd9b987ee81faf5112d9346d90cbe8e43654f1",
+        "finding": "the affected revision does not reproduce. The application launched, entered the UI Automation tree as WinUIDesktopWin32WindowClass, and survived both the SettingsItem and the Games navigation selections, with the settings pane and the games pane fully present in the automation tree afterwards. It was observed twice, once with network reachable and once with program-scoped inbound and outbound Windows Firewall block rules on the published executable, so the update dialog is not what suppressed the fault",
+        "why": "the NvAPIWrapper call the fix guards, DriverSettingsSession.CreateAndLoad, already sits inside a try/catch (Exception err) block at the affected revision, so an absent nvapi64.dll is a caught exception, not a process exit. The fix adds a LoadLibrary probe and an NVIDIA.Initialize call inside that same block, which changes no accessibility-observable state on a machine with no NVIDIA driver",
+        "consequence": "there is no observable difference between the two revisions for this defect on this worker, so it cannot carry three affected reproductions. Issue 599 widens the same fault to the games page and is closed by the same pull request, so it is disqualified for the same reason"
+      },
+      "remaining": []
     },
     {
       "id": "dlss-swapper-logging-dropdown-750",
