@@ -135,6 +135,40 @@ was a guess at the addressing rather than a reading of it, and the tree above is
 what reading it produced: the row is a `Button`, and its title is carried by
 `name` and `label` on that button rather than by any static text.
 
+## The campaign driver cannot obtain a session, and the probe can
+
+The driver is committed and the observable it drives is measured, but no
+benchmark has been run with it: it has never obtained a WebDriverAgent session.
+Every attempt reaches `Launching WebDriverAgent on the device` and then waits on
+`connect ECONNREFUSED` to the runner port. A screenshot of the device during
+that wait shows the springboard with the application installed and nothing
+running, so the runner is installed and never serves.
+
+Four configurations were executed and none of them changes the outcome:
+
+1. one device erased between runs, WebDriverAgent built fresh per campaign;
+2. one device erased between runs, WebDriverAgent built once and reused;
+3. a device created and deleted per run;
+4. one device created and booted once, with the application container reset by
+   uninstall and reinstall, which is the shape the probe used.
+
+One real cause was found and fixed on the way: three `xcodebuild` runners
+survived earlier interrupted attempts, because terminating the Appium server
+does not reap the process it spawned to host WebDriverAgent, and a surviving
+runner holds the test session so every later attempt waits on a port nothing
+will answer. The driver reaps them now, at startup and after every run, and
+records how many survived. That was necessary and not sufficient: with the host
+verifiably clean of runners, attempt four still hung.
+
+What is not explained is why `probe2` and `probe3`, which measured the frames
+and executed the discriminating tap on both revisions, obtain sessions
+reliably against the same Appium, the same driver version, the same
+WebDriverAgent derived data and the same application bundles. The difference
+between those scripts and this driver has not been isolated, and guessing at it
+has now cost four executions. The next attempt should bisect it directly:
+start from the probe, which works, and move it toward the driver one change at
+a time.
+
 A second independent React Native iOS application is still required. BlueWallet
 remains excluded outright, so the qualified pool holds exactly one application
 that has been proven to build, and the target cannot be promoted on Joplin

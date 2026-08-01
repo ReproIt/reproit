@@ -244,7 +244,7 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Scope: React Native on a reset Android emulator through Appium UiAutomator2
 - Promotion standard: schema-3
 - Native gates: react-native-android
-- Field benchmark: incomplete
+- Field benchmark: validation/field/react-native-android.json
 - Production-to-local: Unqualified
 - Production-to-local evidence: none
 - Operating systems: android-emulator
@@ -257,18 +257,19 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] no application campaign has reached a reproduction. 5 candidate defects
-    across 3 applications are qualified with verified revisions, and the four application archives
-    the runner needed are now built: joplin assembleProfileable at de637847 and 623da377, and the
-    MissingCore/Music assembleRelease x86_64 splits at cdd2305a and 5c86ff15. The runner is executed
-    rather than committed unexercised. Its own preflight was unsatisfiable and is fixed, and both
-    campaigns then ran on a reset pixel_6 AVD on android-36 google_apis x86_64 inside the pinned
-    worker image with Docker network mode none, and both passed their cleanup audit. Both stopped in
-    the authored trigger. The music trigger waits for an ARTISTS tab that does not exist at
-    cdd2305a, where the tabs are HOME, FOLDERS, PLAYLISTS and TRACKS, and it does not wait for the
-    media scan. The joplin trigger reaches the Welcome! notebook row and then cannot address it,
-    because find_node walks up to a clickable ancestor and the React Native touchable sets no
-    clickable attribute, so the walk reaches the boundless root
+  - [incomplete-evidence] one of the two required application campaigns is complete. joplin, issue
+    15004, affected de637847 and fixed 623da377, ran on a pixel_6 AVD on android-36 google_apis
+    x86_64 recreated per run and booted with -wipe-data -no-snapshot, inside the pinned worker image
+    with Docker network mode none: three affected reproductions all landing on react-native-
+    navigation:hardware-back-exits-app-after-deleted-notebook, three fixed controls all reaching the
+    same observation and returning to the note list, neighbouring legal behaviour holding on both
+    revisions, and a passing cleanup audit. The second application is not complete. The
+    MissingCore/Music campaign seeds correctly now, with MediaStore confirmed to hold all four
+    fixtures before the application launches, and it stops on the application: the media permission
+    is granted and the library still reports zero tracks for the full 300 second bound. What makes
+    this application ingest an already-populated volume, whether its onboarding scan runs before the
+    grant lands and is never retried or whether it needs a rescan driven from settings, is the exact
+    remaining input
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
 
@@ -291,18 +292,19 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] no application campaign has been executed, and the qualified pool holds
-    one buildable application. All five BlueWallet candidates are disqualified outright:
-    package.json pins rn-qr-generator to an exact commit of https://github.com/BlueWallet/rn-qr-
-    generator, which returns 404 upstream, so no working tree exists at any candidate revision. The
-    Joplin build blocker is closed by execution: under a build root outside the /tmp symlink, with
-    DEVELOPMENT_TEAM forced empty and an ad-hoc CODE_SIGN_IDENTITY, both revisions of joplin-note-
-    row-touch-target-15972 now reach ** BUILD SUCCEEDED **, produce Joplin.app with differing
-    main.jsbundle digests, and launch and survive on a disposable iOS 26.2 simulator on the note
-    list the defect lives on. What remains is the accessibility attribute the Joplin note row
-    exposes, since an XCUITest predicate on its label does not match a visibly present row, and then
-    the six runs; and a second independent application, because a campaign needs two and BlueWallet
-    is excluded
+  - [incomplete-evidence] the build blocker is closed and the observable is measured, but no
+    campaign has been run. Both revisions of joplin-note-row-touch-target-15972 build, install and
+    launch on a disposable simulator. XCUITest reports the note row as an XCUIElementTypeButton
+    whose frame is the pressable the fix changes: affected x=16 y=127 w=370 h=20, fixed x=0 y=111
+    w=402 h=52, both centred at (201, 137). One tap at (201, 118) is swallowed on the affected build
+    and opens the note on the fixed one, executed on both. A campaign driver is committed on that
+    observable and has never obtained a WebDriverAgent session: four device and server
+    configurations were executed and each reaches 'Launching WebDriverAgent on the device' and then
+    waits on connect ECONNREFUSED, while the standalone probes that measured the observable obtain
+    sessions reliably against the same Appium, driver, derived data and bundles. Stale xcodebuild
+    runners were one real cause and are reaped now, but were not sufficient. Isolating the
+    difference between the probe and the driver by bisection is the first missing input; a second
+    independent application, since BlueWallet is excluded outright, is the second
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
 

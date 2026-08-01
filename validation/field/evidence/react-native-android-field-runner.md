@@ -254,6 +254,35 @@ folded into the same name. Each run now retains the foreground package set, the
 note list visibility and the settings visibility, so the three outcomes are
 distinguishable in the evidence rather than collapsed into one boolean.
 
+### joplin: complete
+
+With the addressing, the shouted labels, the presence check and the observable
+all corrected, the joplin campaign runs end to end and is written up in
+`joplin-back-after-delete-15028.json` and its companion prose. Three affected
+reproductions on one identity, three fixed controls reaching the same
+observation, neighbouring legal behaviour holding on both revisions, and a
+passing cleanup audit.
+
+### music: MediaStore holds the fixtures, the application does not see them
+
+The music campaign now seeds correctly. `scan_file` returns a real row per
+fixture rather than the silence the old broadcast returned, `scan_volume`
+completes, and the query-back assertion confirms all four files are indexed
+before the application is launched. The campaign still stops, one step later
+than before, in the new wait for the application's own track count to leave
+zero. The retained `music-affected-1-scan-wait-failure.xml` shows the Home
+screen after the media permission was granted, with `content-desc="0, Tracks"`
+still on the card and `You haven't played anything yet!` below it, for the full
+300 second bound.
+
+So the fixtures are in MediaStore and the application's library is empty. The
+remaining question is what makes MissingCore/Music ingest an already-populated
+volume: whether its onboarding scan runs before the permission grant lands and
+is never retried, or whether it needs its own rescan action driven from
+settings. That is an application-behaviour question with a definite answer, not
+a harness bound, and it is the one thing standing between this target and its
+second application.
+
 ## Both trigger defects answered
 
 - `find_node` still prefers a clickable ancestor, and now falls back to the

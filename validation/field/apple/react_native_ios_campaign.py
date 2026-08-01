@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise React Native iOS defects on disposable, erased simulators.
+"""Exercise React Native iOS defects on disposable simulators.
 
 joplin, laurent22/joplin issue 15972. NoteItem.tsx draws the note row padding
 on the outer wrapper view rather than on the pressable, so the padded band
@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -61,13 +63,19 @@ def simctl(*arguments: str, check: bool = True, timeout: int = 900) -> str:
 
 
 class Simulator:
-    """A simulator created for one run and deleted before the next.
+    """One device for the campaign; the reset is the application container.
 
-    Reusing one device and erasing it between runs does not work here: on an
-    erased device WebDriverAgent installs and then never answers its port, and
-    a session request sits on connect ECONNREFUSED until it times out. A device
-    that has never been erased behaves, so each run gets its own, which is also
-    the stricter reading of a disposable container.
+    The reset that matters to this trigger is the application's, not the
+    device's: Joplin seeds the Welcome notebook on first launch into a
+    container that uninstalling destroys, so an uninstall and reinstall gives
+    every run a genuine first-launch subject. The device is created once,
+    booted once and deleted at the end.
+
+    Both stricter shapes were tried and neither can obtain a WebDriverAgent
+    session: erasing one device between runs, and creating a device per run.
+    In both, WebDriverAgent installs, Appium logs that it is launching it, and
+    the runner never answers its port. A device booted once and left alone is
+    the configuration the probes that measured this observable used.
     """
 
     def __init__(self, evidence: Path) -> None:
@@ -75,18 +83,18 @@ class Simulator:
         self.udid: str | None = None
 
     def reset(self) -> dict:
-        self.stop()
-        udid = simctl("create", "reproit-rn-ios-field", DEVICE_TYPE, RUNTIME)
-        if re.fullmatch(r"[0-9A-F-]{36}", udid) is None:
-            raise RuntimeError(f"simctl returned an unusable udid: {udid!r}")
-        self.udid = udid
-        simctl("boot", udid)
-        simctl("bootstatus", udid, "-b")
+        if self.udid is None:
+            udid = simctl("create", "reproit-rn-ios-field", DEVICE_TYPE, RUNTIME)
+            if re.fullmatch(r"[0-9A-F-]{36}", udid) is None:
+                raise RuntimeError(f"simctl returned an unusable udid: {udid!r}")
+            self.udid = udid
+            simctl("boot", udid)
+            simctl("bootstatus", udid, "-b")
         return {
-            "udid": udid,
+            "udid": self.udid,
             "deviceType": DEVICE_TYPE,
             "runtime": RUNTIME,
-            "reset": "a simulator created for this run and deleted after it",
+            "reset": "the application container, destroyed and recreated by reinstall",
         }
 
     def install(self, application: Path) -> None:
@@ -113,7 +121,14 @@ class Simulator:
 
 
 class Appium:
-    """One owned Appium server for the whole campaign.
+    """One owned Appium server per reproduction.
+
+    A server shared across the campaign never got a WebDriverAgent session at
+    all: it logged 'Launching WebDriverAgent on the device' and then sat on
+    connect ECONNREFUSED to the runner port indefinitely, on both an erased
+    device and a freshly created one. A server started per reproduction, which
+    is the configuration the probes that measured this observable used, does
+    get one. Cheap it is not; correct it is.
 
     WebDriverAgent is compiled once into a campaign-owned derived data
     directory and reinstalled per run, and the local port is pinned away from
@@ -127,6 +142,7 @@ class Appium:
         port: int,
         wda_port: int,
         derived: Path | None = None,
+        label: str = "campaign",
     ) -> None:
         self.port = port
         self.wda_port = wda_port
@@ -138,7 +154,7 @@ class Appium:
         # campaign sat on connect ECONNREFUSED to the runner port for far
         # longer than the WDA build itself took.
         self.derived = derived or (evidence / "wda-derived-data")
-        self.log = (evidence / "appium.log").open("w", encoding="utf-8")
+        self.log = (evidence / f"{label}-appium.log").open("w", encoding="utf-8")
         self.process = subprocess.Popen(
             [
                 "appium",
@@ -147,7 +163,7 @@ class Appium:
                 "--port",
                 str(port),
                 "--log-level",
-                "info",
+                "error",
             ],
             stdout=self.log,
             stderr=subprocess.STDOUT,
@@ -184,7 +200,49 @@ class Appium:
             self.process.kill()
             self.process.wait(timeout=30)
         self.log.close()
-        return {"appiumExited": self.process.poll() is not None}
+        return {
+            "appiumExited": self.process.poll() is not None,
+            "webDriverAgentRunners": reap_wda_runners(),
+        }
+
+
+def wda_runner_pids() -> list[int]:
+    """PIDs of the xcodebuild processes that host a WebDriverAgent runner."""
+    listing = subprocess.run(
+        ["pgrep", "-f", "xcodebuild.*WebDriverAgent"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    ).stdout
+    return [int(line) for line in listing.split() if line.isdigit()]
+
+
+def reap_wda_runners() -> int:
+    """Kill any WebDriverAgent runner left behind, and prove none survives.
+
+    Terminating the Appium server does not reap the xcodebuild it spawned to
+    host the runner. Three of those survived earlier interrupted attempts and
+    held the test session, so every later attempt installed WebDriverAgent,
+    logged that it was launching it, and then waited on a port nothing would
+    ever answer. A run that leaves one behind poisons the next one.
+    """
+    for pid in wda_runner_pids():
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            continue
+    for _ in range(20):
+        if not wda_runner_pids():
+            return 0
+        time.sleep(1)
+    for pid in wda_runner_pids():
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            continue
+    time.sleep(2)
+    return len(wda_runner_pids())
 
 
 def tap(session: Session, x: int, y: int) -> None:
@@ -227,15 +285,18 @@ def await_row(session: Session, seconds: int = 180) -> str:
 
 def observe(
     device: Simulator,
-    appium: Appium,
+    ports: tuple[int, int, Path | None],
     application: Path,
     label: str,
     offset: int,
 ) -> dict:
-    """One reproduction: erase, install, tap one point, read the screen."""
+    """One reproduction: fresh device, install, tap one point, read the screen."""
     started = time.monotonic()
     reset = device.reset()
     device.install(application)
+    port, wda_port, derived = ports
+    appium = Appium(device.evidence, port, wda_port, derived, label)
+    appium.wait()
     session = appium.session(device.udid)
     try:
         row = await_row(session)
@@ -255,7 +316,10 @@ def observe(
         observation_reached = ROW in before and (still_listed or ROW not in after)
         identity = IDENTITY if still_listed else None
     finally:
-        session.call("DELETE", "")
+        try:
+            session.call("DELETE", "")
+        finally:
+            appium.stop()
     return {
         "status": "reproduced" if identity else "not_reproduced",
         "identity": identity,
@@ -285,7 +349,7 @@ def require(record: dict, label: str, expected: str | None) -> dict:
 
 def campaign(
     device: Simulator,
-    appium: Appium,
+    ports: tuple[int, int, Path | None],
     affected: Path,
     fixed: Path,
     runs: int,
@@ -300,7 +364,7 @@ def campaign(
         for index in range(1, runs + 1):
             label = f"joplin-{variant}-{index}"
             record = observe(
-                device, appium, application, label, PADDING_BAND_OFFSET
+                device, ports, application, label, PADDING_BAND_OFFSET
             )
             record["run"] = index
             sink.append(require(record, label, expected))
@@ -308,21 +372,21 @@ def campaign(
     for variant, application in (("affected", affected), ("fixed", fixed)):
         label = f"joplin-neighbor-{variant}"
         record = observe(
-            device, appium, application, label, INSIDE_HIT_AREA_OFFSET
+            device, ports, application, label, INSIDE_HIT_AREA_OFFSET
         )
         neighboring[variant] = require(record, label, None)
     corpus = {}
     if with_corpus:
         corpus["fixedOrdinaryTap"] = require(
             observe(
-                device, appium, fixed, "joplin-corpus-fixed-ordinary", 0
+                device, ports, fixed, "joplin-corpus-fixed-ordinary", 0
             ),
             "joplin-corpus-fixed-ordinary",
             None,
         )
         corpus["affectedOrdinaryTap"] = require(
             observe(
-                device, appium, affected, "joplin-corpus-affected-ordinary", 0
+                device, ports, affected, "joplin-corpus-affected-ordinary", 0
             ),
             "joplin-corpus-affected-ordinary",
             None,
@@ -330,7 +394,7 @@ def campaign(
         corpus["affectedInsideHitArea"] = require(
             observe(
                 device,
-                appium,
+                ports,
                 affected,
                 "joplin-corpus-affected-inside",
                 INSIDE_HIT_AREA_OFFSET,
@@ -356,7 +420,7 @@ def campaign(
             "a tap 9pt above the row centre is inside the hit area on both "
             "revisions and opens the note on both"
         ),
-        "webDriverAgentDerivedData": str(appium.derived),
+        "webDriverAgentDerivedData": str(ports[2]),
         "minimizedAction": (
             "one tap at the row centre offset 19pt upward, which is inside the "
             "painted row on both revisions and inside the pressable only on the "
@@ -383,26 +447,25 @@ def main() -> None:
         if not application.is_dir():
             parser.error(f"application bundle does not exist: {application}")
     arguments.evidence.mkdir(parents=True, exist_ok=True)
-    appium = Appium(
-        arguments.evidence,
+    ports = (
         arguments.appium_port,
         arguments.wda_port,
         arguments.wda_derived_data,
     )
     device = Simulator(arguments.evidence)
+    reap_wda_runners()
     result = None
     try:
-        appium.wait()
         result = campaign(
             device,
-            appium,
+            ports,
             arguments.affected_app,
             arguments.fixed_app,
             arguments.runs,
             arguments.with_corpus,
         )
     finally:
-        cleanup = {**device.stop(), **appium.stop()}
+        cleanup = device.stop()
         (arguments.evidence / "cleanup-audit.json").write_text(
             json.dumps(cleanup, indent=2) + "\n", encoding="utf-8"
         )

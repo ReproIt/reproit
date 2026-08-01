@@ -332,7 +332,7 @@
         "verified": true
       },
       "whySuitable": "the strongest adapter-level candidate in this set. On the affected revision the row padding sits on the outer wrapper view rather than on the pressable, so the padded band around a note title is drawn but is not part of the hit area: a tap landing there is swallowed and the note does not open. The fix moves paddingLeft, paddingRight, paddingTop and paddingBottom onto the pressable. Nothing about this is visible to a JavaScript-only harness, because the styles are identical and only the native view that receives the touch differs; it can be seen only by sending a real coordinate tap through XCUITest into the RN view hierarchy and then asking the accessibility tree whether the note screen was pushed. That is precisely what the react-native-ios adapter owns. Entirely offline and needs no account",
-      "qualification": "executed-build-success",
+      "qualification": "executed-observable-verified",
       "remaining": [
         "build the affected and fixed revisions for the simulator with CODE_SIGNING_ALLOWED=NO and a scheme that excludes ShareExtension, and record the exact command and result",
         "state how the harness computes the padding coordinate from the row's accessibility frame, since a centre tap opens the note on both revisions and would not separate them",
@@ -340,7 +340,7 @@
         "run three affected reproductions and three fixed controls on a reset simulator with reset evidence",
         "record neighboring legal behavior: a tap on the note title itself must still open the note on the affected build"
       ],
-      "executionOutcome": "both revisions reach ** BUILD SUCCEEDED ** and produce Joplin.app with differing main.jsbundle digests. Both install and launch on a disposable iOS 26.2 iPhone 16 Pro simulator and stay running on the first-run note list, the surface NoteItem.tsx draws. The Metro SHA-1 failure is gone under the new root, exactly as the previous record predicted. The discriminating tap is not yet observed: an XCUITest predicate on the note row's label does not match a visibly present row, so the row's addressing is unsettled",
+      "executionOutcome": "both revisions build, install and launch on a disposable simulator, and the observable is measured rather than assumed. The note row is an XCUIElementTypeButton whose frame is the pressable the fix changes: affected x=16 y=127 w=370 h=20, fixed x=0 y=111 w=402 h=52, both centred at (201, 137). One tap at (201, 118) is swallowed on the affected build and opens the note on the fixed one, executed on both. No benchmark has been run: the committed campaign driver has never obtained a WebDriverAgent session across four executed configurations, while the probes that measured this obtain them reliably",
       "executionEvidence": [
         "validation/field/evidence/react-native-ios-candidate-execution.json",
         "validation/field/evidence/react-native-ios-candidate-execution.md",
