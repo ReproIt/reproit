@@ -87,19 +87,26 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] no application campaign has been executed. Both revisions of LocalSend now
-    build profile APKs on the x86_64 executor and the profile observation channel is measured, but
-    no scenario, no three affected reproductions and no three fixed controls exist. The scenario
-    must observe through a tree dump or an IO profile: the profile build registers 26 extension RPCs
-    including debugDumpApp, debugDumpRenderTree and the semantics dumps, exposes no widget
-    inspector, and refuses evaluate with 'Debugger is disabled in AOT mode'
+  - [incomplete-evidence] no application campaign has been executed. The scenario is now designed
+    against what the profile channel can actually show, and it needs no second device: a prepare-
+    upload request on loopback carrying exactly one text file makes ReceiveSessionState.message
+    return that text, which puts the receive page into the state under test, and the observable is
+    the subtitle string, 'sent you a link:' when isLink is true against 'sent you a message:' when
+    it is false, plus the open-link button that only exists under if (vm.isLink). A bare URL with no
+    whitespace stays a link on both revisions and is the neighbouring legal control. None of this
+    has been run, so the pair is not yet verified to discriminate
+  - [incomplete-evidence] the build input reopened and the cause is measured. The lane image now
+    ships Flutter 3.41.6, and at that version LocalSend's own lockfile is unsolvable: flutter_test
+    from the SDK pins matcher 0.12.19 and test_api 0.7.10 while the application pins mockito 5.5.0
+    and test ^1.26.2, so pub reports version solving failed. Checking out the 3.38.10 the
+    application pins in .fvmrc inside the build container resolves it and pub reports Got
+    dependencies. The APK build itself is long, because cargokit compiles the Rust core for
+    android-x64, and had not finished when this was recorded, so no profile APK exists at either
+    revision right now
+  - [incomplete-evidence] only one application is designed and the second is untouched. gopeed
+    remains the recorded second candidate and no revision of it has been fetched, built or run
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
-  - [environment-unreachable] the campaign host has no x86_64 Android system image, so the arch
-    bound is satisfied only on the lane's own x86_64 executor (black@zgx-5a09.local then strix).
-    That executor is now proven for this target: both LocalSend revisions build profile APKs for
-    android-x64 there and the lane's AVD recipe boots an x86_64 API 36 emulator inside the worker
-    image. What is not yet built there is the campaign runner itself, so no scenario has run
 
 ## Flutter iOS
 

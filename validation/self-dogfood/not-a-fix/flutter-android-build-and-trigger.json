@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "flutter-android-build-and-trigger",
+  "changeType": "tooling",
+  "detail": "Reopens and explains the flutter-android build input, and designs the scenario against the channel the target actually has. The lane image's Flutter was raised to 3.41.6 after the groundwork that recorded LocalSend as buildable at 3.35.6, and at 3.41.6 the application's lockfile is unsolvable: flutter_test from the SDK pins matcher 0.12.19 and test_api 0.7.10 while localsend_app pins mockito 5.5.0 and test ^1.26.2. Checking out the 3.38.10 the application pins in .fvmrc inside the build container resolves it, which keeps one image for every target rather than pinning the image to one application. The scenario is derived from the two revisions' source: a prepare-upload request on loopback carrying exactly one text file makes ReceiveSessionState.message return that text, so the receive page enters the state under test with no second device and no network, and the observable is the subtitle string plus the open-link button that only exists under if (vm.isLink), both of which a tree dump can show. A bare URL with no whitespace stays a link on both revisions and is the neighbouring legal control. No run was performed and no pair is claimed to discriminate. No runtime product behavior changes.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/flutter-android-build-and-trigger.jsonl",
+      "sha256": "sha256:2e47cd52bdeeb362ca4e90fe57d8a31cb9e627500fefb2d40069709aa720feb9"
+    }
+  ]
+}
