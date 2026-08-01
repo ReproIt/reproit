@@ -100,6 +100,15 @@ The pair discriminates, on the observable the adapter owns, before any run of
 the benchmark was spent on it. The identity is
 `react-native-layout:note-row-padding-outside-touch-target`.
 
+A fourth lesson cost two attempts. Reusing one simulator and calling
+`simctl erase` between runs does not work: on an erased device WebDriverAgent
+installs, reports `Launching WebDriverAgent on the device`, and then never
+answers its port, so the session request sits on `connect ECONNREFUSED` until
+it times out. A screenshot of the device during that wait shows the springboard
+with the application installed and nothing running. A device that has never
+been erased behaves. Each run therefore gets a simulator created for it and
+deleted after it, which is also the stricter reading of a disposable container.
+
 A third lesson came from the first campaign attempt. Building WebDriverAgent
 into a fresh per-campaign directory succeeded, and the runner then never
 answered: Appium sat on `connect ECONNREFUSED 127.0.0.1:8191` for far longer

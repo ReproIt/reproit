@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "react-native-ios-per-run-simulator",
+  "changeType": "tooling",
+  "detail": "The react-native-ios campaign could not obtain a WebDriverAgent session while it reused one simulator and erased it between runs. On an erased device WebDriverAgent installs, Appium logs 'Launching WebDriverAgent on the device', and the runner then never answers its port, so the session request sits on connect ECONNREFUSED until it times out. A screenshot taken of the device during that wait shows the springboard with the application installed and nothing running, and simctl listapps confirms WebDriverAgent present but not serving. This survived the previous change, so the freshly built bundle rescan was a real cost but not this cause: the second attempt reused an already built and already scanned WebDriverAgent and hung in exactly the same place. What does work is a device that has never been erased, which is the configuration the earlier probes used when they measured the note row and executed the discriminating tap. Each run therefore gets a simulator created for it and deleted before the next one, which is also the stricter reading of a disposable container than erasing a long-lived device: nothing at all carries over, not just the data. Simulator.stop tolerates having no device, since reset now calls it first, and it still refuses to finish if the device it owned survives deletion. Both stuck attempts were stopped and the simulators they owned were deleted, so nothing was left behind on the host. No campaign is claimed by this commit: this is tooling work on the validation harness and no CLI behaviour changes.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/react-native-ios-simulator-build.md",
+      "sha256": "sha256:84fab7ab5911c63ceaecba3913dfed9ab03e5995baced93ed5ae766c61ed5390"
+    }
+  ]
+}

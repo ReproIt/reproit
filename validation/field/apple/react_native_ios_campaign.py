@@ -61,28 +61,32 @@ def simctl(*arguments: str, check: bool = True, timeout: int = 900) -> str:
 
 
 class Simulator:
-    """One owned simulator, erased before every run and deleted at the end."""
+    """A simulator created for one run and deleted before the next.
+
+    Reusing one device and erasing it between runs does not work here: on an
+    erased device WebDriverAgent installs and then never answers its port, and
+    a session request sits on connect ECONNREFUSED until it times out. A device
+    that has never been erased behaves, so each run gets its own, which is also
+    the stricter reading of a disposable container.
+    """
 
     def __init__(self, evidence: Path) -> None:
         self.evidence = evidence
-        self.udid = simctl("create", "reproit-rn-ios-field", DEVICE_TYPE, RUNTIME)
-        if re.fullmatch(r"[0-9A-F-]{36}", self.udid) is None:
-            raise RuntimeError(f"simctl returned an unusable udid: {self.udid!r}")
-        self.booted = False
+        self.udid: str | None = None
 
     def reset(self) -> dict:
-        if self.booted:
-            simctl("shutdown", self.udid, check=False)
-            self.booted = False
-        simctl("erase", self.udid)
-        simctl("boot", self.udid)
-        simctl("bootstatus", self.udid, "-b")
-        self.booted = True
+        self.stop()
+        udid = simctl("create", "reproit-rn-ios-field", DEVICE_TYPE, RUNTIME)
+        if re.fullmatch(r"[0-9A-F-]{36}", udid) is None:
+            raise RuntimeError(f"simctl returned an unusable udid: {udid!r}")
+        self.udid = udid
+        simctl("boot", udid)
+        simctl("bootstatus", udid, "-b")
         return {
-            "udid": self.udid,
+            "udid": udid,
             "deviceType": DEVICE_TYPE,
             "runtime": RUNTIME,
-            "reset": "erased and rebooted before this run",
+            "reset": "a simulator created for this run and deleted after it",
         }
 
     def install(self, application: Path) -> None:
@@ -96,12 +100,15 @@ class Simulator:
         return BUNDLE_ID in listing
 
     def stop(self) -> dict:
-        simctl("shutdown", self.udid, check=False)
-        simctl("delete", self.udid, check=False)
-        remaining = simctl("list", "devices", check=False)
+        if self.udid is None:
+            return {"deleted": None, "simulatorRemains": False}
+        udid = self.udid
+        simctl("shutdown", udid, check=False)
+        simctl("delete", udid, check=False)
+        self.udid = None
         return {
-            "deleted": self.udid,
-            "simulatorRemains": self.udid in remaining,
+            "deleted": udid,
+            "simulatorRemains": udid in simctl("list", "devices", check=False),
         }
 
 
