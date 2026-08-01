@@ -8,6 +8,9 @@ using Xunit;
 
 namespace ReproitBackend.Tests;
 
+// One collection with CapsuleParityTests: both mutate the process-global replay session and
+// redirect Console.Error, which parallel classes would race on.
+[Collection("replay-session")]
 public class InstrumentTests : IDisposable
 {
     private static readonly TraceContext CaptureContext = new()

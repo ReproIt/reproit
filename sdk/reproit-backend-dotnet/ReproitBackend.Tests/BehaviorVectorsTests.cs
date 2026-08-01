@@ -35,6 +35,9 @@ using Xunit;
 
 namespace ReproitBackend.Tests;
 
+// In the replay-session collection: the divergence vector redirects Console.Error, which
+// parallel classes would race on.
+[Collection("replay-session")]
 public class BehaviorVectorsTests
 {
     private static JsonElement Vectors
@@ -269,6 +272,105 @@ public class BehaviorVectorsTests
                 JsonSerializer.Serialize(JsonSerializer.Deserialize<object>(expected)),
                 JsonSerializer.Serialize(JsonSerializer.Deserialize<object>(actual)));
         }
+    }
+
+    // The replay matcher against the shared matching group: method, path plus query, body
+    // modulo placeholders; host and scheme deliberately not compared.
+    [Fact]
+    public void MatchingVectors()
+    {
+        foreach (var kase in Vectors.GetProperty("matching").GetProperty("cases").EnumerateArray())
+        {
+            var name = kase.GetProperty("name").GetString();
+            var recorded = ObjectToClr(kase.GetProperty("recorded"));
+            var live = ObjectToClr(kase.GetProperty("live"));
+            var expected = kase.GetProperty("expect").GetProperty("matches").GetBoolean();
+            Assert.True(
+                Replay.HttpMatches(recorded, live) == expected,
+                $"matching case {name}: expected matches={expected}");
+        }
+    }
+
+    [Fact]
+    public void PgMatchingVectors()
+    {
+        var group = Vectors.GetProperty("matching").GetProperty("pgCases");
+        foreach (var kase in group.EnumerateArray())
+        {
+            var name = kase.GetProperty("name").GetString();
+            var recorded = ObjectToClr(kase.GetProperty("recorded"));
+            var live = ObjectToClr(kase.GetProperty("live"));
+            var expected = kase.GetProperty("expect").GetProperty("matches").GetBoolean();
+            Assert.True(
+                Replay.DbMatches(recorded, live) == expected,
+                $"pg matching case {name}: expected matches={expected}");
+        }
+    }
+
+    // The divergence group: the marker starts the stderr line, and the report carries the
+    // required fields with the expected counts.
+    [Fact]
+    public void DivergenceMarkerStartsTheLineAndCarriesRequiredFields()
+    {
+        var divergence = Vectors.GetProperty("divergence");
+        var kase = divergence.GetProperty("cases")[0];
+        var events = new List<object?>();
+        var sequence = 0L;
+        foreach (var exchange in kase.GetProperty("capsuleExchanges").EnumerateArray())
+        {
+            sequence += 1;
+            events.Add(new Dictionary<string, object?>
+            {
+                ["kind"] = "effect",
+                ["sequence"] = sequence,
+                ["exchange"] = ObjectToClr(exchange),
+            });
+        }
+        var capsule = new Dictionary<string, object?>
+        {
+            ["format"] = "reproit-backend-capture",
+            ["version"] = 2L,
+            ["operation"] = "GET /x",
+            ["oracle"] = "backend-server-error",
+            ["events"] = events,
+        };
+        var path = Path.Combine(Path.GetTempPath(), "reproit-dotnet-vectors-" +
+            Guid.NewGuid().ToString("n") + ".json");
+        File.WriteAllText(path, Json.Canonical(capsule), new UTF8Encoding(false));
+        var session = Replay.Load(path);
+        File.Delete(path);
+        Assert.NotNull(session);
+        var original = Console.Error;
+        var held = new StringWriter();
+        Console.SetError(held);
+        Dictionary<string, object?>? matched;
+        try
+        {
+            matched = session!.Matched("http", new Dictionary<string, object?>
+            {
+                ["method"] = "GET",
+                ["url"] = "http://svc/unknown",
+            });
+        }
+        finally
+        {
+            Console.SetError(original);
+        }
+        Assert.Null(matched);
+        var prefix = divergence.GetProperty("markerPrefix").GetString()!;
+        var marker = held.ToString().Split('\n').First(line => line.StartsWith(prefix));
+        var report = (Dictionary<string, object?>)Json.Parse(marker[prefix.Length..])!;
+        foreach (var field in divergence.GetProperty("reportFields")
+            .GetProperty("required").EnumerateArray())
+        {
+            Assert.True(report.ContainsKey(field.GetString()!), field.GetString());
+        }
+        var expect = kase.GetProperty("expect");
+        Assert.Equal((long)expect.GetProperty("consumed").GetInt32(), report["consumed"]);
+        Assert.Equal((long)expect.GetProperty("total").GetInt32(), report["total"]);
+        Assert.Equal(
+            Json.Canonical(ObjectToClr(expect.GetProperty("expectedRequest"))),
+            Json.Canonical(report["expected"]));
     }
 
     [Fact]

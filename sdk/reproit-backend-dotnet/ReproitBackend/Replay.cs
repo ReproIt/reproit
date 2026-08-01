@@ -443,7 +443,7 @@ public sealed class Replay
     // Method, path and query of the original URL, and body modulo placeholders. Recorded
     // headers are deliberately not matched: they carry per-run noise that would turn every
     // replay into a divergence.
-    private static bool HttpMatches(
+    internal static bool HttpMatches(
         Dictionary<string, object?> recorded, Dictionary<string, object?> probe)
     {
         if (!Equals(recorded.GetValueOrDefault("method"), probe.GetValueOrDefault("method")))
@@ -460,7 +460,7 @@ public sealed class Replay
     }
 
     // Exact statement text, values modulo placeholders.
-    private static bool DbMatches(
+    internal static bool DbMatches(
         Dictionary<string, object?> recorded, Dictionary<string, object?> probe)
     {
         if (!Equals(recorded.GetValueOrDefault("text"), probe.GetValueOrDefault("text")))
