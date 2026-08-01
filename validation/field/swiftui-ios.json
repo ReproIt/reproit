@@ -1,0 +1,137 @@
+{
+ "schemaVersion": 3,
+ "target": "swiftui-ios",
+ "status": "complete",
+ "applications": [
+  {
+   "id": "dime-numberpad-delete-zero-72",
+   "repository": "https://github.com/rafsoh/dimeApp",
+   "issueUrl": "https://github.com/rafsoh/dimeApp/issues/72",
+   "affectedRevision": "c6d4fc0ad2a35591bd1269613d429d3e1a322a0e",
+   "fixedRevision": "0463cb8caba237de781ae02e70a2ec82ae900c67",
+   "authority": "authored-contract",
+   "expectedIdentity": "delete-key-inert-while-decimal-pending-at-zero",
+   "affectedReproductions": [
+    {
+     "status": "reproduced",
+     "identity": "delete-key-inert-while-decimal-pending-at-zero",
+     "cleanLaunch": true,
+     "observationReached": true
+    },
+    {
+     "status": "reproduced",
+     "identity": "delete-key-inert-while-decimal-pending-at-zero",
+     "cleanLaunch": true,
+     "observationReached": true
+    },
+    {
+     "status": "reproduced",
+     "identity": "delete-key-inert-while-decimal-pending-at-zero",
+     "cleanLaunch": true,
+     "observationReached": true
+    }
+   ],
+   "fixedReproductions": [
+    {
+     "status": "not_reproduced",
+     "identity": null,
+     "cleanLaunch": true,
+     "observationReached": true
+    },
+    {
+     "status": "not_reproduced",
+     "identity": null,
+     "cleanLaunch": true,
+     "observationReached": true
+    },
+    {
+     "status": "not_reproduced",
+     "identity": null,
+     "cleanLaunch": true,
+     "observationReached": true
+    }
+   ],
+   "minimized": true,
+   "controls": [
+    "fixed-revision",
+    "neighboring-legal-behavior"
+   ],
+   "manualReview": "confirmed-target-bug",
+   "metrics": {
+    "setupSeconds": 36,
+    "replaySecondsP95": 3.65,
+    "peakMemoryMiB": null,
+    "memoryMeasurement": "unavailable"
+   },
+   "evidence": [
+    "validation/field/evidence/dime-numberpad-delete-zero-72.json",
+    "validation/field/evidence/dime-numberpad-delete-zero-72.md"
+   ]
+  },
+  {
+   "id": "kiwix-ipad-no-zim-sidebar-1607",
+   "repository": "https://github.com/kiwix/kiwix-apple",
+   "issueUrl": "https://github.com/kiwix/kiwix-apple/issues/1607",
+   "affectedRevision": "f3686fe4b47b2c2f87e77145f3dd1f678cbd806f",
+   "fixedRevision": "6f4b760c12a3d7585be0993d35faec8de4a42713",
+   "authority": "authored-contract",
+   "expectedIdentity": "ipad-sidebar-collapses-on-selection-without-zim-archive",
+   "affectedReproductions": [
+    {
+     "status": "reproduced",
+     "identity": "ipad-sidebar-collapses-on-selection-without-zim-archive",
+     "cleanLaunch": true,
+     "observationReached": true
+    },
+    {
+     "status": "reproduced",
+     "identity": "ipad-sidebar-collapses-on-selection-without-zim-archive",
+     "cleanLaunch": true,
+     "observationReached": true
+    },
+    {
+     "status": "reproduced",
+     "identity": "ipad-sidebar-collapses-on-selection-without-zim-archive",
+     "cleanLaunch": true,
+     "observationReached": true
+    }
+   ],
+   "fixedReproductions": [
+    {
+     "status": "not_reproduced",
+     "identity": null,
+     "cleanLaunch": true,
+     "observationReached": true
+    },
+    {
+     "status": "not_reproduced",
+     "identity": null,
+     "cleanLaunch": true,
+     "observationReached": true
+    },
+    {
+     "status": "not_reproduced",
+     "identity": null,
+     "cleanLaunch": true,
+     "observationReached": true
+    }
+   ],
+   "minimized": true,
+   "controls": [
+    "fixed-revision",
+    "neighboring-legal-behavior"
+   ],
+   "manualReview": "confirmed-target-bug",
+   "metrics": {
+    "setupSeconds": 33,
+    "replaySecondsP95": 11.654,
+    "peakMemoryMiB": null,
+    "memoryMeasurement": "unavailable"
+   },
+   "evidence": [
+    "validation/field/evidence/kiwix-ipad-no-zim-sidebar-1607.json",
+    "validation/field/evidence/kiwix-ipad-no-zim-sidebar-1607.md"
+   ]
+  }
+ ]
+}

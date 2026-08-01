@@ -287,8 +287,13 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - manualReview: field-benchmark
 - Promotion blockers:
   - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 3
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
+    application(s) are qualified with verified revisions. The campaign module and its container
+    entry point existed with no committed caller at all; the bounded remote field runner is now
+    committed and drives the campaign over the same zgx gateway to strix route the Android release
+    gates use, because every locally installed Android system image is arm64-v8a and this target's
+    bound is android-emulator/x86_64. What remains is four application archives, an affected and a
+    fixed APK for joplin and the same pair for MissingCore/Music; none was built in this session, so
+    the runner is committed unexercised
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
 
@@ -311,19 +316,26 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] no application campaign has been executed. 9 candidate defects across 2
-    independent applications (BlueWallet, Joplin) are qualified with verified revisions, but neither
-    has three clean affected reproductions and three reached-observation fixed controls
+  - [incomplete-evidence] no application campaign has been executed, and the qualified pool is now
+    down to one buildable application. All five BlueWallet candidates are disqualified outright:
+    package.json pins rn-qr-generator to an exact commit of https://github.com/BlueWallet/rn-qr-
+    generator, which returns 404 upstream, so no working tree exists at any candidate revision
+    without substituting a pinned dependency. Joplin installs, resolves its pods and compiles every
+    native and application source file, but the Bundle React Native code and images phase fails
+    because Metro addresses packages/app-mobile/index.js through /tmp while its haste map holds the
+    resolved /private/tmp path; a build root outside that symlink is the only remaining input for an
+    archive. Even with Joplin building, a second independent application is required and none is
+    qualified
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
 
 ## SwiftUI iOS
 
-- Maturity: Preview
+- Maturity: Stable
 - Scope: SwiftUI on a disposable iOS simulator through Appium XCUITest
 - Promotion standard: schema-3
 - Native gates: swiftui-ios
-- Field benchmark: incomplete
+- Field benchmark: validation/field/swiftui-ios.json
 - Production-to-local: Unqualified
 - Production-to-local evidence: none
 - Operating systems: ios-simulator
@@ -331,20 +343,12 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Runtimes: Swift runtime, Appium XCUITest
 - Frameworks: SwiftUI
 - Qualifications:
-  - cleanCorpus: missing
-  - adversarialCorpus: missing
+  - cleanCorpus: evidence
+  - adversarialCorpus: evidence
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] no application campaign has been executed. 10 candidate defects across 6
-    independent applications are qualified with verified revisions. Four applications have now been
-    built and driven on disposable simulators: damus and Aidoku return the fixed behavior on their
-    affected revisions on both installed runtimes and are excluded, IceCubesApp does not build under
-    the Xcode 26.2 Swift compiler, and dimeApp has a proven ad-hoc signed launch recipe but no
-    executed trigger. Both kiwix-apple candidates remain unbuilt. No application has three clean
-    affected reproductions and three reached-observation fixed controls
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
+  - None
 
 ## Tauri Linux
 

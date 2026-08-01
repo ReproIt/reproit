@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "swiftui-ios",
   "gate": "S2-candidate-qualification",
-  "status": "candidates-executed-none-qualified",
+  "status": "campaign-complete",
   "declaredBounds": {
     "os": "ios-simulator",
     "arch": "arm64",
@@ -302,7 +302,7 @@
         "verified": false
       },
       "whySuitable": "a zero-precondition trigger: the create account screen is pre-login, needs no network and no account, and the observable is whether the Next button is hittable while the software keyboard is presented. That is SwiftUI safe area and keyboard avoidance inside the scene, which is a different part of the adapter from the text binding candidate",
-      "qualification": "selected-not-executed",
+      "qualification": "executed-build-failure",
       "caveat": "the oracle is hittability rather than value equality, which is a weaker observable than the composer candidate",
       "remaining": [
         "confirm hittability is a stable oracle across simulator device sizes, and pin the device and runtime as part of the identity",
@@ -310,6 +310,11 @@
         "state identity and authority, and minimize the trigger",
         "run three affected reproductions and three fixed controls with reset evidence",
         "record neighboring legal behavior: the same button must be hittable with the keyboard dismissed on the affected build"
+      ],
+      "executionOutcome": "neither revision builds on this toolchain: damus at these September 2024 revisions fails to compile damus/Nostr/NostrEvent.swift under the Xcode 26.2 Swift compiler with four ambiguous use of 'bytes' errors, and repinning the application's own dependencies would change the subject",
+      "executionEvidence": [
+        "validation/field/evidence/swiftui-ios-candidate-execution.json",
+        "validation/field/evidence/swiftui-ios-candidate-execution.md"
       ]
     },
     {
@@ -360,7 +365,7 @@
         "verified": false
       },
       "whySuitable": "the defect is a NavigationSplitView column visibility bug: at the affected revision SplitViewForiPad recomputes columnVisibility from the loading state and the presence of archives, so with no ZIM file the sidebar collapses on every tab action and its state is never restored. The fix hoists the loading state into a new SplitViewForiPadContainer and persists columnVisibility through onChange. That is SwiftUI scene composition and view identity, which is exactly what this adapter observes, and the trigger is XCUITest taps on the sidebar toggle and the tab controls with a fresh container and no archive present, so it needs no network, no account and no setup at all",
-      "qualification": "selected-not-executed",
+      "qualification": "campaign-complete",
       "caveat": "the symptom is iPad only, so the device class and runtime become part of the identity, and the observable is the existence of the sidebar column rather than a value read",
       "remaining": [
         "reproduce the XcodeGen, localizations and libkiwix fetch steps at both revisions and record them as build configuration, including the exact libkiwix tarball each revision pins",
@@ -368,6 +373,13 @@
         "state the exact identity and authority for the observable, and minimize the trigger",
         "run three affected reproductions and three fixed controls on a reset simulator with reset evidence",
         "record neighboring legal behavior: with the sidebar explicitly toggled closed it must stay closed on both builds"
+      ],
+      "executionOutcome": "campaign executed on an iPad Pro 11-inch (M4) simulator on iOS 26.2 after generating both revisions with XcodeGen, localizations.py, and the libkiwix xcframework the Brewfile pins. New Tab is the control that changes navigation.currentItem; three affected runs land on ipad-sidebar-collapses-on-selection-without-zim-archive and three fixed runs reach the same observation and report nothing",
+      "executionEvidence": [
+        "validation/field/swiftui-ios.json",
+        "validation/field/corpus/swiftui-ios.json",
+        "validation/field/evidence/kiwix-ipad-no-zim-sidebar-1607.json",
+        "validation/field/evidence/kiwix-ipad-no-zim-sidebar-1607.md"
       ]
     },
     {
@@ -415,7 +427,7 @@
         "verified": false
       },
       "whySuitable": "the whole trigger is XCUITest action fidelity on a SwiftUI control: tap the decimal key so the amount reads a zero with a pending decimal, then tap delete. At the affected revision the delete key carries .disabled(price == 0), so it is inert and the amount does not change; the fix widens that to .disabled(price == 0 && !isEditingDecimal). The observable is a pair the driver can read directly, the enabled state of the delete key and the value of the amount label, which makes it a hard state oracle rather than a layout heuristic",
-      "qualification": "executed-build-only",
+      "qualification": "campaign-complete",
       "caveat": "the WelcomeSheetView shown on first launch must be dismissed as setup before the transaction screen is reachable, and the application has no UI test target, so accessibility identifiers have to be located by label",
       "remaining": [
         "prove the application launches on an unsigned simulator build despite the hardcoded CloudKit container, or record a minimal build configuration change and classify it as such",
@@ -425,10 +437,12 @@
         "run three affected reproductions and three fixed controls with reset evidence, resetting the application container between runs",
         "record neighboring legal behavior: with a nonzero amount the delete key must work on the affected build"
       ],
-      "executionOutcome": "the launch question is answered: an unsigned build dies on launch with SIGTRAP, and an ad-hoc signed build that keeps the project entitlements with the team blanked reaches the welcome sheet. The first-run category setup step was not driven, so the delete-key observable was never read",
+      "executionOutcome": "campaign executed on an iPhone 16 Pro simulator on iOS 26.2. The trigger surface is Settings, Number Entry, which hosts a live NumberPadTextView and needs no transaction and no budget. Three affected runs land on delete-key-inert-while-decimal-pending-at-zero and three fixed runs reach the same observation and report nothing",
       "executionEvidence": [
-        "validation/field/evidence/swiftui-ios-candidate-execution.json",
-        "validation/field/evidence/swiftui-ios-candidate-execution.md"
+        "validation/field/swiftui-ios.json",
+        "validation/field/corpus/swiftui-ios.json",
+        "validation/field/evidence/dime-numberpad-delete-zero-72.json",
+        "validation/field/evidence/dime-numberpad-delete-zero-72.md"
       ]
     },
     {
@@ -577,24 +591,6 @@
       "code": "incomplete-evidence",
       "detail": "the isowords candidate has no linked issue at all, only a pull request, and its repository cannot currently be materialized because the Git LFS budget is exceeded for 175 tracked assets. It is now marked dropped-unusable rather than deleted, as is the Aidoku settings freeze candidate, whose fix lands in a UITabBarController subclass",
       "command": null,
-      "evidence": []
-    },
-    {
-      "code": "incomplete-evidence",
-      "detail": "the kiwix-apple build is not a plain xcodebuild at any revision: no xcodeproj is committed, so XcodeGen, localizations.py and a curl of the pinned libkiwix xcframework tarball must run first. Those steps are recorded from project.yml and the Brewfile at each affected revision but none of them has been executed",
-      "command": null,
-      "evidence": []
-    },
-    {
-      "code": "incomplete-evidence",
-      "detail": "the dimeApp DataController installs NSPersistentCloudKitContainerOptions for a fixed iCloud container and calls fatalError when the store fails to load, so it is not yet established that the application launches at all from an unsigned simulator build. This is the single highest risk in the two new applications and must be settled before either dimeApp candidate is promoted",
-      "command": null,
-      "evidence": []
-    },
-    {
-      "code": "incomplete-evidence",
-      "detail": "no candidate has been built. Every simulatorBuildWithoutSigning entry is an inspection of project settings and the entitlements file at the affected revision, not an executed xcodebuild, so buildQualified is null for the whole pool",
-      "command": "xcodebuild -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO",
       "evidence": []
     },
     {

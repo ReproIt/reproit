@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "swiftui-ios-field-campaigns",
+  "changeType": "maintenance",
+  "detail": "swiftui-ios reaches Stable on two executed independent application campaigns and a corpus, all run on disposable simulators under Xcode 26.2 with Appium 3.5.2 and the XCUITest driver 11.16.2. dimeApp, issue 72, pull request 77, affected c6d4fc0a and fixed 0463cb8c: the predecessor left this candidate with a proven ad-hoc signed launch and no executed trigger, because the first-run category sheet blocks the transaction pad. The trigger surface here is Settings, Number Entry, which hosts a live NumberPadTextView, the exact view the one-line fix touches, and needs no transaction and no budget; the delete key only renders when the entry method is Type 2, so the run selects it as setup. The minimized trigger is two taps, decimal then delete. Three affected runs read delete enabled false with the amount stuck at $0. and all three land on delete-key-inert-while-decimal-pending-at-zero; three fixed runs read delete enabled true and the amount falling back to $0. kiwix-apple, issue 1607, pull request 1608, affected f3686fe4 and fixed 6f4b760c, generated at both revisions with XcodeGen 2.46.0, localizations.py and the libkiwix xcframework the Brewfile pins, which the predecessor had never run: with no ZIM archive present, Show Sidebar then New Tab collapses the split view on the affected build in all three runs, on the single identity ipad-sidebar-collapses-on-selection-without-zim-archive, and leaves it open in all three fixed runs. New Tab is the one control that changes navigation.currentItem, which is what the deleted updateColumnVisibility reacted to. Both applications carry a neighbouring legal control on the affected build: typing 5 before delete is legal and works, and selecting the Bookmarks sidebar entry changes only the list selection so the sidebar stays open. A first formulation of the kiwix control, closing the sidebar before the same tab action, was replaced rather than reported, because with the sidebar closed the New Tab control is not addressable and the run never reached an observation. The corpus is two clean and two adversarial dimeApp subjects, every one measured offline behind the deny-all proxy with its held sockets retained, every one reaching observation, zero false positives; the sharpest adversarial subject puts the affected build in the very state the defect lives in, a pending decimal, with a nonzero price so the disabled condition legally does not fire. kiwix-apple is not a corpus subject and is not recorded as one: enrolling it produced a measured external connection to download.kiwix.org, because URLSession does not honour the proxy environment. Two candidates were executed and disqualified rather than written up: damus at the September 2024 create-account revisions fails to compile NostrEvent.swift under the Xcode 26.2 Swift compiler, and all five BlueWallet react-native-ios candidates are unmaterializable because package.json pins rn-qr-generator to an exact commit of a repository that now returns 404. Joplin compiles fully and fails only its Metro bundling phase under a build root reached through the /tmp symlink, so react-native-ios stays Preview with that stated as its exact missing input alongside the need for a second application. react-native-android also stays Preview: its campaign module had no committed caller at all, so this change commits the bounded remote field runner and its worker over the same zgx gateway to strix route the Android release gates use, and records that it is committed unexercised because the four application archives were not built.",
+  "evidence": [
+    {
+      "path": "validation/field/swiftui-ios.json",
+      "sha256": "sha256:6c52b14e539fc02499a199a79b6331248091e70c57f8e6503274e3c66b94414c"
+    },
+    {
+      "path": "validation/field/corpus/swiftui-ios.json",
+      "sha256": "sha256:f1548d6b37499ba50ac9bf75e3686b86a21874dc56275b172027af67707b6b4a"
+    },
+    {
+      "path": "validation/field/evidence/dime-numberpad-delete-zero-72.json",
+      "sha256": "sha256:2b7c5a6dc18c11d1877d0504e9397073dcbe41550bb2f9aa7f684f2e39638ab2"
+    },
+    {
+      "path": "validation/field/evidence/kiwix-ipad-no-zim-sidebar-1607.json",
+      "sha256": "sha256:f6e09372d0467139fdc7eef1f951909fcc4c35e57580f1cc34c7e42cf737f314"
+    },
+    {
+      "path": "validation/field/evidence/react-native-ios-candidate-execution.json",
+      "sha256": "sha256:d23fab42eb8a4727fc147431b741e43633e6e633a9951c95279dca3df97a9c25"
+    }
+  ]
+}
