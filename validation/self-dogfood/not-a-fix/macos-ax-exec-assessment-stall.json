@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "macos-ax-exec-assessment-stall",
+  "changeType": "maintenance",
+  "detail": "The macos-ax field campaign was attempted and could not be executed, and the manifest now says so with the measurement behind it rather than leaving the gap described as merely not-yet-done. The target carried two blockers that were believed independent: no campaign executed, and a required-CI runner that stalls because this host's syspolicyd is wedged. They are the same fault. syspolicyd performs Gatekeeper assessment and has been pinned near 98 percent CPU since 6 July, and on this host any Mach-O file that has not been assessed at its current path stalls in _dyld_start at 0 percent CPU indefinitely. A campaign has to build and launch applications, so it cannot start. Ten bounded launches were run to find the discriminator: an ad-hoc signed clang binary, the same file re-signed, the same file after trying to strip com.apple.provenance, a binary under the home directory instead of /private/tmp, an x86_64 binary to test the Rosetta exec path, byte-identical copies written by a shell redirect and by python3, and a plain cp of /usr/bin/true. All nine stalled; the untouched system binary in place ran in 0s. The cp case is decisive: identical bytes, identical code identity, only the file is new, so the assessment is keyed on the file rather than on the signature. It reaches builds too, not only launches. An xcodebuild of Platypus at the qualified affected revision compiled and then stopped in the ScriptExec run-script phase with /bin/sh, an Apple platform binary, stuck in the same _dyld_start signature with no children. Two real build recipe findings were retained from that attempt so the next one does not rediscover them: the Platypus schemes use Development and Deployment rather than Release, and every target pins CONFIGURATION_TEMP_DIR to the empty string, so SYMROOT, OBJROOT and CONFIGURATION_TEMP_DIR must all be overridden. Nothing was promoted and no run record was written, because no run was performed. Nothing disqualifies any of the nine qualified candidates either: none was built, no accessibility tree was dumped, and no revision pair was tested for discrimination. One prior assumption is retracted rather than confirmed: AXIsProcessTrusted() could not be observed during this work, because the compiled probe that answers it is itself a new Mach-O and did not launch, so accessibility permission on this host is neither confirmed nor refuted here. Repairing syspolicyd needs root and is out of scope. No product code changes.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/macos-ax-exec-assessment-stall.json",
+      "sha256": "sha256:8be06626906c4837391544e1e32de64be784af09476e83e96d5c0c146f61e9f3"
+    },
+    {
+      "path": "validation/field/evidence/macos-ax-exec-assessment-stall.md",
+      "sha256": "sha256:b459222e4974624b3cdbca4066107ecf72845869919f1046f5bc59474dab9891"
+    }
+  ]
+}

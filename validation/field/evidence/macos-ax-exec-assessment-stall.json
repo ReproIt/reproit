@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "kind": "environment-bound-measurement",
+  "target": "macos-ax",
+  "question": "can the macos-ax application campaign be executed on this host today, given that the campaign requires building two third-party macOS applications at two revisions each and launching all four?",
+  "method": "attempt the campaign, and when the first launch does not return, characterise the failure directly: sample the stalled process, then run a bounded launch of ten deliberately different executables to find what separates the ones that run from the ones that do not",
+  "measuredAt": "2026-08-01",
+  "host": {
+    "os": "macOS 26.1",
+    "build": "25B78",
+    "arch": "arm64",
+    "xcode": "26.2 (17C52)",
+    "spctlStatus": "assessments enabled",
+    "syspolicyd": {
+      "pid": 6016,
+      "cpuPercent": 98.5,
+      "elapsed": "25-07:53:55",
+      "note": "pinned since 6 July, which matches the fault already recorded in validation/self-dogfood/not-a-fix/ax-gate-cold-build-bound.json"
+    }
+  },
+  "result": "blocked",
+  "finding": "any Mach-O file that has not been assessed at its current path stalls in _dyld_start at 0 percent CPU, indefinitely. Signing, architecture, location, byte identity with a working system binary, and the writing process all make no difference. No application can be built or launched, so no reproduction run of any kind can be performed on this host in this state",
+  "launchTrials": [
+    {
+      "subject": "swiftc-built arm64 binary calling AXIsProcessTrusted()",
+      "produced": "swiftc -O probe.swift -o probe, which itself completed in 0.895s",
+      "bound": "unbounded, observed to 29m",
+      "outcome": "stalled",
+      "note": "sampled twice; killed with SIGKILL after more than 29 minutes with no output"
+    },
+    {
+      "subject": "clang-built arm64 binary, linker ad-hoc signature",
+      "produced": "clang t.c -o t",
+      "bound": "40s",
+      "outcome": "stalled"
+    },
+    {
+      "subject": "the same file after an explicit ad-hoc re-sign",
+      "produced": "codesign -f -s - t, which reported replacing existing signature",
+      "bound": "40s",
+      "outcome": "stalled"
+    },
+    {
+      "subject": "the same file after attempting to strip provenance",
+      "produced": "xattr -d com.apple.provenance t, which did not remove the attribute",
+      "bound": "30s",
+      "outcome": "stalled"
+    },
+    {
+      "subject": "a clang-built binary written under the home directory instead of /private/tmp",
+      "produced": "clang u.c -o ~/.reproit-axtest/u",
+      "bound": "30s",
+      "outcome": "stalled"
+    },
+    {
+      "subject": "a byte-for-byte copy of a system binary that runs, at a new path",
+      "produced": "cp /usr/bin/true ./true-copy",
+      "bound": "20s",
+      "outcome": "stalled",
+      "note": "the decisive trial. Identical bytes and identical code identity, only the file is new, so the assessment is keyed on the file rather than on the code"
+    },
+    {
+      "subject": "an x86_64 binary, to test whether the Rosetta exec path differs",
+      "produced": "clang -arch x86_64 t.c -o t-x86",
+      "bound": "40s",
+      "outcome": "stalled"
+    },
+    {
+      "subject": "a byte-identical copy written by a shell redirect",
+      "produced": "cat < t > t-laundered",
+      "bound": "30s",
+      "outcome": "stalled"
+    },
+    {
+      "subject": "a byte-identical copy written by python3",
+      "produced": "pathlib.Path('t-py').write_bytes(...)",
+      "bound": "30s",
+      "outcome": "stalled"
+    },
+    {
+      "subject": "an untouched system binary in place",
+      "produced": "none",
+      "bound": "15s",
+      "outcome": "exit 0 in 0s"
+    }
+  ],
+  "buildTrial": {
+    "application": "Platypus",
+    "repository": "https://github.com/sveinbjornt/Platypus",
+    "revision": "726175ad41da530d7e482f945811b54004530662",
+    "command": "xcodebuild -project Platypus.xcodeproj -scheme Platypus -configuration Deployment CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO ENABLE_HARDENED_RUNTIME=NO SYMROOT=... OBJROOT=... CONFIGURATION_TEMP_DIR=... build",
+    "projectFinding": "the project pins CONFIGURATION_TEMP_DIR to the empty string in every target, so a build fails with unable to write file '/platypus_clt.build/...' until SYMROOT, OBJROOT and CONFIGURATION_TEMP_DIR are all overridden on the command line. That is a real and fixable build recipe finding, and it is recorded because the next attempt should not rediscover it",
+    "outcome": "stalled after compilation, in the ScriptExec run-script phase",
+    "stalledProcess": "/bin/sh running the generated Script-F4302B7B21C5A04A001C8BEC.sh, sampled at 10m24s with the same _dyld_start signature and no children",
+    "note": "/bin/sh is an Apple platform binary, so the build cannot be worked around by pre-warming the applications' own binaries: the stall reaches ordinary build script phases too"
+  },
+  "sampleSignature": "861 Thread_...: Main Thread   DispatchQueue_<multiple> / 861 _dyld_start (in dyld) + 0",
+  "notVerified": [
+    "AXIsProcessTrusted() could not be observed on this host during this work, because the compiled probe that answers it is itself a new Mach-O and did not launch. Accessibility permission is neither confirmed nor refuted here",
+    "no application was built, so no accessibility tree was dumped and no revision pair was tested for discrimination",
+    "no reproduction run of any kind was performed"
+  ],
+  "unblockedBy": "restarting or repairing syspolicyd, which needs root"
+}
