@@ -144,7 +144,7 @@ complete target-specific record validates.
 - Target id: `flutter-android`
 - Current maturity: Preview
 - Environment: android-emulator; x86_64
-- Runtime bound: Dart VM service (profile-mode build), flutter drive
+- Runtime bound: Dart VM service (profile-mode build, dump and profile RPCs only), flutter drive
 - Framework bound: Flutter
 - Native gates:
   - `flutter-android`: required-ci in .github/workflows/native-gates.yml job `android-hosted`
@@ -153,16 +153,19 @@ complete target-specific record validates.
     ```
 - Field benchmark to create: `validation/field/flutter-android.json`
 - Open blockers:
-  - [incomplete-evidence] no application campaign has been executed. 5 candidate defects across 2
-    application(s) are qualified with verified revisions, but none has three clean affected
-    reproductions and three reached-observation fixed controls
+  - [incomplete-evidence] no application campaign has been executed. Both revisions of LocalSend now
+    build profile APKs on the x86_64 executor and the profile observation channel is measured, but
+    no scenario, no three affected reproductions and no three fixed controls exist. The scenario
+    must observe through a tree dump or an IO profile: the profile build registers 26 extension RPCs
+    including debugDumpApp, debugDumpRenderTree and the semantics dumps, exposes no widget
+    inspector, and refuses evaluate with 'Debugger is disabled in AOT mode'
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
-  - [environment-unreachable] the arch bound is x86_64 because the flutter-android native gate
-    declares x86_64, but every Android system image installed on the campaign host is arm64-v8a, so
-    an application campaign run here cannot satisfy the declared architecture. Either install an
-    x86_64 API 36 image and campaign on it, or run the campaign on the same x86_64 executor the gate
-    uses
+  - [environment-unreachable] the campaign host has no x86_64 Android system image, so the arch
+    bound is satisfied only on the lane's own x86_64 executor (black@zgx-5a09.local then strix).
+    That executor is now proven for this target: both LocalSend revisions build profile APKs for
+    android-x64 there and the lane's AVD recipe boots an x86_64 API 36 emulator inside the worker
+    image. What is not yet built there is the campaign runner itself, so no scenario has run
 - Promotion gate:
   - Set `flutter-android.maturity` to `stable` only after the benchmark,
     qualification slots, required-CI gates, and blockers validate together.
@@ -322,12 +325,13 @@ complete target-specific record validates.
 - Open blockers:
   - [incomplete-evidence] one of the two required independent application campaigns is executed. cc-
     switch issue 4302 has three clean affected reproductions on one identity, three reached-
-    observation fixed controls, a minimized trigger, and both controls. The second application is
-    missing: readest needs a pnpm 11 workspace build with setup-vendors and a dotenv-driven Next.js
-    export before its Tauri artifact resolves offline, and note-gen cannot be used with this harness
-    because its selected defect observes a GTK file chooser rather than the webview DOM
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
+    observation fixed controls, a minimized trigger, and both controls, and the clean and
+    adversarial corpus now measures the oracle on known-good subjects. The second application is
+    missing for a measured reason, not an untried one: this probe observes only the WebKitGTK
+    webview DOM, and readest and note-gen both need a native GTK window, readest to seed a library
+    and note-gen to observe a file chooser. readest builds in the worker and its argv path was
+    measured to open books transiently without importing them, so its library cannot be seeded
+    through this channel
 - Promotion gate:
   - Set `tauri-linux.maturity` to `stable` only after the benchmark,
     qualification slots, required-CI gates, and blockers validate together.

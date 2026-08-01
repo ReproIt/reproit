@@ -127,6 +127,11 @@ const PRESET_BUTTON = '//button[normalize-space(.)="KimiKimi"]';
 const CONTROL_BUTTON = '//button[contains(normalize-space(.),"Kimi For Coding")]';
 const NAME_PLACEHOLDER = 'e.g., Claude Official';
 const SEARCH_LABEL = 'Search provider presets';
+const CUSTOM_BUTTON = '//button[contains(normalize-space(.),"Custom Config")]';
+// The selected preset is the one carrying the primary background. Reading it is
+// what keeps the oracle honest: an empty provider name alone is not the defect,
+// because the Custom Configuration preset legitimately leaves the name empty.
+const SELECTED_CLASS = 'bg-blue-500';
 const WINDOW_WIDTH = 1600;
 const WINDOW_HEIGHT = 1100;
 const DIALOG_SETTLE_MS = 60_000;
@@ -233,6 +238,14 @@ const presetPointerSelect = {
           [...document.querySelectorAll('input')].find((i) => i.placeholder === placeholder)
         ), NAME_PLACEHOLDER);
         if (opened && ready) {
+          // The corpus runs one variant that never opens the search, because a
+          // preset pressed without the search is legal behavior on both
+          // revisions and must not report the identity.
+          if (context.variant === 'no-search-legal') {
+            state.presetsBefore = await browser.execute(() =>
+              document.querySelectorAll('button').length);
+            return { ready: true, searchOpen: false, buttons: state.presetsBefore };
+          }
           await browser.execute(() => {
             const search = [...document.querySelectorAll('button')].find((b) => {
               const svg = b.querySelector('svg');
@@ -262,20 +275,34 @@ const presetPointerSelect = {
     throw new Error(`the add-provider preset search never became observable: ${last}`);
   },
   async trigger(browser, context, state) {
-    await browser.execute((args) => {
-      const input = [...document.querySelectorAll('input')]
-        .find((i) => i.getAttribute('aria-label') === args.label);
-      const setter = Object.getOwnPropertyDescriptor(
-        window.HTMLInputElement.prototype, 'value').set;
-      setter.call(input, args.query);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    }, { label: SEARCH_LABEL, query: PRESET_QUERY });
-    await sleep(1200);
+    // Variants, all pressed through the same pointer path:
+    //   default              search for kimi, then press the Kimi result
+    //   custom-preset-legal  search, then press Custom Configuration, which
+    //                        legitimately leaves the provider name empty
+    //   no-search-legal      press Kimi with the search never opened
+    const searched = context.variant !== 'no-search-legal';
+    if (searched) {
+      await browser.execute((args) => {
+        const input = [...document.querySelectorAll('input')]
+          .find((i) => i.getAttribute('aria-label') === args.label);
+        const setter = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype, 'value').set;
+        setter.call(input, args.query);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }, { label: SEARCH_LABEL, query: PRESET_QUERY });
+      await sleep(1200);
+    }
 
-    const pressed = await pointerPress(browser, PRESET_BUTTON);
+    const target = context.variant === 'custom-preset-legal' ? CUSTOM_BUTTON : PRESET_BUTTON;
+    const pressed = await pointerPress(browser, target);
     state.presetLabel = pressed.text;
+    state.presetSelector = target;
     await sleep(1500);
-    return { query: PRESET_QUERY, preset: pressed.text, centre: pressed.centre };
+    return {
+      query: searched ? PRESET_QUERY : null,
+      preset: pressed.text,
+      centre: pressed.centre,
+    };
   },
   // Neighboring legal behavior, run on the affected build after the trigger:
   // the same pointer press on a preset with the search closed still selects it.
@@ -313,21 +340,39 @@ const presetPointerSelect = {
     };
   },
   async observe(browser, context, state) {
-    // Selecting a preset fills the provider name field. On the affected build
-    // the mousedown clears the search first, so nothing is ever selected.
+    // Selecting a preset fills the provider name field and marks the preset
+    // itself selected. On the affected build the mousedown clears the search
+    // first, so neither happens. The identity requires BOTH: an empty name on
+    // its own is legal for the Custom Configuration preset, which the corpus
+    // exercises, so keying on the name alone would be a false positive.
     const observed = await browser.execute((args) => {
       const name = [...document.querySelectorAll('input')]
         .find((i) => i.placeholder === args.placeholder);
       const search = [...document.querySelectorAll('input')]
         .find((i) => i.getAttribute('aria-label') === args.label);
+      const pressed = args.selector
+        ? document.evaluate(
+          args.selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null,
+        ).singleNodeValue
+        : null;
       return {
         providerName: name ? name.value : null,
         searchStillOpen: !!search,
         searchValue: search ? search.value : null,
+        presetSelected: pressed
+          ? (pressed.className || '').toString().includes(args.selectedClass)
+          : null,
       };
-    }, { placeholder: NAME_PLACEHOLDER, label: SEARCH_LABEL });
+    }, {
+      placeholder: NAME_PLACEHOLDER,
+      label: SEARCH_LABEL,
+      selector: state.presetSelector ?? null,
+      selectedClass: SELECTED_CLASS,
+    });
+    const selected = observed.presetSelected === true;
     return {
-      identity: observed.providerName ? null : this.identity,
+      identity: selected || observed.providerName ? null : this.identity,
+      presetSelected: observed.presetSelected,
       exceptions: [],
       providerName: observed.providerName,
       searchStillOpen: observed.searchStillOpen,
@@ -353,6 +398,13 @@ async function serve() {
   const driverUrl = new URL(option('driver-url', DEFAULT_DRIVER_URL));
   const variant = option('variant', 'default');
   const port = Number(option('port', String(DEFAULT_PORT)));
+  // Some subjects take their input from argv rather than from a file dialog.
+  // readest opens every path it is given, which is how the campaign seeds a
+  // library without driving a native GTK chooser the webview cannot see.
+  const appArguments = option('app-args', '')
+    .split(',')
+    .map((argument) => argument.trim())
+    .filter(Boolean);
 
   const { remote } = await import(webdriverio);
   const startedAt = process.hrtime.bigint();
@@ -366,7 +418,11 @@ async function serve() {
     // "Failed to match capabilities". Only tauri:options is sent, which is what
     // the repository's own Tauri runner does and what the official Tauri v2
     // WebDriver example sends.
-    capabilities: { 'tauri:options': { application: executablePath } },
+    capabilities: {
+      'tauri:options': appArguments.length
+        ? { application: executablePath, args: appArguments }
+        : { application: executablePath },
+    },
   });
 
   const context = { variant };

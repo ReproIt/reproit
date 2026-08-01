@@ -90,7 +90,7 @@ Stable atomic targets: 15. Preview: 6. Experimental: 0.
 | React Native Android | Preview | schema-3 | android-emulator | x86_64 | 2 |
 | React Native iOS | Preview | schema-3 | ios-simulator | arm64 | 2 |
 | SwiftUI iOS | Stable | schema-3 | ios-simulator | arm64 | 0 |
-| Tauri Linux | Preview | schema-3 | linux | x86_64 | 2 |
+| Tauri Linux | Preview | schema-3 | linux | x86_64 | 1 |
 | Terminal UI | Stable | schema-3 | linux | x86_64 | 0 |
 | Web Chromium | Stable | schema-3 | linux | x86_64 | 0 |
 | Web Firefox | Stable | schema-3 | linux | x86_64 | 0 |

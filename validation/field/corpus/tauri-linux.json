@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "target": "tauri-linux",
+  "worker": {
+    "image": "reproit-field-tauri-linux:amd64",
+    "platform": "linux/amd64",
+    "network": "none"
+  },
+  "cleanCases": 1,
+  "adversarialCases": 2,
+  "confirmedFalsePositives": 0,
+  "unreachedObservations": 0,
+  "containersRemaining": 0,
+  "cases": [
+    {
+      "id": "cc-switch-clean-fixed-search-select",
+      "kind": "clean",
+      "application": "cc-switch-preset-click-4315",
+      "repository": "https://github.com/farion1231/cc-switch",
+      "revision": "81d6002ace328cf74c9b63e32b15279a7c445812",
+      "fixture": "cc-switch-add-provider",
+      "variant": "default",
+      "why": "the ordinary trigger on the fixed build: the preset reached through the search is selected and fills the provider name",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "presetSelected": true,
+        "exceptions": [],
+        "providerName": "Kimi",
+        "searchStillOpen": true,
+        "searchValue": "kimi",
+        "preset": "KimiKimi",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "jsHeapMiB": null,
+        "elapsedSeconds": 16.61,
+        "scenario": "preset-pointer-select",
+        "variant": "default"
+      }
+    },
+    {
+      "id": "cc-switch-adversarial-custom-preset",
+      "kind": "adversarial",
+      "application": "cc-switch-preset-click-4315",
+      "repository": "https://github.com/farion1231/cc-switch",
+      "revision": "81d6002ace328cf74c9b63e32b15279a7c445812",
+      "fixture": "cc-switch-add-provider",
+      "variant": "custom-preset-legal",
+      "why": "the Custom Configuration preset legitimately leaves the provider name empty, which is the defect's own observable arriving from legal behavior",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "presetSelected": true,
+        "exceptions": [],
+        "providerName": "",
+        "searchStillOpen": true,
+        "searchValue": "kimi",
+        "preset": "Custom Configuration",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "jsHeapMiB": null,
+        "elapsedSeconds": 17.118,
+        "scenario": "preset-pointer-select",
+        "variant": "custom-preset-legal"
+      }
+    },
+    {
+      "id": "cc-switch-adversarial-no-search",
+      "kind": "adversarial",
+      "application": "cc-switch-preset-click-4315",
+      "repository": "https://github.com/farion1231/cc-switch",
+      "revision": "81d6002ace328cf74c9b63e32b15279a7c445812",
+      "fixture": "cc-switch-add-provider",
+      "variant": "no-search-legal",
+      "why": "a preset pressed without ever opening the search exercises the same pointer path with the click-outside handler inert",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "presetSelected": true,
+        "exceptions": [],
+        "providerName": "Kimi",
+        "searchStillOpen": false,
+        "searchValue": null,
+        "preset": "KimiKimi",
+        "observationReached": true,
+        "cleanLaunch": true,
+        "jsHeapMiB": null,
+        "elapsedSeconds": 14.929,
+        "scenario": "preset-pointer-select",
+        "variant": "no-search-legal"
+      }
+    }
+  ]
+}

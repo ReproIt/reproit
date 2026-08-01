@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "tauri-corpus-and-flutter-x86",
+  "changeType": "tooling",
+  "detail": "Second field-campaign round for two Preview targets. tauri-linux: the campaign driver, worker Dockerfile, and phase scripts now live in the repository instead of an untracked sibling checkout, the oracle was tightened so the identity requires an unselected preset as well as an empty provider name, the cc-switch campaign was re-run end to end against that tightened oracle on a Rust 1.90 worker, and a clean and adversarial corpus was executed and retained. The adversarial cases are the reason the oracle changed: pressing Custom Configuration legitimately leaves the provider name empty. readest was built in the worker and then measured out: its library can only be seeded through a native GTK chooser, which this probe cannot see. flutter-android: both LocalSend profile APKs now build on the lane's native x86_64 executor, an x86_64 API 36 emulator boots there, and the profile VM service was measured to expose dump and profile RPCs but no widget inspector and no expression evaluation. No runtime product behavior changes; both targets stay Preview.",
+  "evidence": [
+    {
+      "path": "validation/field/corpus/tauri-linux.json",
+      "sha256": "sha256:9e1ec726d47acc4294cd860e418d270b2a64652de8546052c287212132083670"
+    },
+    {
+      "path": "validation/field/evidence/tauri-linux-second-application-seeding.md",
+      "sha256": "sha256:0d275540c752c8e9e8d35fe271e38936da07ffe3e936b83f71703f4dc7a74888"
+    }
+  ]
+}
