@@ -68,7 +68,9 @@ public final class ReproitJdbc {
 
     /** Wrap a live connection so its statements record. Idempotent. */
     public static Connection wrap(Connection delegate) {
-        if (Proxy.isProxyClass(delegate.getClass())) return delegate;
+        boolean wrapped = Proxy.isProxyClass(delegate.getClass())
+            && Proxy.getInvocationHandler(delegate) instanceof RecordingConnection;
+        if (wrapped) return delegate;
         return (Connection) Proxy.newProxyInstance(
             ReproitJdbc.class.getClassLoader(),
             new Class<?>[] {Connection.class},

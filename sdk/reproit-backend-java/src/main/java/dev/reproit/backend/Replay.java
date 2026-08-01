@@ -362,7 +362,7 @@ public final class Replay {
      * placeholders. Recorded headers are deliberately not matched: they carry
      * per-run noise that would turn every replay into a divergence.
      */
-    private static boolean httpMatches(Map<String, Object> recorded, Map<String, Object> probe) {
+    static boolean httpMatches(Map<String, Object> recorded, Map<String, Object> probe) {
         if (!java.util.Objects.equals(recorded.get("method"), probe.get("method"))) return false;
         if (!pathAndQuery(recorded.get("url")).equals(pathAndQuery(probe.get("url")))) {
             return false;
@@ -371,7 +371,7 @@ public final class Replay {
     }
 
     /** Exact statement text, values modulo placeholders. */
-    private static boolean dbMatches(Map<String, Object> recorded, Map<String, Object> probe) {
+    static boolean dbMatches(Map<String, Object> recorded, Map<String, Object> probe) {
         if (!java.util.Objects.equals(recorded.get("text"), probe.get("text"))) return false;
         return !recorded.containsKey("values")
             || matches(recorded.get("values"), probe.get("values"));
