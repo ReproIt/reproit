@@ -73,6 +73,11 @@ typedef struct {
     size_t len;
     size_t off;
     int incomplete;
+    /* Completeness oracle counts for a served FILE: the size the recording
+     * observed at open, and the bytes the capsule could actually serve. A
+     * divergence on this fd names both, so a shortfall is never anonymous. */
+    long recorded;
+    long held;
     char key[MAX_KEY_LEN];
 } fdstate_t;
 
@@ -185,6 +190,12 @@ void reproit_open_log(const char *path);
 void record_blob(kind_t kind, const char *key, const unsigned char *blob, size_t blob_len, long a,
                  long b);
 void diverge(const char *kind, const char *detail);
+/* A divergence whose cause is a byte-count shortfall: the recording observed
+ * `recorded` bytes of this source and the capsule can serve only `held`. The
+ * marker names both counts, because "the replay was wrong" without saying by
+ * how much is not actionable and a silent prefix is the failure mode the
+ * completeness oracle exists to refuse. */
+void diverge_short(const char *kind, const char *path, long recorded, long held);
 void load_replay(const char *path);
 entry_t *next_entry(kind_t kind, const char *key);
 /* Like next_entry, but a repeat lookup of an already consumed key returns

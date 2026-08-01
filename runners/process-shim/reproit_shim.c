@@ -213,8 +213,20 @@ static int serve_open(const char *path) {
      * some data mover carried the content past this boundary (measured:
      * coreutils cat uses copy_file_range, CPython uses mmap). Serving an
      * empty file here is a SILENT WRONG REPLAY, the one outcome this project
-     * refuses. Fail closed and name the reason instead. */
+     * refuses. Fail closed and name the shortfall instead. */
     if (opened && opened->b > 0 && len == 0) {
+        diverge_short("incomplete-file", path, opened->b, 0);
+        free(content);
+        return -3;
+    }
+    /* The capsule holds a PREFIX of the file: the source outgrew the inline
+     * cap, or its reads were lost to the entry bound. Deferring this check to
+     * read() is unsound, because mmap and glibc stdio consume the descriptor
+     * without ever calling read (the phase 1 lesson), so a short memfd would
+     * hand back zeros inside the last mapped page in silence. The shortfall
+     * fails HERE, at the last point this layer can still see it. */
+    if (opened && opened->b > 0 && len < (size_t)opened->b) {
+        diverge_short("truncated-file", path, opened->b, (long)len);
         free(content);
         return -3;
     }
@@ -237,15 +249,17 @@ static int serve_open(const char *path) {
         (void)ignored;
         lseek(fd, 0, SEEK_SET);
     }
-    /* Partial capture: the capsule holds fewer bytes than the file had. That
-     * is only a problem if the program actually consumes past them, so the fd
-     * is flagged and the divergence fires at the over-read, not here. */
+    /* A shortfall can no longer reach this point (both cases fail above), so
+     * incomplete is a backstop: if a future serving path reintroduces one,
+     * the over-read still diverges with its counts rather than reading short. */
     if (fd >= 0 && fd < MAX_FDS) {
         fdstate_t *state = &G.fds[fd];
         memset(state, 0, sizeof(*state));
         state->active = 1;
         state->is_socket = 0;
         state->incomplete = opened && opened->b > (long)len;
+        state->recorded = opened ? opened->b : (long)len;
+        state->held = (long)len;
         snprintf(state->key, sizeof(state->key), "%s", path);
     }
     free(content);
@@ -281,7 +295,7 @@ int open(const char *path, int flags, ...) {
             errno = ENOENT;
             fd = -1;
         } else if (fd == -3) {
-            diverge("incomplete-file", key);
+            /* serve_open already named the shortfall and its counts */
             errno = EIO;
             fd = -1;
         }
@@ -325,7 +339,7 @@ int openat(int dirfd, const char *path, int flags, ...) {
             errno = ENOENT;
             fd = -1;
         } else if (fd == -3) {
-            diverge("incomplete-file", key);
+            /* serve_open already named the shortfall and its counts */
             errno = EIO;
             fd = -1;
         }
@@ -417,7 +431,7 @@ ssize_t read(int fd, void *buf, size_t count) {
          * never carried, so it fails closed rather than reading short. */
         got = real_read(fd, buf, count);
         if (got == 0 && count > 0 && G.fds[fd].incomplete) {
-            diverge("truncated-file", G.fds[fd].key);
+            diverge_short("truncated-file", G.fds[fd].key, G.fds[fd].recorded, G.fds[fd].held);
             errno = EIO;
             got = -1;
         } else if (got > 0) {
@@ -713,7 +727,19 @@ FILE *fopen(const char *path, const char *mode) {
             return NULL;
         }
         if (opened && opened->b > 0 && len == 0) {
-            diverge("incomplete-file", key);
+            diverge_short("incomplete-file", key, opened->b, 0);
+            free(content);
+            errno = EIO;
+            LEAVE();
+            return NULL;
+        }
+        /* A fmemopen stream is consumed by glibc stdio internals this
+         * boundary cannot see (fgets, fscanf, getline all bypass the fread
+         * interposer), so a prefix cannot defer its check to the reads. A
+         * capsule holding fewer bytes than the recording observed fails at
+         * the serve, with both counts named. */
+        if (opened && opened->b > 0 && len < (size_t)opened->b) {
+            diverge_short("truncated-file", key, opened->b, (long)len);
             free(content);
             errno = EIO;
             LEAVE();
