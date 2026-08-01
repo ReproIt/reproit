@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 3,
+  "target": "windows-winui",
+  "status": "complete",
+  "applications": [
+    {
+      "id": "unigetui-mainview-keyup-3298",
+      "repository": "https://github.com/Devolutions/UniGetUI",
+      "issueUrl": "https://github.com/Devolutions/UniGetUI/issues/3298",
+      "affectedRevision": "fecaf3d46cfdb32ed396a2e903a29d6dec40c2b5",
+      "fixedRevision": "6bd24003bb3292d5f23760a3f36d652881dcb30c",
+      "authority": "authored-contract",
+      "expectedIdentity": "navigation-shortcut-fires-on-key-release-not-key-press",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "navigation-shortcut-fires-on-key-release-not-key-press",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "navigation-shortcut-fires-on-key-release-not-key-press",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "navigation-shortcut-fires-on-key-release-not-key-press",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 44,
+        "replaySecondsP95": 61.403095799999996,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/unigetui-mainview-keyup-3298.json",
+        "validation/field/evidence/unigetui-mainview-keyup-3298.md"
+      ]
+    },
+    {
+      "id": "dlss-swapper-minimized-window-position-829",
+      "repository": "https://github.com/beeradmoore/dlss-swapper",
+      "issueUrl": "https://github.com/beeradmoore/dlss-swapper/issues/829",
+      "affectedRevision": "8cd0ccccce1470844d4e3f9294eecbbad3c25672",
+      "fixedRevision": "09bfaa388cbab84cf8f416576b6e401d64f98e10",
+      "authority": "platform",
+      "expectedIdentity": "restored-window-parks-at-minimized-sentinel-position",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "restored-window-parks-at-minimized-sentinel-position",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "restored-window-parks-at-minimized-sentinel-position",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "restored-window-parks-at-minimized-sentinel-position",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 52,
+        "replaySecondsP95": 71.5846165,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/dlss-swapper-minimized-window-position-829.json",
+        "validation/field/evidence/dlss-swapper-minimized-window-position-829.md"
+      ]
+    }
+  ]
+}

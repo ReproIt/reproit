@@ -96,7 +96,7 @@ Stable atomic targets: 11. Preview: 10. Experimental: 0.
 | Web Firefox | Stable | schema-3 | linux | x86_64 | 0 |
 | Web WebKit | Stable | schema-3 | linux | x86_64 | 0 |
 | Windows Avalonia | Stable | schema-3 | windows-x86_64-interactive | x86_64 | 0 |
-| Windows WinUI 3 | Preview | schema-3 | windows-x86_64-interactive | x86_64 | 2 |
+| Windows WinUI 3 | Stable | schema-3 | windows-x86_64-interactive | x86_64 | 0 |
 | Windows WPF | Stable | schema-3 | windows-x86_64-interactive | x86_64 | 0 |
 
 Every blocker, with its typed code and exact detail, is listed in

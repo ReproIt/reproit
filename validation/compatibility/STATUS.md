@@ -481,11 +481,11 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 
 ## Windows WinUI 3
 
-- Maturity: Preview
+- Maturity: Stable
 - Scope: Native x86_64 Windows UI Automation on WinUI 3
 - Promotion standard: schema-3
 - Native gates: windows-uia
-- Field benchmark: incomplete
+- Field benchmark: validation/field/windows-winui.json
 - Production-to-local: Unqualified
 - Production-to-local evidence: none
 - Operating systems: windows-x86_64-interactive
@@ -493,24 +493,12 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
 - Runtimes: .NET, UI Automation, WinAppSDK
 - Frameworks: WinUI 3
 - Qualifications:
-  - cleanCorpus: missing
-  - adversarialCorpus: missing
+  - cleanCorpus: evidence
+  - adversarialCorpus: evidence
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] no application campaign has been executed. 7 candidate defects across 2
-    independent applications (DLSS Swapper, UniGetUI) remain qualified, but neither application has
-    three clean affected reproductions and three reached-observation fixed controls. Two candidates
-    were executed on the native x86_64 Windows guest. dlss-swapper-non-nvidia-crash-590 is
-    disqualified: its NvAPI call already sits inside a catch block at the affected revision, so on a
-    machine with no NVIDIA driver the process survives both the settings and the games navigation
-    and there is nothing for the fix to remove. unigetui-mainview-keyup-3298 is trigger-verified:
-    both revisions build and launch unpackaged, and holding F1 separates the two revisions exactly,
-    but the three-plus-three run set, the neighboring-legal-behavior control and the corpus have not
-    been run. DLSS Swapper therefore needs a fresh revision pair, either 750 or 829, built with the
-    .NET 10 SDK before this target has two independent applications
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
+  - None
 
 ## Windows WPF
 
