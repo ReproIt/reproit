@@ -73,12 +73,117 @@ const CAPTURE = {
       at: 1753747200009,
       monoNs: 9000000,
     },
+    // LLM-shaped traffic: a streamed SSE completion, a tool-call loop whose
+    // recorded order interleaves another operation, and a chat exchange the
+    // prompt-drift test tampers against. Minimal event fields: replay only
+    // reads kind/exchange.
+    {
+      operation: 'GET /quote',
+      sequence: 4,
+      kind: 'effect',
+      effect: 'call',
+      exchange: {
+        protocol: 'http',
+        request: { method: 'GET', url: 'http://llm.internal/stream' },
+        response: {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+          body: 'data: a\n\ndata: b\n\ndata: c\n\n',
+          stream: { chunks: [9, 9, 9] },
+        },
+      },
+    },
+    {
+      operation: 'GET /quote',
+      sequence: 5,
+      kind: 'effect',
+      effect: 'call',
+      exchange: {
+        protocol: 'http',
+        request: {
+          method: 'POST',
+          url: 'http://llm.internal/v1/messages',
+          body: { model: 'm', messages: [{ role: 'user', content: 'q' }] },
+        },
+        response: {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+          body: { reply: 'r0' },
+        },
+      },
+    },
+    {
+      operation: 'GET /quote',
+      sequence: 6,
+      kind: 'effect',
+      effect: 'call',
+      exchange: {
+        protocol: 'http',
+        request: { method: 'POST', url: 'http://tools.internal/run', body: { tool: 'x' } },
+        response: {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+          body: { ok: true },
+        },
+      },
+    },
+    {
+      operation: 'GET /quote',
+      sequence: 7,
+      kind: 'effect',
+      effect: 'call',
+      exchange: {
+        protocol: 'http',
+        request: {
+          method: 'POST',
+          url: 'http://llm.internal/v1/messages',
+          body: {
+            model: 'm',
+            messages: [
+              { role: 'user', content: 'q' },
+              { role: 'assistant', content: 'r0' },
+              { role: 'user', content: 'tool: ok' },
+            ],
+          },
+        },
+        response: {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+          body: { reply: 'r1' },
+        },
+      },
+    },
+    {
+      operation: 'GET /quote',
+      sequence: 8,
+      kind: 'effect',
+      effect: 'call',
+      exchange: {
+        protocol: 'http',
+        request: {
+          method: 'POST',
+          url: 'http://llm.internal/v1/chat',
+          body: {
+            messages: [
+              { role: 'user', content: 'hello' },
+              { role: 'assistant', content: 'hi' },
+              { role: 'user', content: 'weather?' },
+            ],
+          },
+        },
+        response: {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+          body: { reply: 'sunny' },
+        },
+      },
+    },
     {
       traceId: 'cap-r-1',
       spanId: 'cap-r-1:GET /quote',
       actionIndex: 0,
       operation: 'GET /quote',
-      sequence: 4,
+      sequence: 9,
       kind: 'return',
       output: { error: 'internal' },
       status: 500,
@@ -146,6 +251,89 @@ test('http.get serves the recorded response in process', async () => {
       .on('error', reject);
   });
   assert.deepStrictEqual(JSON.parse(body), { prices: null });
+});
+
+test('recorded SSE streams re-serve chunk for chunk', async () => {
+  const chunks = [];
+  await new Promise((resolve, reject) => {
+    http
+      .get('http://llm.internal/stream', (res) => {
+        assert.strictEqual(res.statusCode, 200);
+        res.on('data', (chunk) => chunks.push(String(chunk)));
+        res.on('end', resolve);
+      })
+      .on('error', reject);
+  });
+  assert.deepStrictEqual(chunks, ['data: a\n\n', 'data: b\n\n', 'data: c\n\n']);
+});
+
+test('tool-call loops match per-operation ordinals across interleaving', async () => {
+  // Recorded order is messages[0], tool, messages[1]; the live code asks for
+  // both messages calls FIRST. Per-operation ordinals serve each operation
+  // in its own recorded order without a cross-operation divergence.
+  const first = await fetch('http://llm.internal/v1/messages', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'q' }] }),
+  });
+  assert.deepStrictEqual(await first.json(), { reply: 'r0' });
+  const second = await fetch('http://llm.internal/v1/messages', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: 'm',
+      messages: [
+        { role: 'user', content: 'q' },
+        { role: 'assistant', content: 'r0' },
+        { role: 'user', content: 'tool: ok' },
+      ],
+    }),
+  });
+  assert.deepStrictEqual(await second.json(), { reply: 'r1' });
+  const tool = await fetch('http://tools.internal/run', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ tool: 'x' }),
+  });
+  assert.deepStrictEqual(await tool.json(), { ok: true });
+});
+
+test('prompt drift names the first differing message index', async () => {
+  const captured = stderrCapture();
+  let response;
+  try {
+    response = await fetch('http://llm.internal/v1/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        messages: [
+          { role: 'user', content: 'hello' },
+          { role: 'assistant', content: 'hi' },
+          { role: 'user', content: 'DIFFERENT QUESTION' },
+        ],
+      }),
+    });
+  } finally {
+    captured.restore();
+  }
+  assert.strictEqual(response.status, 599);
+  const marker = captured.lines.find((line) => line.startsWith('REPROIT:DIVERGENCE '));
+  assert.ok(marker, 'structured divergence marker emitted');
+  const report = JSON.parse(marker.slice('REPROIT:DIVERGENCE '.length));
+  assert.deepStrictEqual(report.bodyDelta, {
+    kind: 'message',
+    firstDifferingMessage: 2,
+    recordedMessages: 3,
+    liveMessages: 3,
+  });
+});
+
+test('unknown body shapes fall back to the first differing byte offset', () => {
+  const replay = require('../replay.js');
+  const delta = replay.bodyDelta({ prompt: 'summarize A' }, { prompt: 'summarize B' });
+  assert.strictEqual(delta.kind, 'byte');
+  assert.strictEqual(delta.offset, JSON.stringify({ prompt: 'summarize ' }).length - 2);
+  assert.strictEqual(replay.bodyDelta({ a: 1 }, { a: 1 }), null);
 });
 
 test('an unmatched call is a divergence: 599 and the structured marker', async () => {

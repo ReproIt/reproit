@@ -103,6 +103,13 @@ finding carries the per-check `backend-*` id below; legacy artifacts stamped wit
 - Deployment and multi-actor proofs: `backend-fleet-consistency`, `backend-authorization-matrix`,
   `backend-transaction-atomicity`, `backend-concurrent-update`, and
   `backend-concurrent-conservation`.
+- Agent operations (LLM-backed backends; lowest confidence tier, marked by the application on its
+  own trace via the backend SDK's oracle marker): `agent-response-content` (an authored assertion
+  on a model response's content or shape failed), `agent-guardrail-violation` (a model- or
+  tool-directed action crossed a guardrail the application declared), and
+  `agent-loop-bound-exceeded` (a tool-call loop exceeded its authored iteration bound). The marker
+  is the application's own declaration, so these stay specialist signals until promoted on the
+  standard zero-false-positive evidence.
 - Scoped protocol evidence without a dedicated row reports under the canonical `contract` id:
   `http-byte-range`, `http-redirect-transition`, `http-response-media-type`,
   `http-conditional-cache`, `lifecycle-precedence`, `lifecycle-forbid-after`, and

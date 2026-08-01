@@ -31,6 +31,10 @@ const MAX_EXCHANGE_BODY_BYTES = 8 * 1024;
 const MAX_EXCHANGE_HEADERS = 32;
 // Rows recorded per pg result; beyond it the result is marked truncated.
 const MAX_PG_ROWS = 64;
+// Stream chunk boundaries recorded per exchange (SSE / chunked responses,
+// the LLM streaming shape). Beyond it the boundaries are marked truncated
+// and replay fails closed rather than serve a wrong stream shape.
+const MAX_STREAM_CHUNKS = 128;
 
 const state = {
   installed: false,
@@ -45,6 +49,11 @@ const state = {
 // parsed so structural redaction in the trace layer sees fields, not text.
 function boundedBody(body, contentType) {
   if (body === null || body === undefined) return {};
+  // A bodyCollector that overflowed already reduced the body to provable
+  // identity; pass it through instead of stringifying the identity object.
+  if (typeof body === 'object' && !Buffer.isBuffer(body) && body.truncated === true) {
+    return body;
+  }
   const buffer = Buffer.isBuffer(body) ? body : Buffer.from(String(body), 'utf8');
   if (buffer.length === 0) return {};
   if (buffer.length > MAX_EXCHANGE_BODY_BYTES) {
@@ -83,6 +92,7 @@ function boundedHeaders(headers) {
 
 function recordHttpExchange(trace, request, response) {
   try {
+    const responseBody = boundedBody(response.body, response.contentType);
     trace.effect('call', {
       resource: request.host,
       key: request.method + ' ' + request.path,
@@ -97,7 +107,14 @@ function recordHttpExchange(trace, request, response) {
         response: {
           status: response.status,
           ...boundedHeaders(response.headers),
-          ...boundedBody(response.body, response.contentType),
+          ...responseBody,
+          // Stream shape (SSE / chunked): observed chunk boundaries, so the
+          // whole stream is ONE logical exchange and replay can re-serve it
+          // chunk for chunk. A truncated inline body already fails closed,
+          // so boundaries are only kept for bodies recorded verbatim.
+          ...(response.stream && responseBody.truncated !== true
+            ? { stream: response.stream }
+            : {}),
         },
       },
     });
@@ -113,13 +130,17 @@ function recordHttpExchange(trace, request, response) {
 // over EVERY byte so truncated identity stays provable.
 function bodyCollector() {
   const chunks = [];
+  const boundaries = [];
   let bytes = 0;
+  let droppedBoundaries = 0;
   const hash = crypto.createHash('sha256');
   return {
     push(chunk) {
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf8');
       bytes += buffer.length;
       hash.update(buffer);
+      if (boundaries.length < MAX_STREAM_CHUNKS) boundaries.push(buffer.length);
+      else droppedBoundaries += 1;
       if (bytes <= MAX_EXCHANGE_BODY_BYTES) chunks.push(buffer);
     },
     result() {
@@ -129,6 +150,17 @@ function bodyCollector() {
         return { bodyBytes: bytes, bodySha256: hash.digest('hex'), truncated: true };
       }
       return Buffer.concat(chunks);
+    },
+    // Chunk boundaries as observed byte lengths. Recorded when the response
+    // is a stream (SSE always; anything else only when it actually arrived
+    // in more than one chunk, since a single-chunk body replays identically
+    // without them). Boundaries past the cap are counted, never guessed.
+    stream(isEventStream) {
+      if (boundaries.length === 0) return null;
+      if (!isEventStream && boundaries.length < 2 && droppedBoundaries === 0) return null;
+      return droppedBoundaries > 0
+        ? { chunks: boundaries, truncated: true }
+        : { chunks: boundaries };
     },
   };
 }
@@ -186,6 +218,7 @@ function wrapClientRequest(original, protocol) {
             const path = clientRequest.path ?? '/';
             const collected = requestBody.result();
             const collectedResponse = responseBody.result();
+            const responseType = headerValue(response.headers, 'content-type') ?? '';
             recordHttpExchange(trace, {
               method: clientRequest.method,
               host: String(host ?? ''),
@@ -198,7 +231,8 @@ function wrapClientRequest(original, protocol) {
               status: response.statusCode,
               headers: response.headers,
               body: collectedResponse,
-              contentType: headerValue(response.headers, 'content-type') ?? '',
+              contentType: responseType,
+              stream: responseBody.stream(responseType.includes('text/event-stream')),
             });
           });
         } catch (ignored) {
@@ -236,14 +270,31 @@ function wrapFetch(originalFetch) {
     }
     const response = await originalFetch(input, init);
     if (requestMeta !== null) {
+      const contentType = response.headers.get('content-type') ?? '';
+      if (contentType.includes('text/event-stream')) {
+        try {
+          // Streaming (SSE, the LLM shape): recording rides the body stream
+          // the app itself consumes, so the observed chunk boundaries are
+          // preserved, the app still reads the live stream incrementally,
+          // and the exchange lands synchronously at the moment the app sees
+          // the end of the body, exactly where the http wrapper records.
+          return recordingFetchResponse(trace, requestMeta, response);
+        } catch (ignored) {
+          state.stats.failedCaptures += 1;
+          return response;
+        }
+      }
       try {
+        // Buffered responses record from a clone before the caller resumes:
+        // no race with the trace finishing, and a body the app never reads
+        // is still captured.
         const clone = response.clone();
         const text = await clone.text();
         recordHttpExchange(trace, requestMeta, {
           status: response.status,
           headers: Object.fromEntries(response.headers.entries()),
           body: text,
-          contentType: response.headers.get('content-type') ?? '',
+          contentType,
         });
       } catch (ignored) {
         state.stats.failedCaptures += 1;
@@ -251,6 +302,60 @@ function wrapFetch(originalFetch) {
     }
     return response;
   };
+}
+
+// Wrap a fetch Response so the exchange records as the app consumes it. An
+// abandoned body records nothing, exactly like an http response nobody
+// reads. `url` and `redirected` are re-exposed since a rebuilt Response
+// resets them.
+function recordingFetchResponse(trace, requestMeta, response) {
+  const contentType = response.headers.get('content-type') ?? '';
+  const record = (collector) => {
+    recordHttpExchange(trace, requestMeta, {
+      status: response.status,
+      headers: Object.fromEntries(response.headers.entries()),
+      body: collector.result(),
+      contentType,
+      stream: collector.stream(contentType.includes('text/event-stream')),
+    });
+  };
+  if (!response.body) {
+    record(bodyCollector());
+    return response;
+  }
+  const upstream = response.body.getReader();
+  const collector = bodyCollector();
+  const body = new ReadableStream({
+    async pull(controller) {
+      const { done, value } = await upstream.read();
+      if (done) {
+        try {
+          record(collector);
+        } catch (ignored) {
+          state.stats.failedCaptures += 1;
+        }
+        controller.close();
+        return;
+      }
+      try {
+        collector.push(Buffer.from(value));
+      } catch (ignored) {
+        state.stats.failedCaptures += 1;
+      }
+      controller.enqueue(value);
+    },
+    cancel(reason) {
+      return upstream.cancel(reason);
+    },
+  });
+  const wrapped = new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+  Object.defineProperty(wrapped, 'url', { get: () => response.url });
+  Object.defineProperty(wrapped, 'redirected', { get: () => response.redirected });
+  return wrapped;
 }
 
 // Effect kind for a SQL statement: reads stay reads so state oracles keep
@@ -452,10 +557,20 @@ class ReplayClientRequest extends EventEmitter {
       response.headers = served.headers;
       response.rawHeaders = Object.entries(served.headers).flat();
       this.emit('response', response);
-      response.push(served.bodyText);
-      response.push(null);
-      if (finish) finish();
-      this.emit('finish');
+      // Recorded stream shape (SSE / chunked) re-serves chunk for chunk; a
+      // tick between pushes keeps each recorded chunk its own 'data' event.
+      const parts = served.chunks ?? [served.bodyText];
+      const pushNext = (index) => {
+        if (index >= parts.length) {
+          response.push(null);
+          if (finish) finish();
+          this.emit('finish');
+          return;
+        }
+        response.push(parts[index]);
+        setImmediate(() => pushNext(index + 1));
+      };
+      pushNext(0);
     });
     return this;
   }
@@ -494,7 +609,19 @@ function replayFetch() {
       url: request.url,
       ...(body === undefined ? {} : { body }),
     });
-    return new Response(served.bodyText, {
+    // Recorded stream shape re-serves the body chunk for chunk so consumers
+    // reading the stream observe the recorded boundaries.
+    const responseBody = served.chunks
+      ? new ReadableStream({
+          start(controller) {
+            for (const chunk of served.chunks) {
+              controller.enqueue(new Uint8Array(chunk));
+            }
+            controller.close();
+          },
+        })
+      : served.bodyText;
+    return new Response(responseBody, {
       status: served.status,
       headers: served.headers,
     });
@@ -535,6 +662,7 @@ module.exports = {
   wrapPg,
   MAX_EXCHANGE_BODY_BYTES,
   MAX_EXCHANGE_HEADERS,
+  MAX_STREAM_CHUNKS,
   // Pure bounds helpers, exported so the shared behavioral vectors in
   // sdk/capture-behavior-v1.json can exercise them directly. Node is the
   // reference implementation for those vectors.

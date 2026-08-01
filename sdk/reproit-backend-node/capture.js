@@ -24,6 +24,37 @@ const CAPTURE_FORMAT = 'reproit-backend-capture';
 const CAPTURE_VERSION = 1;
 // First-class registry oracle id for an operation that returned HTTP 5xx.
 const SERVER_ERROR_ORACLE = 'backend-server-error';
+// Agent oracle vocabulary (registry ids, lowest confidence tier): authored
+// assertions an LLM/agent operation marks on its own trace via
+// `trace.oracle(id, detail)`. A marked operation is always captured and its
+// failure observation carries the marked id instead of the 5xx default.
+const AGENT_RESPONSE_ORACLE = 'agent-response-content';
+const AGENT_GUARDRAIL_ORACLE = 'agent-guardrail-violation';
+const AGENT_LOOP_BOUND_ORACLE = 'agent-loop-bound-exceeded';
+const AGENT_ORACLES = [
+  AGENT_RESPONSE_ORACLE,
+  AGENT_GUARDRAIL_ORACLE,
+  AGENT_LOOP_BOUND_ORACLE,
+];
+// The effect resource that carries an oracle marker on the trace. A marker
+// is an `emit` effect so the scan-time wire shape stays inside the existing
+// event vocabulary.
+const ORACLE_MARKER_RESOURCE = 'reproit-oracle';
+
+// First agent oracle marked on a finished trace's events, or null.
+function markedOracle(events) {
+  for (const event of events ?? []) {
+    if (
+      event &&
+      event.kind === 'effect' &&
+      event.resource === ORACLE_MARKER_RESOURCE &&
+      AGENT_ORACLES.includes(event.key)
+    ) {
+      return event.key;
+    }
+  }
+  return null;
+}
 
 // Bounds. Queue overflow drops the OLDEST pending operation; an oversized
 // capture payload drops trailing effect events before it drops itself.
@@ -133,7 +164,10 @@ class Capture {
           ? returned.status
           : null;
       const error = !success || (status !== null && status >= 500);
-      if (!error && !this._sampleHealthy()) return;
+      // A marked agent oracle is an authored failure assertion, so the
+      // operation is always captured, like a 5xx.
+      const marked = markedOracle(events) !== null;
+      if (!error && !marked && !this._sampleHealthy()) return;
       const operation = events[0] && typeof events[0].operation === 'string'
         ? events[0].operation
         : null;
@@ -357,13 +391,20 @@ class Capture {
         returned?.success === true ? 'succeeded' : 'failed',
         context(returned ?? first, parent === null ? [] : [parent]),
       );
-      if (operation.status === null || operation.status < 500) break;
-      const signature = SERVER_ERROR_ORACLE + ':' + operation.operation;
+      const marked = markedOracle(operation.events);
+      if (marked === null && (operation.status === null || operation.status < 500)) break;
+      const oracle = marked ?? SERVER_ERROR_ORACLE;
+      const signature = oracle + ':' + operation.operation;
       const message =
-        'backend operation ' + operation.operation + ' returned HTTP ' + operation.status;
+        marked === null
+          ? 'backend operation ' + operation.operation + ' returned HTTP ' + operation.status
+          : 'agent oracle ' + oracle + ' fired on ' + operation.operation;
       recorder.failure(
         {
-          observation: 'exception',
+          // A marked agent oracle is an authored assertion (a declared
+          // contract the trace itself violated); a bare 5xx stays the
+          // runtime exception it always was.
+          observation: marked === null ? 'exception' : 'contract-violation',
           authority: 'runtime-diagnosis',
           summary: message,
           signature,
@@ -421,13 +462,14 @@ function effectValue(event) {
 // left is omitted entirely (null).
 function capturePayload(operation) {
   const events = operation.events.slice();
+  const oracle = markedOracle(events) ?? SERVER_ERROR_ORACLE;
   let droppedEffects = 0;
   for (;;) {
     const value = {
       format: CAPTURE_FORMAT,
       version: CAPTURE_VERSION,
       operation: operation.operation,
-      oracle: SERVER_ERROR_ORACLE,
+      oracle,
       events,
     };
     if (Buffer.byteLength(canonicalJson(value)) <= MAX_CAPTURE_JSON_BYTES) {
@@ -453,4 +495,15 @@ function sleep(ms) {
   });
 }
 
-module.exports = { Capture, CAPTURE_FORMAT, CAPTURE_VERSION, SERVER_ERROR_ORACLE };
+module.exports = {
+  Capture,
+  CAPTURE_FORMAT,
+  CAPTURE_VERSION,
+  SERVER_ERROR_ORACLE,
+  AGENT_RESPONSE_ORACLE,
+  AGENT_GUARDRAIL_ORACLE,
+  AGENT_LOOP_BOUND_ORACLE,
+  AGENT_ORACLES,
+  ORACLE_MARKER_RESOURCE,
+  markedOracle,
+};

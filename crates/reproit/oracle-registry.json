@@ -46,7 +46,10 @@
     "blank-screen",
     "broken-asset",
     "zero-contrast",
-    "dead-input"
+    "dead-input",
+    "agent-response-content",
+    "agent-guardrail-violation",
+    "agent-loop-bound-exceeded"
   ],
   "confidence": {
     "confirmed_proof": [
@@ -115,7 +118,10 @@
       "zoom-reflow",
       "accessibility-state",
       "zero-contrast",
-      "dead-input"
+      "dead-input",
+      "agent-response-content",
+      "agent-guardrail-violation",
+      "agent-loop-bound-exceeded"
     ]
   },
   "authoritative_exact_replay": [
@@ -212,7 +218,10 @@
       "backend-resource-round-trip",
       "backend-idempotency",
       "backend-fleet-consistency",
-      "process-exit"
+      "process-exit",
+      "agent-response-content",
+      "agent-guardrail-violation",
+      "agent-loop-bound-exceeded"
     ],
     "jank": [
       "broken-asset",
@@ -285,7 +294,10 @@
     "backend-fleet-consistency",
     "process-signal",
     "process-exit",
-    "process-assertion"
+    "process-assertion",
+    "agent-response-content",
+    "agent-guardrail-violation",
+    "agent-loop-bound-exceeded"
   ],
   "classification": {
     "unclassified": {
@@ -754,6 +766,27 @@
       "doc": "The program aborted on a failed assertion or a panic, and the replay aborted on the SAME one, compared by its normalized failure text. This exists because a signal alone cannot tell two assertions apart: every failed assert dies with SIGABRT, so without the text a replay that aborted for an unrelated reason would be reported as a reproduction.",
       "invariants": [
         "process:assertion"
+      ],
+      "kinds": []
+    },
+    "agent-response-content": {
+      "doc": "Agent oracle family (LLM/agent backend operations; entered at the lowest confidence tier, promotion requires the standard zero-false-positive evidence). An authored assertion on a model response's content or shape failed: the application itself declared what the response had to contain or look like, via the backend SDK's trace oracle marker, and the received response violated it.",
+      "invariants": [
+        "agent:response-content"
+      ],
+      "kinds": []
+    },
+    "agent-guardrail-violation": {
+      "doc": "An authored guardrail was violated during an agent operation: the application marked that a model- or tool-directed action crossed a line it declared (a disallowed tool, a forbidden action class). The marker is the app's own declaration, so this stays a specialist signal until promoted on evidence.",
+      "invariants": [
+        "agent:guardrail-violation"
+      ],
+      "kinds": []
+    },
+    "agent-loop-bound-exceeded": {
+      "doc": "An agent's tool-call loop exceeded its authored iteration bound (the agent ran away). The bound is declared by the application; exceeding it is an objective count, but whether the bound itself is correct is the app's claim, so the category enters at the lowest tier.",
+      "invariants": [
+        "agent:loop-bound-exceeded"
       ],
       "kinds": []
     }
