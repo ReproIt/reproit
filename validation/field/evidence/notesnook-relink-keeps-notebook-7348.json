@@ -1,0 +1,429 @@
+{
+  "schemaVersion": 1,
+  "target": "react-native-android",
+  "cliCommit": "c409ea3c4cea97130808b324fa0ac8638c738e70",
+  "application": "notesnook",
+  "repository": "https://github.com/streetwriters/notesnook",
+  "issue": "https://github.com/streetwriters/notesnook/issues/7348",
+  "affectedRevision": "14f727d6e630f60299f1ceae42e48685e87cba8f",
+  "fixedRevision": "7c3fdab6eec0c083ef4c3b12ff16ba0d2f8aff2c",
+  "affectedApkSha256": "sha256:0e4cc6f1e804b5a40da4e7e798a3201c9c88bfa2c1e8babc5c5e3b42a2d24805",
+  "fixedApkSha256": "sha256:06302f8e554df5460d2f870a76809dc4c2b8374e269b0ad509d83397f6dc09d8",
+  "identity": "react-native-state:single-select-relink-keeps-previous-notebook",
+  "memoryMeasurement": "unavailable",
+  "appiumCapabilities": {
+    "platformName": "Android",
+    "appium:automationName": "UiAutomator2",
+    "appium:udid": "emulator-5554",
+    "appium:appPackage": "com.streetwriters.notesnook",
+    "appium:appActivity": ".MainActivity",
+    "appium:noReset": true,
+    "appium:forceAppLaunch": true,
+    "appium:newCommandTimeout": 600,
+    "appium:adbExecTimeout": 120000,
+    "appium:disableWindowAnimation": true
+  },
+  "affected": [
+    {
+      "run": 1,
+      "status": "reproduced",
+      "identity": "react-native-state:single-select-relink-keeps-previous-notebook",
+      "cleanLaunch": true,
+      "observationReached": true,
+      "exceptions": [],
+      "elapsedSeconds": 61.936,
+      "jsHeapMiB": null,
+      "observationMode": "benchmark",
+      "notebooksAfterFirstLink": [
+        "Alpha"
+      ],
+      "notebooksAfterTrigger": [
+        "Alpha",
+        "Beta"
+      ],
+      "sourceSha256": "sha256:764de9b92c637e75c304852623c1cad9952d83bcc039601c322fbc7b85830d79",
+      "screenshotSha256": "sha256:6cdf8c3e51c2e4980d1e5075f656b74c051ba635584c7d8e161075751460e68a"
+    },
+    {
+      "run": 2,
+      "status": "reproduced",
+      "identity": "react-native-state:single-select-relink-keeps-previous-notebook",
+      "cleanLaunch": true,
+      "observationReached": true,
+      "exceptions": [],
+      "elapsedSeconds": 61.781,
+      "jsHeapMiB": null,
+      "observationMode": "benchmark",
+      "notebooksAfterFirstLink": [
+        "Alpha"
+      ],
+      "notebooksAfterTrigger": [
+        "Alpha",
+        "Beta"
+      ],
+      "sourceSha256": "sha256:fe31b8b968236e40ee4b80457a4192a8092b43f859b462faad3a03896a487a45",
+      "screenshotSha256": "sha256:702d47a1af08136e9848f6a398c6a80267d0c589318d6721e88439e398cfae62"
+    },
+    {
+      "run": 3,
+      "status": "reproduced",
+      "identity": "react-native-state:single-select-relink-keeps-previous-notebook",
+      "cleanLaunch": true,
+      "observationReached": true,
+      "exceptions": [],
+      "elapsedSeconds": 63.944,
+      "jsHeapMiB": null,
+      "observationMode": "benchmark",
+      "notebooksAfterFirstLink": [
+        "Alpha"
+      ],
+      "notebooksAfterTrigger": [
+        "Alpha",
+        "Beta"
+      ],
+      "sourceSha256": "sha256:71486d22b897b7a12d0b9a84ce577d19029d732fee7e369a765c3830e5f76a1c",
+      "screenshotSha256": "sha256:6f005fef7b00e83e07c47457d9540a1e722f1b89711a69b9525f7001e9a25979"
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "status": "not_reproduced",
+      "identity": null,
+      "cleanLaunch": true,
+      "observationReached": true,
+      "exceptions": [],
+      "elapsedSeconds": 62.623,
+      "jsHeapMiB": null,
+      "observationMode": "benchmark",
+      "notebooksAfterFirstLink": [
+        "Alpha"
+      ],
+      "notebooksAfterTrigger": [
+        "Beta"
+      ],
+      "sourceSha256": "sha256:ebe9ff2bd92dacb71d5f58bf393e0891df4200e3d813471b83f1f911c3dcfb9f",
+      "screenshotSha256": "sha256:66343c57e5e92a72c2ffb6210f72ad1c419a5cad143da1e6ac8f46e88bc8f038"
+    },
+    {
+      "run": 2,
+      "status": "not_reproduced",
+      "identity": null,
+      "cleanLaunch": true,
+      "observationReached": true,
+      "exceptions": [],
+      "elapsedSeconds": 63.303,
+      "jsHeapMiB": null,
+      "observationMode": "benchmark",
+      "notebooksAfterFirstLink": [
+        "Alpha"
+      ],
+      "notebooksAfterTrigger": [
+        "Beta"
+      ],
+      "sourceSha256": "sha256:ae881e77e2e06227d1533f4d34620b1c3623c9e74c0f8a86b0a2cbc2d9187309",
+      "screenshotSha256": "sha256:ee4ad25e40a85acdb26d92b21ed2e4fda33418ea7460bba583030ecdaa7e1b0f"
+    },
+    {
+      "run": 3,
+      "status": "not_reproduced",
+      "identity": null,
+      "cleanLaunch": true,
+      "observationReached": true,
+      "exceptions": [],
+      "elapsedSeconds": 62.453,
+      "jsHeapMiB": null,
+      "observationMode": "benchmark",
+      "notebooksAfterFirstLink": [
+        "Alpha"
+      ],
+      "notebooksAfterTrigger": [
+        "Beta"
+      ],
+      "sourceSha256": "sha256:3248dd1d7d7a4dab64b3d3a67ce872ddc67575e2239a9dad65815e3be3b30153",
+      "screenshotSha256": "sha256:ea5e232d2815870837181fd67d842c16eeb406e2bfc7458b20398f6b294c1c17"
+    }
+  ],
+  "neighboringLegalBehavior": "linking the same note to one notebook and not relinking it leaves the note in that notebook alone on both revisions",
+  "neighboring": {
+    "affected": {
+      "identity": null,
+      "observationReached": true,
+      "notebooksAfterTrigger": [
+        "Alpha"
+      ],
+      "sourceSha256": "sha256:10cdca1535fd601c274502de3e2f5c43e6ab39a81b1685ffd529601f913b5d30",
+      "screenshotSha256": "sha256:8f1d7b54190422303479b1ef3da2e9aec49eb5485fd2a16befc2d72e7629bfcc"
+    },
+    "fixed": {
+      "identity": null,
+      "observationReached": true,
+      "notebooksAfterTrigger": [
+        "Alpha"
+      ],
+      "sourceSha256": "sha256:74331b7e2d17214fe7cde6ee9c49a9f7241e2c370e9bb773c6ba5e71219319a4",
+      "screenshotSha256": "sha256:d33455da5dce8931bb1c3ab7d5e6ef159097c22f283ee8ebe707aceeead81fc9"
+    }
+  },
+  "minimizedAction": "create notebooks Alpha and Beta, create one note, link it to Alpha, then reopen the link screen in single-select mode, tap Beta, and save",
+  "runtime": {
+    "platform": "android-emulator/x86_64",
+    "automation": {
+      "appium": "3.5.2",
+      "uiautomator2": "8.0.0"
+    },
+    "apiLevel": 36,
+    "avd": "ReproitField_API36_x86_64",
+    "abi": "x86_64",
+    "deviceProfile": "pixel_6",
+    "systemImagePackage": "system-images;android-36;google_apis;x86_64",
+    "systemImageFile": "/android-sdk/system-images/android-36/google_apis/x86_64/system.img",
+    "systemImageFileSha256": "sha256:eb4bd8cc387915563a0a051c51ac58012e183e1bd21bb0fe2e82f1b255de45a1",
+    "emulatorVersion": "36.2.12",
+    "emulatorExecutable": "/android-sdk/emulator-36.2.12/emulator/emulator",
+    "emulatorExecutableSha256": "sha256:e4b47bf8b25304cf94a5a7c4e30a7224e0c19d196eb098c9f31f02b66f523d39",
+    "workerImage": "reproit-android-x86-07cae9bc60e8a40263ee@sha256:df8ee9949675531bfebd509d3a4774bd2377c11227a039cd1a6519e0e0bc8ea0",
+    "preflight": {
+      "workerImage": "reproit-android-x86-07cae9bc60e8a40263ee@sha256:df8ee9949675531bfebd509d3a4774bd2377c11227a039cd1a6519e0e0bc8ea0",
+      "androidHome": "/android-sdk",
+      "androidSdkRoot": "/android-sdk",
+      "appiumVersion": "3.5.2",
+      "uiautomator2Version": "8.0.0",
+      "systemImageFile": "/android-sdk/system-images/android-36/google_apis/x86_64/system.img",
+      "systemImageFileSha256": "sha256:eb4bd8cc387915563a0a051c51ac58012e183e1bd21bb0fe2e82f1b255de45a1",
+      "emulatorExecutable": "/android-sdk/emulator-36.2.12/emulator/emulator",
+      "emulatorExecutableSha256": "sha256:e4b47bf8b25304cf94a5a7c4e30a7224e0c19d196eb098c9f31f02b66f523d39"
+    },
+    "network": "Docker network mode none plus Android airplane mode, Wi-Fi disabled, and mobile data disabled",
+    "reset": "recreated AVD, -wipe-data, -no-snapshot"
+  },
+  "cleanupAudit": {
+    "avdDirectoryExists": false,
+    "adbDevices": [
+      "List of devices attached"
+    ],
+    "exactOwnedProcesses": [
+      {
+        "kind": "emulator",
+        "label": "notesnook-affected-1",
+        "pid": 191,
+        "startClockTicks": "37786960",
+        "command": "/android-sdk/emulator-36.2.12/emulator/qemu/linux-x86_64/qemu-system-x86_64-headless @ReproitField_API36_x86_64 -port 5554 -wipe-data -no-snapshot -no-window -no-audio -no-boot-anim -no-metrics -gpu host -feature -Vulkan",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "appium",
+        "label": "notesnook-affected-1",
+        "pid": 728,
+        "startClockTicks": "37789651",
+        "command": "node /usr/local/bin/appium --address 127.0.0.1 --port 4723 --log-level debug --relaxed-security",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "emulator",
+        "label": "notesnook-affected-2",
+        "pid": 939,
+        "startClockTicks": "37795853",
+        "command": "/android-sdk/emulator-36.2.12/emulator/qemu/linux-x86_64/qemu-system-x86_64-headless @ReproitField_API36_x86_64 -port 5554 -wipe-data -no-snapshot -no-window -no-audio -no-boot-anim -no-metrics -gpu host -feature -Vulkan",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "appium",
+        "label": "notesnook-affected-2",
+        "pid": 1473,
+        "startClockTicks": "37798491",
+        "command": "node /usr/local/bin/appium --address 127.0.0.1 --port 4724 --log-level debug --relaxed-security",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "emulator",
+        "label": "notesnook-affected-3",
+        "pid": 1689,
+        "startClockTicks": "37804457",
+        "command": "/android-sdk/emulator-36.2.12/emulator/qemu/linux-x86_64/qemu-system-x86_64-headless @ReproitField_API36_x86_64 -port 5554 -wipe-data -no-snapshot -no-window -no-audio -no-boot-anim -no-metrics -gpu host -feature -Vulkan",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "appium",
+        "label": "notesnook-affected-3",
+        "pid": 2221,
+        "startClockTicks": "37807044",
+        "command": "node /usr/local/bin/appium --address 127.0.0.1 --port 4723 --log-level debug --relaxed-security",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "emulator",
+        "label": "notesnook-fixed-1",
+        "pid": 2434,
+        "startClockTicks": "37813451",
+        "command": "/android-sdk/emulator-36.2.12/emulator/qemu/linux-x86_64/qemu-system-x86_64-headless @ReproitField_API36_x86_64 -port 5554 -wipe-data -no-snapshot -no-window -no-audio -no-boot-anim -no-metrics -gpu host -feature -Vulkan",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "appium",
+        "label": "notesnook-fixed-1",
+        "pid": 2915,
+        "startClockTicks": "37815825",
+        "command": "node /usr/local/bin/appium --address 127.0.0.1 --port 4724 --log-level debug --relaxed-security",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "emulator",
+        "label": "notesnook-fixed-1",
+        "pid": 3143,
+        "startClockTicks": "37816749",
+        "command": "/android-sdk/emulator-36.2.12/emulator/qemu/linux-x86_64/qemu-system-x86_64-headless @ReproitField_API36_x86_64 -port 5554 -wipe-data -no-snapshot -no-window -no-audio -no-boot-anim -no-metrics -gpu host -feature -Vulkan",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "appium",
+        "label": "notesnook-fixed-1",
+        "pid": 3679,
+        "startClockTicks": "37819319",
+        "command": "node /usr/local/bin/appium --address 127.0.0.1 --port 4723 --log-level debug --relaxed-security",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "emulator",
+        "label": "notesnook-fixed-2",
+        "pid": 3891,
+        "startClockTicks": "37825344",
+        "command": "/android-sdk/emulator-36.2.12/emulator/qemu/linux-x86_64/qemu-system-x86_64-headless @ReproitField_API36_x86_64 -port 5554 -wipe-data -no-snapshot -no-window -no-audio -no-boot-anim -no-metrics -gpu host -feature -Vulkan",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "appium",
+        "label": "notesnook-fixed-2",
+        "pid": 4424,
+        "startClockTicks": "37827847",
+        "command": "node /usr/local/bin/appium --address 127.0.0.1 --port 4724 --log-level debug --relaxed-security",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "emulator",
+        "label": "notesnook-fixed-3",
+        "pid": 4636,
+        "startClockTicks": "37833941",
+        "command": "/android-sdk/emulator-36.2.12/emulator/qemu/linux-x86_64/qemu-system-x86_64-headless @ReproitField_API36_x86_64 -port 5554 -wipe-data -no-snapshot -no-window -no-audio -no-boot-anim -no-metrics -gpu host -feature -Vulkan",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "appium",
+        "label": "notesnook-fixed-3",
+        "pid": 5169,
+        "startClockTicks": "37836469",
+        "command": "node /usr/local/bin/appium --address 127.0.0.1 --port 4723 --log-level debug --relaxed-security",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "emulator",
+        "label": "notesnook-neighbor-affected",
+        "pid": 5380,
+        "startClockTicks": "37842436",
+        "command": "/android-sdk/emulator-36.2.12/emulator/qemu/linux-x86_64/qemu-system-x86_64-headless @ReproitField_API36_x86_64 -port 5554 -wipe-data -no-snapshot -no-window -no-audio -no-boot-anim -no-metrics -gpu host -feature -Vulkan",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "appium",
+        "label": "notesnook-neighbor-affected",
+        "pid": 5917,
+        "startClockTicks": "37845186",
+        "command": "node /usr/local/bin/appium --address 127.0.0.1 --port 4724 --log-level debug --relaxed-security",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "emulator",
+        "label": "notesnook-neighbor-fixed",
+        "pid": 6127,
+        "startClockTicks": "37850632",
+        "command": "/android-sdk/emulator-36.2.12/emulator/qemu/linux-x86_64/qemu-system-x86_64-headless @ReproitField_API36_x86_64 -port 5554 -wipe-data -no-snapshot -no-window -no-audio -no-boot-anim -no-metrics -gpu host -feature -Vulkan",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "appium",
+        "label": "notesnook-neighbor-fixed",
+        "pid": 6660,
+        "startClockTicks": "37853185",
+        "command": "node /usr/local/bin/appium --address 127.0.0.1 --port 4723 --log-level debug --relaxed-security",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "emulator",
+        "label": "notesnook-corpus-first-link",
+        "pid": 6870,
+        "startClockTicks": "37858727",
+        "command": "/android-sdk/emulator-36.2.12/emulator/qemu/linux-x86_64/qemu-system-x86_64-headless @ReproitField_API36_x86_64 -port 5554 -wipe-data -no-snapshot -no-window -no-audio -no-boot-anim -no-metrics -gpu host -feature -Vulkan",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "appium",
+        "label": "notesnook-corpus-first-link",
+        "pid": 7404,
+        "startClockTicks": "37861332",
+        "command": "node /usr/local/bin/appium --address 127.0.0.1 --port 4724 --log-level debug --relaxed-security",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "emulator",
+        "label": "notesnook-corpus-adversarial-restored-selection",
+        "pid": 7616,
+        "startClockTicks": "37866622",
+        "command": "/android-sdk/emulator-36.2.12/emulator/qemu/linux-x86_64/qemu-system-x86_64-headless @ReproitField_API36_x86_64 -port 5554 -wipe-data -no-snapshot -no-window -no-audio -no-boot-anim -no-metrics -gpu host -feature -Vulkan",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "appium",
+        "label": "notesnook-corpus-adversarial-restored-selection",
+        "pid": 8151,
+        "startClockTicks": "37869134",
+        "command": "node /usr/local/bin/appium --address 127.0.0.1 --port 4723 --log-level debug --relaxed-security",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "emulator",
+        "label": "notesnook-corpus-adversarial-multi-select",
+        "pid": 8362,
+        "startClockTicks": "37875513",
+        "command": "/android-sdk/emulator-36.2.12/emulator/qemu/linux-x86_64/qemu-system-x86_64-headless @ReproitField_API36_x86_64 -port 5554 -wipe-data -no-snapshot -no-window -no-audio -no-boot-anim -no-metrics -gpu host -feature -Vulkan",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      },
+      {
+        "kind": "appium",
+        "label": "notesnook-corpus-adversarial-multi-select",
+        "pid": 8896,
+        "startClockTicks": "37878051",
+        "command": "node /usr/local/bin/appium --address 127.0.0.1 --port 4724 --log-level debug --relaxed-security",
+        "originalProcessGone": true,
+        "currentProcessAtPid": null
+      }
+    ],
+    "ownedProcesses": [],
+    "containerInterfaces": [
+      "lo"
+    ],
+    "passed": true
+  }
+}

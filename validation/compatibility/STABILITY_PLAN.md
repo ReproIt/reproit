@@ -126,6 +126,7 @@ qualification levels.
 - Linux Qt Quick/QML: already satisfies every recorded qualification slot
 - Linux Qt Widgets: already satisfies every recorded qualification slot
 - Linux wxWidgets: already satisfies every recorded qualification slot
+- React Native Android: already satisfies every recorded qualification slot
 - SwiftUI iOS: already satisfies every recorded qualification slot
 - Terminal UI: already satisfies every recorded qualification slot
 - Web Chromium: already satisfies every recorded qualification slot
@@ -210,55 +211,6 @@ complete target-specific record validates.
     revision pair was tested for discrimination. Repairing syspolicyd needs root
 - Promotion gate:
   - Set `macos-ax.maturity` to `stable` only after the benchmark,
-    qualification slots, required-CI gates, and blockers validate together.
-- Qualification dependency:
-  - After Stable, run the target-specific fixture chain and then a distinct
-    independent application chain. Retain and validate both records.
-
-### React Native Android
-
-- Target id: `react-native-android`
-- Current maturity: Preview
-- Environment: android-emulator; x86_64
-- Runtime bound: Hermes, Appium UiAutomator2
-- Framework bound: React Native
-- Native gates:
-  - `react-native-android`: required-ci in .github/workflows/native-gates.yml job `android-hosted`
-    ```sh
-    bash validation/backends/with-appium.sh bash \
-      validation/backends/run-react-native-android.sh
-    ```
-- Field benchmark: `validation/field/react-native-android.json`
-- Open blockers:
-  - [incomplete-evidence] one of the two required application campaigns is complete. joplin, issue
-    15004, affected de637847 and fixed 623da377: three affected reproductions all landing on react-
-    native-navigation:hardware-back-exits-app-after-deleted-notebook, three fixed controls all
-    returning to the note list, neighbouring legal behaviour holding on both revisions, and a
-    passing cleanup audit. MissingCore/Music is discarded rather than retried: with all four
-    fixtures confirmed in MediaStore before launch and the media permission granted, its library
-    reports zero tracks for the full 300 second bound, which is a property of that application and
-    not a gap in the harness. streetwriters/notesnook replaces it and is no longer blocked on a
-    build. Both release APKs are built on the strix x86_64 worker, affected 14f727d6 sha256
-    0e4cc6f1e804b5a40da4e7e798a3201c9c88bfa2c1e8babc5c5e3b42a2d24805 and fixed 7c3fdab6 sha256
-    06302f8e554df5460d2f870a76809dc4c2b8374e269b0ad509d83397f6dc09d8, which needed two inputs
-    neither recorded before: Gradle 9.0.0 refuses JDK 21 with a missing JvmVendorSpec.IBM_SEMERU
-    field and needs JDK 17, and npm run tx mobile:build has to build the workspace packages before
-    the bundle or rspack compiles with 402 unresolved @notesnook imports, emits nothing, and
-    repack's CLI exits 0 reporting only an ENOENT on index.bundle. The pair then discriminated on a
-    pixel_6 x86_64 AVD inside the pinned worker image, on issue 7348: after one note is linked to
-    notebook Alpha and then relinked to Beta in single-select mode, the affected build leaves the
-    note row reading Alpha and Beta while the fixed build leaves it reading Beta alone. What is
-    missing is the campaign itself: react_native_android_campaign.py has no notesnook observer, so
-    no benchmark run has been performed and none is written up
-  - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target. The subjects are chosen and follow from the notesnook
-    observable, which is the pair of notebook sets linked before and after the relink: a clean
-    subject is the fixed build's plain first link, and the two adversarial subjects are the affected
-    build with the selection reverted by the header restore button, and the affected build relinking
-    from two already-linked notebooks, where multi-select legitimately keeps them. Both need the
-    notesnook observer that the first blocker names
-- Promotion gate:
-  - Set `react-native-android.maturity` to `stable` only after the benchmark,
     qualification slots, required-CI gates, and blockers validate together.
 - Qualification dependency:
   - After Stable, run the target-specific fixture chain and then a distinct
@@ -351,7 +303,7 @@ when this plan was generated. Each row is complete only at `IndependentQualified
 | `linux-qt-widgets` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `linux-wxwidgets` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `macos-ax` | Preview | Unqualified | Stable + `IndependentQualified` |
-| `react-native-android` | Preview | Unqualified | Stable + `IndependentQualified` |
+| `react-native-android` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `react-native-ios` | Preview | Unqualified | Stable + `IndependentQualified` |
 | `swiftui-ios` | Stable | Unqualified | Stable + `IndependentQualified` |
 | `tauri-linux` | Preview | Unqualified | Stable + `IndependentQualified` |

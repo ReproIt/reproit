@@ -546,3 +546,25 @@ before the benchmark: affected reproduced
 in Alpha and Beta, fixed did not reproduce with the note in Beta alone, and the
 neighbouring first link left the note in Alpha on both revisions. That is one
 run per revision and is recorded as exactly that, not as a benchmark.
+
+### The executed benchmark
+
+The campaign then ran complete, in exact mode from a committed tree, as eleven
+observations each on its own recreated `pixel_6` AVD inside one bounded
+container with Docker network mode none: three affected reproductions, three
+fixed controls, the neighbouring first link on both revisions, and the three
+corpus subjects. Every affected run landed on
+`react-native-state:single-select-relink-keeps-previous-notebook` with the note
+in Alpha and Beta, every fixed run reached the same observation with the note
+in Beta alone, the neighbouring first link left the note in Alpha on both
+revisions, and the three corpus subjects reported nothing. The cleanup audit
+passed. It is written up in
+`validation/field/evidence/notesnook-relink-keeps-notebook-7348.md` and
+`validation/field/corpus/react-native-android.json`, and it is what promotes
+this target.
+
+One observation, fixed run 1, took two infrastructure attempts: the first
+Appium session was refused with `adb: device offline` while the driver was
+clearing the hidden API policy, before any step of the trigger ran, and the
+bounded retry recreated the AVD and ran the whole observation again. The reason
+string is retained verbatim in the runs file.

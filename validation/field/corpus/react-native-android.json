@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "target": "react-native-android",
+  "worker": {
+    "image": "reproit-android-x86-07cae9bc60e8a40263ee:df8ee9949675",
+    "platform": "android-emulator/x86_64-api36",
+    "network": "none"
+  },
+  "cleanCases": 1,
+  "adversarialCases": 2,
+  "confirmedFalsePositives": 0,
+  "unreachedObservations": 0,
+  "containersRemaining": 0,
+  "cases": [
+    {
+      "id": "notesnook-clean-first-link",
+      "kind": "clean",
+      "application": "notesnook-link-notebooks-7348-fixed",
+      "repository": "https://github.com/streetwriters/notesnook",
+      "revision": "7c3fdab6eec0c083ef4c3b12ff16ba0d2f8aff2c",
+      "fixture": null,
+      "variant": "first-link",
+      "why": "The ordinary use of the same screen on the fixed build, one note linked to one notebook, is the known-good subject the relink is a variation of.",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "observationMode": "first-link",
+        "notebooksAfterFirstLink": [
+          "Alpha"
+        ],
+        "notebooksAfterTrigger": [
+          "Alpha"
+        ],
+        "automation": "Appium 3.5.2 with UiAutomator2 8.0.0",
+        "sessionId": "849ccad8-6d92-444c-8fe5-7c9c81bd427b",
+        "sourceSha256": "sha256:23b2483ef91cb942df2bec92ab349e7f1b70ce9020d50abbf7d9153bfdc06439",
+        "screenshotSha256": "sha256:da1d2249314252476f0e3d51be47cc2a3490200c7fe5970bb8f74155a89a6dba",
+        "reset": "fresh API 36 x86_64 AVD, -wipe-data, -no-snapshot"
+      }
+    },
+    {
+      "id": "notesnook-adversarial-restored-selection",
+      "kind": "adversarial",
+      "application": "notesnook-link-notebooks-7348-affected",
+      "repository": "https://github.com/streetwriters/notesnook",
+      "revision": "14f727d6e630f60299f1ceae42e48685e87cba8f",
+      "fixture": null,
+      "variant": "adversarial-restored-selection",
+      "why": "The affected build, with the relink selected and then reverted by the header restore button, reaches the defective code path's screen and leaves the note where it was, so a verdict keyed on the screen rather than on the saved relations would report it.",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "observationMode": "adversarial-restored-selection",
+        "notebooksAfterFirstLink": [
+          "Alpha"
+        ],
+        "notebooksAfterTrigger": [
+          "Alpha"
+        ],
+        "automation": "Appium 3.5.2 with UiAutomator2 8.0.0",
+        "sessionId": "94332731-ca13-4457-b2cf-e6a7b7988b88",
+        "sourceSha256": "sha256:7e89c0c66150538636a34756d61d1bd79833e2698ece67160c01719b9326ba4c",
+        "screenshotSha256": "sha256:8ffb718d023d939b32ad28ffae9d3bc98372a36a0fbbecbddfd24d247a61aca8",
+        "reset": "fresh API 36 x86_64 AVD, -wipe-data, -no-snapshot"
+      }
+    },
+    {
+      "id": "notesnook-adversarial-multi-select",
+      "kind": "adversarial",
+      "application": "notesnook-link-notebooks-7348-affected",
+      "repository": "https://github.com/streetwriters/notesnook",
+      "revision": "14f727d6e630f60299f1ceae42e48685e87cba8f",
+      "fixture": null,
+      "variant": "adversarial-multi-select",
+      "why": "The affected build relinking from two already-linked notebooks opens in multi-select, where keeping both of them is the documented behaviour, so a verdict keyed on a surviving previous notebook would report it.",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "identity": null,
+        "observationMode": "adversarial-multi-select",
+        "notebooksAfterFirstLink": [
+          "Alpha",
+          "Beta"
+        ],
+        "notebooksAfterTrigger": [
+          "Alpha",
+          "Beta",
+          "Gamma"
+        ],
+        "automation": "Appium 3.5.2 with UiAutomator2 8.0.0",
+        "sessionId": "820a7e05-1315-4023-bf47-54eafe6d539b",
+        "sourceSha256": "sha256:1797403d781b3d76ce49b8e196304108d769811587f117b2056ce19c49f269bc",
+        "screenshotSha256": "sha256:f89e3906fe7455bf213364c24aa6f6504e17e089163626da78500770479634ab",
+        "reset": "fresh API 36 x86_64 AVD, -wipe-data, -no-snapshot"
+      }
+    }
+  ]
+}

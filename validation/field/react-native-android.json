@@ -1,7 +1,7 @@
 {
  "schemaVersion": 3,
  "target": "react-native-android",
- "status": "pending",
+ "status": "complete",
  "applications": [
   {
    "id": "joplin-back-after-delete-15028",
@@ -67,6 +67,72 @@
     "validation/field/evidence/joplin-back-after-delete-15028.json",
     "validation/field/evidence/joplin-back-after-delete-15028.md",
     "validation/field/evidence/joplin-back-after-delete-15028-runs.jsonl"
+   ]
+  },
+  {
+   "id": "notesnook-relink-keeps-notebook-7348",
+   "repository": "https://github.com/streetwriters/notesnook",
+   "issueUrl": "https://github.com/streetwriters/notesnook/issues/7348",
+   "affectedRevision": "14f727d6e630f60299f1ceae42e48685e87cba8f",
+   "fixedRevision": "7c3fdab6eec0c083ef4c3b12ff16ba0d2f8aff2c",
+   "authority": "platform",
+   "expectedIdentity": "react-native-state:single-select-relink-keeps-previous-notebook",
+   "affectedReproductions": [
+    {
+     "status": "reproduced",
+     "identity": "react-native-state:single-select-relink-keeps-previous-notebook",
+     "cleanLaunch": true,
+     "observationReached": true
+    },
+    {
+     "status": "reproduced",
+     "identity": "react-native-state:single-select-relink-keeps-previous-notebook",
+     "cleanLaunch": true,
+     "observationReached": true
+    },
+    {
+     "status": "reproduced",
+     "identity": "react-native-state:single-select-relink-keeps-previous-notebook",
+     "cleanLaunch": true,
+     "observationReached": true
+    }
+   ],
+   "fixedReproductions": [
+    {
+     "status": "not_reproduced",
+     "identity": null,
+     "cleanLaunch": true,
+     "observationReached": true
+    },
+    {
+     "status": "not_reproduced",
+     "identity": null,
+     "cleanLaunch": true,
+     "observationReached": true
+    },
+    {
+     "status": "not_reproduced",
+     "identity": null,
+     "cleanLaunch": true,
+     "observationReached": true
+    }
+   ],
+   "minimized": true,
+   "controls": [
+    "fixed-revision",
+    "neighboring-legal-behavior"
+   ],
+   "manualReview": "confirmed-target-bug",
+   "metrics": {
+    "setupSeconds": 308,
+    "replaySecondsP95": 63.944,
+    "peakMemoryMiB": null,
+    "memoryMeasurement": "unavailable"
+   },
+   "evidence": [
+    "validation/field/evidence/notesnook-relink-keeps-notebook-7348.json",
+    "validation/field/evidence/notesnook-relink-keeps-notebook-7348.md",
+    "validation/field/evidence/notesnook-relink-keeps-notebook-7348-runs.jsonl"
    ]
   }
  ]

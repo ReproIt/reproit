@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "react-native-android-field-campaign",
+  "changeType": "tooling",
+  "detail": "react-native-android is promoted to Stable on a second executed application campaign and its first clean and adversarial corpus. streetwriters/notesnook issue 7348, affected 14f727d6 and fixed 7c3fdab6, ran complete in exact mode from a committed tree as eleven observations, each on its own recreated pixel_6 AVD on android-36 x86_64 inside one bounded container with Docker network mode none. All three affected runs landed on react-native-state:single-select-relink-keeps-previous-notebook with the note row reading Alpha and Beta, all three fixed runs reached the same observation with it reading Beta alone, the neighbouring first link left the note in Alpha on both revisions, and the cleanup audit passed. The corpus is one clean and two adversarial subjects with zero false positives: the fixed build's plain first link, the affected build with the relink selected and then reverted by the header restore button, which reaches the defective screen and leaves the note where it was, and the affected build relinking from two already-linked notebooks, where the screen opens in multi-select and keeping both is the documented behaviour. Both adversarial subjects would be reported by a verdict keyed on the screen or on a surviving previous notebook rather than on the saved relations, which is why they are the corpus. One observation, fixed run 1, took two infrastructure attempts after Appium was refused with adb: device offline before any step of the trigger ran; the reason string is retained verbatim rather than smoothed away. The joplin campaign is unchanged, and with the second application executed the benchmark is complete and the two typed blockers this target carried are answered.",
+  "evidence": [
+    {
+      "path": "validation/field/react-native-android.json",
+      "sha256": "sha256:41b7b9ceb5ffce29eaffbafa889b8a3917113a3541cf7a5efb675bdce83e0b77"
+    },
+    {
+      "path": "validation/field/corpus/react-native-android.json",
+      "sha256": "sha256:4937cf602eed173a8acce19877feba0dda163b9d009700223d5e3541a0cd4e5f"
+    }
+  ]
+}
