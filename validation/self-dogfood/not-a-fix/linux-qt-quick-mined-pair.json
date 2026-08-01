@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "linux-qt-quick-mined-pair",
+  "changeType": "tooling",
+  "detail": "Mines a fresh Qt Quick defect rather than treating the recorded candidate list as the pool, and verifies it separates. kalk 67e5d3d versus 662aa91, bugs.kde.org 475907, was found by searching kalk's history for commits citing a bug id and taking the fix and its parent. It separates cleanly through the AT-SPI text interface: typing 1+1 then pressing equals twice leaves the affected build showing nothing and the fixed build still showing 2, with the first equals yielding 2 on both, which is the neighbouring legal control built into the same trigger. elisa was built at both revisions in 38 seconds once KF6Codecs, FileMetaData, XmlGui, KIO, QQC2DesktopStyle and Baloo were present, so its dependency chain was time rather than a wall, but its Space candidate does not separate: the global Play-Pause shortcut consumes Space before the focused button sees it on both revisions, while Return activates the button on both. francis cannot be linked at 1ccca90 on this toolchain. Every elimination is retained per revision. No run was recorded for any campaign, because none was performed. No runtime product behavior changes.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/linux-qt-quick-discrimination.jsonl",
+      "sha256": "sha256:c40cc4a4445f73b351c7261a673d1fc69bfc1aa8df7a47bb2bd395c2bdd94507"
+    }
+  ]
+}
