@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "react-native-notesnook-build-and-discrimination",
+  "changeType": "maintenance",
+  "detail": "streetwriters/notesnook is the second application for both react-native targets, and this records what executing it settled. Its Android release APKs are built at both revisions on the strix x86_64 worker, affected 14f727d6 and fixed 7c3fdab6, which the previous record listed as blocked on the development Mac. Two build inputs were missing and each was found by a failed run rather than by inspection. Gradle 9.0.0 refuses JDK 21, dying during settings evaluation with a missing JvmVendorSpec.IBM_SEMERU field, and needs JDK 17. And the workspace packages have to be built with npm run tx mobile:build before the bundle: without it rspack compiles with 402 unresolved @notesnook imports, emits nothing at all, and repack's CLI exits 0 reporting only an ENOENT on index.bundle, so the visible failure is hermesc exit 5 several steps downstream. An earlier reading blamed npm install --legacy-peer-deps for resolving a graph the lockfile does not describe; switching to the project's own npm ci --ignore-scripts reproduced the failure exactly, so that reading is corrected on the record rather than replaced. The pair then discriminated, executed on a pixel_6 AVD on android-36 x86_64 inside the pinned worker image, on issue 7348: one note linked to notebook Alpha and then relinked to Beta in single-select mode leaves the affected build's note row reading Alpha and Beta, and the fixed build's reading Beta alone. The emulator finding is retained too, because it cost hours: outside the worker image this emulator segfaults about a minute in with -gpu off and the host has no Xvfb, and inside it segfaults under swiftshader_indirect; it is stable only under the flags the committed campaign already uses, -gpu host -feature -Vulkan -no-metrics with Xvfb. No benchmark run has been performed and none is written up: react_native_android_campaign.py has no notesnook observer yet. Both targets therefore stay Preview, and their typed blockers now say exactly what is proven and what is missing, including the three corpus subjects that follow from the observable and the exact bootstrap command the iOS build still needs on a host whose syspolicyd is not wedged.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/react-native-android-field-runner.md",
+      "sha256": "sha256:481ad742766af5cef74d18a89fdbcb5782bab05f50e7dba8bb69953927d90cf0"
+    }
+  ]
+}
