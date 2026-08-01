@@ -187,21 +187,22 @@ complete target-specific record validates.
     ```
 - Field benchmark to create: `validation/field/linux-qt-quick.json`
 - Open blockers:
-  - [incomplete-evidence] no application campaign has been executed, and the two candidates that
-    build were both executed against their triggers and did not separate their revisions. kalk
-    940abaf versus b452c5a: under de_DE.UTF-8 the affected build already evaluates the comma decimal
-    '1,5+1' to '2,5' read through the AT-SPI text interface, because libqalculate parses the
-    separator itself, so the normalisation the fix adds changes nothing observable. kclock ac9abd2
-    versus 033e713: with a preset seeded into kclockrc the preset row is showing on both revisions,
-    so the isMobile gate the fix removes is not gating anything on this worker. Both are discarded
-    rather than forced
-  - [incomplete-evidence] a third Qt Quick application has to be mined, because the qualified pool
-    is now exhausted. marknote needs KF 6.21 against trixie's 6.13; keysmith 477812 is severity
-    wishlist rather than a defect; kalk and kclock are the two discarded above. elisa 18e843d versus
-    5b191f1 is the only qualified candidate left and its build was started but not completed: it
-    wants KF6Codecs and a further chain a music player pulls in, which is materially larger than the
-    two calculators. Its trigger is otherwise sound on paper, since the fix removes a key event
-    filter and the observable is whether Space toggles a focused player-control button
+  - [incomplete-evidence] one of the two required applications has a freshly mined, verified-
+    discriminating pair and the second does not exist yet. kalk 67e5d3d versus 662aa91, bugs.kde.org
+    475907, separates cleanly through the AT-SPI text interface: after typing 1+1 and pressing
+    equals twice the affected build shows nothing and the fixed build still shows 2, while the first
+    equals yields 2 on both. What is missing is a second independent repository with a pair that
+    separates, and then three affected reproductions, three fixed controls and a corpus
+  - [incomplete-evidence] six candidate applications have been eliminated by running or building
+    them, not by reading. kalk 507525 and kclock 505636 both fail to separate their revisions on
+    this worker. elisa 476532 fails to separate because Space never reaches the focused player
+    button on either revision, the global Play-Pause shortcut consuming it first, while Return
+    activates the button on both. marknote needs KF 6.21 against trixie's 6.13. francis 480512
+    cannot be linked at 1ccca90 on this toolchain, its static library and its executable both moc
+    Controller, and patching the application under test would compromise the campaign. kclock
+    464252, the timer add-a-minute defect, is Qt5-era at 1a02e4d and will not configure against a
+    Qt6 image at all; a current-master kclock defect would additionally need its own kclockd
+    running, because TimerModel reaches the daemon over D-Bus rather than a config file
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target
 - Promotion gate:
