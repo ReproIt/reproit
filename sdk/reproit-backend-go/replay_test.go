@@ -55,7 +55,7 @@ func TestReplayLoadsExchangesAndEnvelope(t *testing.T) {
 	if len(loaded.exchanges) != 2 {
 		t.Fatalf("expected two exchanges, got %d", len(loaded.exchanges))
 	}
-	if loaded.envelope["tz"] != "Europe/Berlin" {
+	if fieldString(loaded.envelope, "tz") != "Europe/Berlin" {
 		t.Fatalf("envelope lost: %v", loaded.envelope)
 	}
 }
@@ -194,25 +194,31 @@ func TestTruncatedRecordedBodyFailsClosed(t *testing.T) {
 	}
 }
 
-func TestStrictOrdinalMatchingRefusesToSkipAnExchange(t *testing.T) {
+func TestStrictOrdinalWithinOneOperationRefusesToSkip(t *testing.T) {
+	// Two exchanges of the SAME operation (an LLM tool-call loop shape): the
+	// next unconsumed one is the only candidate, so probing with the second
+	// body first must diverge, never silently skip ahead.
 	payload := `{
       "format": "reproit-backend-capture", "version": 2,
       "operation": "GET /quote", "oracle": "backend-server-error",
       "events": [
         {"kind": "effect", "sequence": 1, "effect": "call",
          "exchange": {"protocol": "http",
-           "request": {"method": "GET", "url": "http://svc/first"},
+           "request": {"method": "POST", "url": "http://svc/chat",
+                       "body": {"turn": 1}},
            "response": {"status": 200}}},
         {"kind": "effect", "sequence": 2, "effect": "call",
          "exchange": {"protocol": "http",
-           "request": {"method": "GET", "url": "http://svc/second"},
+           "request": {"method": "POST", "url": "http://svc/chat",
+                       "body": {"turn": 2}},
            "response": {"status": 200}}}]}`
 	loaded := loadedCapture(t, payload)
 	stderr := os.Stderr
 	devNull, _ := os.Open(os.DevNull)
 	os.Stderr = devNull
-	// Asking for the SECOND exchange first must diverge, not silently skip.
-	request, _ := http.NewRequest(http.MethodGet, "http://svc/second", nil)
+	request, _ := http.NewRequest(http.MethodPost, "http://svc/chat",
+		strings.NewReader(`{"turn":2}`))
+	request.Header.Set("Content-Type", "application/json")
 	response, err := loaded.serveHTTP(request)
 	os.Stderr = stderr
 	_ = devNull.Close()
@@ -221,6 +227,182 @@ func TestStrictOrdinalMatchingRefusesToSkipAnExchange(t *testing.T) {
 	}
 	if response.StatusCode != 599 {
 		t.Fatalf("out-of-order call was matched fuzzily: %d", response.StatusCode)
+	}
+}
+
+func TestOperationsAreIndependentOrdinalQueues(t *testing.T) {
+	// Different operations may interleave (database pooling, tool-call
+	// loops): consuming a later-recorded operation first is not a skip.
+	payload := `{
+      "format": "reproit-backend-capture", "version": 2,
+      "operation": "GET /quote", "oracle": "backend-server-error",
+      "events": [
+        {"kind": "effect", "sequence": 1, "effect": "call",
+         "exchange": {"protocol": "http",
+           "request": {"method": "GET", "url": "http://svc/first"},
+           "response": {"status": 201}}},
+        {"kind": "effect", "sequence": 2, "effect": "call",
+         "exchange": {"protocol": "http",
+           "request": {"method": "GET", "url": "http://svc/second"},
+           "response": {"status": 202}}}]}`
+	loaded := loadedCapture(t, payload)
+	request, _ := http.NewRequest(http.MethodGet, "http://svc/second", nil)
+	response, err := loaded.serveHTTP(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != 202 {
+		t.Fatalf("independent operation did not match: %d", response.StatusCode)
+	}
+	request, _ = http.NewRequest(http.MethodGet, "http://svc/first", nil)
+	response, err = loaded.serveHTTP(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != 201 {
+		t.Fatalf("first operation lost after interleave: %d", response.StatusCode)
+	}
+}
+
+func TestRecordedStreamReplaysChunkForChunk(t *testing.T) {
+	payload := `{
+      "format": "reproit-backend-capture", "version": 2,
+      "operation": "GET /quote", "oracle": "backend-server-error",
+      "events": [{"kind": "effect", "sequence": 1, "effect": "call",
+        "exchange": {"protocol": "http",
+          "request": {"method": "GET", "url": "http://llm.internal/stream"},
+          "response": {"status": 200,
+            "headers": {"content-type": "text/event-stream"},
+            "body": "data: a\n\ndata: b\n\ndata: c\n\n",
+            "stream": {"chunks": [9, 9, 9]}}}}]}`
+	loaded := loadedCapture(t, payload)
+	request, _ := http.NewRequest(http.MethodGet, "http://llm.internal/stream", nil)
+	response, err := loaded.serveHTTP(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunks := []string{}
+	buffer := make([]byte, 4096)
+	for {
+		read, readErr := response.Body.Read(buffer)
+		if read > 0 {
+			chunks = append(chunks, string(buffer[:read]))
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	if len(chunks) != 3 || chunks[0] != "data: a\n\n" || chunks[2] != "data: c\n\n" {
+		t.Fatalf("recorded chunk boundaries lost: %q", chunks)
+	}
+}
+
+func TestTruncatedStreamBoundariesFailClosed(t *testing.T) {
+	payload := `{
+      "format": "reproit-backend-capture", "version": 2,
+      "operation": "GET /quote", "oracle": "backend-server-error",
+      "events": [{"kind": "effect", "sequence": 1, "effect": "call",
+        "exchange": {"protocol": "http",
+          "request": {"method": "GET", "url": "http://llm.internal/stream"},
+          "response": {"status": 200, "body": "abc",
+            "stream": {"chunks": [1, 1], "truncated": true}}}}]}`
+	loaded := loadedCapture(t, payload)
+	stderr := os.Stderr
+	devNull, _ := os.Open(os.DevNull)
+	os.Stderr = devNull
+	request, _ := http.NewRequest(http.MethodGet, "http://llm.internal/stream", nil)
+	response, err := loaded.serveHTTP(request)
+	os.Stderr = stderr
+	_ = devNull.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != 599 {
+		t.Fatalf("truncated stream shape was served: %d", response.StatusCode)
+	}
+	body, _ := io.ReadAll(response.Body)
+	if !strings.Contains(string(body), "truncated-stream-boundaries") {
+		t.Fatalf("truncation reason missing: %s", body)
+	}
+}
+
+func TestDivergenceMarkerNamesTheFirstDifferingMessage(t *testing.T) {
+	payload := `{
+      "format": "reproit-backend-capture", "version": 2,
+      "operation": "GET /quote", "oracle": "backend-server-error",
+      "events": [{"kind": "effect", "sequence": 1, "effect": "call",
+        "exchange": {"protocol": "http",
+          "request": {"method": "POST", "url": "http://llm.internal/v1/chat",
+            "body": {"messages": [
+              {"role": "user", "content": "hello"},
+              {"role": "assistant", "content": "hi"},
+              {"role": "user", "content": "weather?"}]}},
+          "response": {"status": 200, "body": {"reply": "sunny"}}}}]}`
+	loaded := loadedCapture(t, payload)
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stderr := os.Stderr
+	os.Stderr = writer
+	probeBody := `{"messages":[{"role":"user","content":"hello"},` +
+		`{"role":"assistant","content":"hi"},` +
+		`{"role":"user","content":"DIFFERENT QUESTION"}]}`
+	request, _ := http.NewRequest(http.MethodPost, "http://llm.internal/v1/chat",
+		strings.NewReader(probeBody))
+	request.Header.Set("Content-Type", "application/json")
+	response, serveErr := loaded.serveHTTP(request)
+	os.Stderr = stderr
+	_ = writer.Close()
+	if serveErr != nil {
+		t.Fatal(serveErr)
+	}
+	if response.StatusCode != 599 {
+		t.Fatalf("prompt drift did not fail closed: %d", response.StatusCode)
+	}
+	emitted, _ := io.ReadAll(reader)
+	line := strings.TrimSuffix(string(emitted), "\n")
+	if !strings.HasPrefix(line, DivergenceMarker) {
+		t.Fatalf("marker missing: %q", line)
+	}
+	var report map[string]any
+	if json.Unmarshal([]byte(line[len(DivergenceMarker):]), &report) != nil {
+		t.Fatalf("marker is not JSON: %q", line)
+	}
+	delta, _ := report["bodyDelta"].(map[string]any)
+	if delta["kind"] != "message" || delta["firstDifferingMessage"] != float64(2) {
+		t.Fatalf("bodyDelta wrong: %v", report["bodyDelta"])
+	}
+	if delta["recordedMessages"] != float64(3) || delta["liveMessages"] != float64(3) {
+		t.Fatalf("bodyDelta message counts wrong: %v", delta)
+	}
+	// Byte-parity spot check: the marker's field order is the Node
+	// reference's insertion order, not Go's sorted-map order.
+	if !strings.HasPrefix(line, DivergenceMarker+`{"protocol":"http","got":`) {
+		t.Fatalf("marker field order broke Node parity: %q", line)
+	}
+}
+
+func TestBodyDeltaByteFallbackAndAbsentSentinel(t *testing.T) {
+	if delta := bodyDelta(absent, "anything"); delta != nil {
+		t.Fatalf("absent recorded body produced a delta: %v", delta)
+	}
+	if delta := bodyDelta("same", "same"); delta != nil {
+		t.Fatalf("matching bodies produced a delta: %v", delta)
+	}
+	// An explicit null is a value, distinct from absent: recorded nil
+	// wildcards, so no delta either.
+	if delta := bodyDelta(nil, "anything"); delta != nil {
+		t.Fatalf("recorded null wildcards, yet produced a delta: %v", delta)
+	}
+	delta, _ := bodyDelta("abcdef", "abcXef").(omap)
+	if delta == nil {
+		t.Fatal("differing bodies produced no delta")
+	}
+	kind, _ := delta.get("kind")
+	offset, _ := delta.get("offset")
+	if kind != "byte" || offset != json.Number("3") {
+		t.Fatalf("byte fallback wrong: %v", delta)
 	}
 }
 

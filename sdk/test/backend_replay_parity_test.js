@@ -190,6 +190,59 @@ function phpSide() {
   return output;
 }
 
+function rubySide() {
+  var script = [
+    'require "json"',
+    'require "stringio"',
+    'require_relative "lib/reproit_backend_rb"',
+    'capsule = JSON.parse($stdin.read)',
+    'session = ReproitBackendRb::Replay::Session.new(capsule)',
+    'served = ReproitBackendRb::Replay.serve_http(',
+    '  session, { "method" => "GET", "url" => "http://llm.internal/stream" })',
+    'held = StringIO.new',
+    'original = $stderr',
+    '$stderr = held',
+    'begin',
+    '  probe = { "method" => "POST", "url" => "http://llm.internal/v1/chat",',
+    '            "body" => { "messages" => [',
+    '              { "role" => "user", "content" => "hello" },',
+    '              { "role" => "assistant", "content" => "hi" },',
+    '              { "role" => "user", "content" => "DIFFERENT QUESTION" }] } }',
+    '  diverged = ReproitBackendRb::Replay.serve_http(session, probe)',
+    'ensure',
+    '  $stderr = original',
+    'end',
+    'marker = held.string.lines.map(&:chomp).find do |line|',
+    '  line.start_with?("REPROIT:DIVERGENCE ")',
+    'end',
+    'puts JSON.generate({',
+    '  "serve" => { "status" => served["status"], "bodyText" => served["body"],',
+    '               "chunks" => served["chunks"].map { |c| c.dup.force_encoding("UTF-8") } },',
+    '  "divergedBody" => diverged["body"],',
+    '  "marker" => marker,',
+    '})',
+  ].join('\n');
+  var result = child_process.spawnSync('ruby', ['-e', script], {
+    cwd: path.join(root, 'reproit-backend-rb'),
+    input: JSON.stringify(CAPSULE),
+    encoding: 'utf8',
+  });
+  assert.strictEqual(result.status, 0, 'ruby side failed: ' + (result.error || result.stderr));
+  var lines = result.stdout.trim().split('\n');
+  return JSON.parse(lines[lines.length - 1]);
+}
+
+function goSide() {
+  var result = child_process.spawnSync('go', ['run', './parityprobe'], {
+    cwd: path.join(root, 'reproit-backend-go'),
+    input: JSON.stringify(CAPSULE),
+    encoding: 'utf8',
+  });
+  assert.strictEqual(result.status, 0, 'go side failed: ' + (result.error || result.stderr));
+  var lines = result.stdout.trim().split('\n');
+  return JSON.parse(lines[lines.length - 1]);
+}
+
 var node = nodeSide();
 var python = pythonSide();
 
@@ -226,3 +279,35 @@ assert.strictEqual(
   'the php REPROIT:DIVERGENCE marker line must match byte for byte',
 );
 console.log('PASS: php replay is byte-identical to the Node reference (serve, 599, marker)');
+
+var ruby = rubySide();
+assert.deepStrictEqual(ruby.serve, node.serve, 'ruby served SSE exchange must match byte for byte');
+assert.strictEqual(
+  ruby.divergedBody,
+  node.divergedBody,
+  'the ruby served 599 divergence body must match byte for byte',
+);
+assert.strictEqual(
+  ruby.marker,
+  node.marker,
+  'the ruby REPROIT:DIVERGENCE marker line must match byte for byte',
+);
+console.log('PASS: ruby replay is byte-identical to the Node reference (serve, 599, marker)');
+
+var goReplay = goSide();
+assert.deepStrictEqual(
+  goReplay.serve,
+  node.serve,
+  'go served SSE exchange must match byte for byte',
+);
+assert.strictEqual(
+  goReplay.divergedBody,
+  node.divergedBody,
+  'the go served 599 divergence body must match byte for byte',
+);
+assert.strictEqual(
+  goReplay.marker,
+  node.marker,
+  'the go REPROIT:DIVERGENCE marker line must match byte for byte',
+);
+console.log('PASS: go replay is byte-identical to the Node reference (serve, 599, marker)');

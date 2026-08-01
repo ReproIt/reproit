@@ -56,7 +56,26 @@ const ASSERTION_MARKERS: [&str; 5] = [
 /// reported as one reproduction. When a signature must be loosened, the cost
 /// is always paid in the direction of calling different failures the same, so
 /// the bias here is to fold as little as possible.
+/// Rust's default panic line embeds the OS thread id: `thread 'main' (1681)
+/// panicked at ...`. The id changes on every run, so leaving it in makes a
+/// panic identity unmatchable with its own replay (measured on the bevy
+/// session subject: recorded exit 101, observed exit 101, INCONCLUSIVE).
+/// Fold exactly that token and nothing else; the thread NAME stays, because
+/// two panics on differently named threads are different failures.
+fn fold_thread_id(line: &str) -> String {
+    if let Some(start) = line.find("' (") {
+        let rest = &line[start + 3..];
+        if let Some(end) = rest.find(") panicked at ") {
+            if end > 0 && rest[..end].bytes().all(|b| b.is_ascii_digit()) {
+                return format!("{}{}", &line[..start + 1], &rest[end + 1..]);
+            }
+        }
+    }
+    line.to_string()
+}
+
 fn normalize_failure(line: &str) -> String {
+    let line = fold_thread_id(line);
     let mut out = String::with_capacity(line.len());
     let mut chars = line.chars().peekable();
     while let Some(c) = chars.next() {

@@ -41,6 +41,27 @@ class BehaviorVectorsTest < Minitest::Test
                  ReproitBackendRb::Replay::DIVERGENCE_MARKER
     assert_equal VECTORS["constants"]["maxExchangeBodyBytes"],
                  ReproitBackendRb::Exchange::MAX_EXCHANGE_BODY_BYTES
+    assert_equal VECTORS["constants"]["maxExchangeHeaders"],
+                 ReproitBackendRb::Exchange::MAX_EXCHANGE_HEADERS
+    assert_equal VECTORS["constants"]["maxPgRows"],
+                 ReproitBackendRb::Exchange::MAX_DB_ROWS
+  end
+
+  # The replay matcher is the other half of capture parity: the recorded
+  # side of each case is what THIS SDK writes, the live side is what a
+  # replayed app sends, and the verdicts must agree across every SDK.
+  def test_matching_vectors
+    VECTORS["matching"]["cases"].each do |kase|
+      actual = ReproitBackendRb::Replay.request_matches?("http", kase["recorded"], kase["live"])
+      assert_equal kase["expect"]["matches"], actual, "matching case #{kase['name']}"
+    end
+  end
+
+  def test_pg_matching_vectors
+    VECTORS["matching"]["pgCases"].each do |kase|
+      actual = ReproitBackendRb::Replay.request_matches?("pg", kase["recorded"], kase["live"])
+      assert_equal kase["expect"]["matches"], actual, "pg matching case #{kase['name']}"
+    end
   end
 
   # `bodyRepeat` keeps the vectors small on disk; expand both sides.
@@ -122,21 +143,15 @@ class BehaviorVectorsTest < Minitest::Test
   # longer STARTS the line and the CLI's prefix match failed, turning a
   # divergence into a reported reproduction.
   def test_divergence_marker_starts_the_line
+    kase = VECTORS["divergence"]["cases"][0]
     capsule = {
       "format" => "reproit-backend-capture",
       "version" => 2,
       "operation" => "GET /x",
       "oracle" => "backend-server-error",
-      "events" => [
-        {
-          "kind" => "effect",
-          "sequence" => 1,
-          "exchange" => {
-            "protocol" => "http",
-            "request" => { "method" => "GET", "url" => "http://svc/prices" },
-          },
-        },
-      ],
+      "events" => kase["capsuleExchanges"].each_with_index.map do |exchange, index|
+        { "kind" => "effect", "sequence" => index + 1, "exchange" => exchange }
+      end,
     }
     session = ReproitBackendRb::Replay::Session.new(capsule)
 
@@ -144,7 +159,9 @@ class BehaviorVectorsTest < Minitest::Test
     original = $stderr
     begin
       $stderr = captured
-      session.match("http", { "method" => "GET", "url" => "http://svc/unknown" })
+      hit = session.match("http", { "method" => kase["live"]["method"],
+                                    "url" => kase["live"]["url"] })
+      assert_nil hit, "an unmatched call must not serve an exchange"
     ensure
       $stderr = original
     end
@@ -159,6 +176,9 @@ class BehaviorVectorsTest < Minitest::Test
     VECTORS["divergence"]["reportFields"]["required"].each do |field|
       assert report.key?(field), "report is missing required field #{field}"
     end
+    assert_equal kase["expect"]["consumed"], report["consumed"]
+    assert_equal kase["expect"]["total"], report["total"]
+    assert_equal kase["expect"]["expectedRequest"], report["expected"]
   end
 
   def test_trigger_token_is_in_the_protocol_vocabulary

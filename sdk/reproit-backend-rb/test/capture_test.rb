@@ -101,6 +101,22 @@ class CaptureTest < Minitest::Test
     assert_equal "inventory", kept[1]["resource"]
   end
 
+  def test_payload_version_reflects_exchanges_and_envelope_stamps
+    plain = [{ "kind" => "start", "operation" => "op" },
+             { "kind" => "return", "status" => 500, "success" => false }]
+    payload, = R.capture_payload({ "operation" => "op", "status" => 500, "events" => plain })
+    assert_equal R::CAPTURE_VERSION, payload["version"]
+    stamped = [{ "kind" => "start", "operation" => "op", "at" => 1, "monoNs" => 0 },
+               { "kind" => "return", "status" => 500, "success" => false }]
+    envelope = R.determinism_envelope(1_753_747_200_000)
+    payload, = R.capture_payload(
+      { "operation" => "op", "status" => 500, "events" => stamped }, envelope
+    )
+    assert_equal R::CAPTURE_VERSION_EXCHANGES, payload["version"]
+    assert_equal envelope, payload["envelope"]
+    assert_match(/\A[0-9a-f]{16}\z/, payload["envelope"]["replaySeed"])
+  end
+
   def test_capture_that_cannot_fit_start_plus_return_is_omitted
     events = [
       {
