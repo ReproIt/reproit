@@ -260,18 +260,26 @@ complete target-specific record validates.
     passing cleanup audit. MissingCore/Music is discarded rather than retried: with all four
     fixtures confirmed in MediaStore before launch and the media permission granted, its library
     reports zero tracks for the full 300 second bound, which is a property of that application and
-    not a gap in the harness. streetwriters/notesnook replaces it. It is qualified offline with a
-    skippable signup, its release signingConfig uses the committed debug.keystore, and notesnook-
-    unlink-notebook-10053 has a verified pair, affected 14f727d6 and fixed 7c3fdab6, whose diff is
-    confined to one screen: in single-select mode the fix writes an explicit deselected state so a
-    notebook the user removed no longer stays linked. Both revisions are bootstrapped. Its Android
-    build has not completed: syspolicyd on the build host is wedged and processes Gradle spawns
-    sleep in _dyld_start, so the autolinking node and the editor bundle's vite both stall, though
-    the same commands run instantly from a shell. The autolink config is fed from a file to avoid
-    one of them and the build is driven by a bounded retry loop because Gradle resumes, which has
-    carried it into compilation
+    not a gap in the harness. streetwriters/notesnook replaces it and is no longer blocked on a
+    build. Both release APKs are built on the strix x86_64 worker, affected 14f727d6 sha256
+    0e4cc6f1e804b5a40da4e7e798a3201c9c88bfa2c1e8babc5c5e3b42a2d24805 and fixed 7c3fdab6 sha256
+    06302f8e554df5460d2f870a76809dc4c2b8374e269b0ad509d83397f6dc09d8, which needed two inputs
+    neither recorded before: Gradle 9.0.0 refuses JDK 21 with a missing JvmVendorSpec.IBM_SEMERU
+    field and needs JDK 17, and npm run tx mobile:build has to build the workspace packages before
+    the bundle or rspack compiles with 402 unresolved @notesnook imports, emits nothing, and
+    repack's CLI exits 0 reporting only an ENOENT on index.bundle. The pair then discriminated on a
+    pixel_6 x86_64 AVD inside the pinned worker image, on issue 7348: after one note is linked to
+    notebook Alpha and then relinked to Beta in single-select mode, the affected build leaves the
+    note row reading Alpha and Beta while the fixed build leaves it reading Beta alone. What is
+    missing is the campaign itself: react_native_android_campaign.py has no notesnook observer, so
+    no benchmark run has been performed and none is written up
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
-    positive rate is measured for this target
+    positive rate is measured for this target. The subjects are chosen and follow from the notesnook
+    observable, which is the pair of notebook sets linked before and after the relink: a clean
+    subject is the fixed build's plain first link, and the two adversarial subjects are the affected
+    build with the selection reverted by the header restore button, and the affected build relinking
+    from two already-linked notebooks, where multi-select legitimately keeps them. Both need the
+    notesnook observer that the first blocker names
 - Promotion gate:
   - Set `react-native-android.maturity` to `stable` only after the benchmark,
     qualification slots, required-CI gates, and blockers validate together.
@@ -303,8 +311,15 @@ complete target-specific record validates.
     neighbouring legal behaviour holding on both revisions, and the owned simulator deleted. The
     corpus is one clean and two adversarial subjects with zero false positives. The second
     application is what remains: BlueWallet is excluded outright because a pinned dependency
-    repository returns 404, and streetwriters/notesnook is bootstrapped with its pods resolving at
-    both revisions but is not built
+    repository returns 404, and streetwriters/notesnook is selected. Its defect is JavaScript, so
+    the trigger and the observable proven on Android carry over unchanged: issue 7348, affected
+    14f727d6 and fixed 7c3fdab6, one note relinked from notebook Alpha to Beta in single-select
+    mode, where the affected build leaves the note in both. Its iOS build is the missing input. The
+    bootstrap recipe is now known and is the project's own, npm ci --ignore-scripts then npm run
+    bootstrap -- --scope=mobile then npm run tx mobile:build, without which the bundle cannot
+    resolve @notesnook/intl. It did not complete on this host: syspolicyd has been wedged near a
+    full core since 6 July, a sampled /bin/sh script phase sat in _dyld_start having executed no
+    instruction, and the bootstrap and the xcodebuild script phases both stall there repeatedly
 - Promotion gate:
   - Set `react-native-ios.maturity` to `stable` only after the benchmark,
     qualification slots, required-CI gates, and blockers validate together.

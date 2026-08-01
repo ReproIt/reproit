@@ -342,3 +342,119 @@ pair or the trigger.
 `react_native_android_campaign.py` reached this repository's 1000 line ceiling
 with these changes, so the accessibility-tree addressing and the gestures both
 applications share moved into `react_native_android_ui.py`.
+
+## Notesnook: both APKs built, and the pair discriminates
+
+The previous section left the Notesnook Android build stalling on the
+development Mac. It is built now, at both revisions, on the strix x86_64 Linux
+worker that already hosts this lane, and the pair has been driven through the
+trigger on a real x86_64 emulator. Neither result depended on the Mac.
+
+| archive | revision | sha256 |
+| --- | --- | --- |
+| notesnook affected, `assembleRelease` x86_64 | `14f727d6e630f60299f1ceae42e48685e87cba8f` | `0e4cc6f1e804b5a40da4e7e798a3201c9c88bfa2c1e8babc5c5e3b42a2d24805` |
+| notesnook fixed, `assembleRelease` x86_64 | `7c3fdab6eec0c083ef4c3b12ff16ba0d2f8aff2c` | `06302f8e554df5460d2f870a76809dc4c2b8374e269b0ad509d83397f6dc09d8` |
+
+Three build inputs were missing, and each was found by a failed execution
+rather than by inspection.
+
+**Gradle 9 needs JDK 17, not 21.** The wrapper pins Gradle 9.0.0. Under JDK 21
+the build dies during settings evaluation with `Class
+org.gradle.jvm.toolchain.JvmVendorSpec does not have member field
+'org.gradle.jvm.toolchain.JvmVendorSpec IBM_SEMERU'`, before a single project
+is configured. Under JDK 17 the identical tree configures and builds.
+
+**The workspace packages have to be built before the bundle.** `npm ci
+--ignore-scripts` followed by `npm run bootstrap -- --scope=mobile` installs and
+rebuilds native dependencies; it never builds any workspace package's `dist`.
+Two full builds were spent on the symptom rather than the cause, because the
+symptom is silent: `:app:createBundleReleaseJsAndAssets` fails with `hermesc
+finished with non-zero exit value 5` and, above it, only
+
+    CLIError: ENOENT: no such file or directory, open
+    '.../apps/mobile/build/generated/android/index.bundle'
+
+Repack's CLI exits 0 in that state and prints no compilation error at all, and
+`--stats errors-warnings` prints nothing either. Running the application's own
+`rspack.config.js` directly, with `config.name` set to the platform the way the
+repack CLI sets it, reports what the CLI swallowed: `compiled with 402 errors`,
+every one of them `Cannot find module '@notesnook/intl'` or a sibling workspace
+import. Nothing is emitted, so the copy step opens a file that was never
+written. `npm run tx mobile:build` builds that graph through the project's own
+task runner, which is what its release workflows rely on, and with it the
+bundle, hermesc and `assembleRelease` all succeed.
+
+The first attempt at this diagnosis blamed `npm install --legacy-peer-deps`
+resolving a graph the lockfile does not describe. That was wrong: switching to
+`npm ci --ignore-scripts`, which is what the project's own workflow runs,
+produced exactly the same failure. The correction is on the record rather than
+quietly replaced, and `npm ci` is kept because it is the project's recipe.
+
+**The emulator cannot be driven from the host.** Outside the worker image it
+segfaults about a minute into startup with `-gpu off`, and the host has no Xvfb
+for `-gpu swiftshader_indirect`. Inside the pinned worker image it still
+segfaults under `swiftshader_indirect`, and it is stable only under the flags
+the committed campaign already uses: `-gpu host -feature -Vulkan -no-metrics`
+with Xvfb on `:99`. Two hours of emulator deaths were read as session teardown
+before the core dump was read; the harness had the answer in it all along.
+
+### The trigger, and the executed discrimination check
+
+`streetwriters/notesnook` issue 7348, "X-ing a Notebook from 'linked notebook'
+doesn't unlink notes from this Notebook", fixed by 7c3fdab6. The diff is one
+file, `apps/mobile/app/screens/link-notebooks/index.tsx`. In single-select mode
+the notebook row's `onPress` builds its next selection with `for (const key in
+keys)`, iterating the array's indices rather than its notebook ids, so the
+previously selected notebook is dropped from the selection map entirely instead
+of being marked. `onSave` then iterates only that map, so nothing ever unlinks
+it. The fix diffs the initial selection against the current one and writes an
+explicit `deselected` state for anything that was selected and no longer is.
+
+The trigger is the shortest sequence that reaches it, and every step is
+addressed by a `testID` the application's own Detox suite already uses:
+
+1. skip the signup, which the application allows offline;
+2. create notebooks Alpha and Beta from the sidebar (`left`, `tab-notebooks`,
+   `sidebar-add-button`, `title`, `yes`);
+3. create one note titled `TriggerNote`, typed into `editor-title`, which the
+   editor WebView does expose to the accessibility tree;
+4. link it to Alpha (`listitem.menu`, `icon-notebooks`, the notebook row,
+   `floating-save-button`). One relation means `multiSelect` is false;
+5. reopen the same screen, tap Beta, and save.
+
+The observable needs no navigation: the note row carries its linked notebooks
+in its own `content-desc`. Executed on a `pixel_6` AVD on
+`system-images;android-36;google_apis;x86_64` inside the pinned worker image,
+the same five steps on the two builds read
+
+| revision | note row after the relink |
+| --- | --- |
+| affected `14f727d6` | `02:15 PM, TriggerNote, <book>, Alpha, <book>, Beta` |
+| fixed `7c3fdab6` | `02:28 PM, TriggerNote, <book>, Beta` |
+
+`<book>` stands for the notebook glyph the row draws, which the dump escapes
+as the private-use codepoint `U+F0B64`. It is spelled out rather than pasted,
+because a private-use glyph does not survive every reader.
+
+The affected build keeps the note in Alpha as well as Beta; the fixed build
+unlinks Alpha. The pair discriminates, on the observable an Android adapter
+owns, before any run of the benchmark is spent on it.
+
+Three addressing lessons came out of driving it and belong in the campaign
+module rather than being rediscovered:
+
+- the header `left` button is the drawer toggle on a root screen and a back
+  arrow inside a notebook, and creating a notebook navigates into it, so the
+  sidebar has to be reopened from a root screen rather than assumed;
+- notebook rows are addressed by `notebook-item-<depth>-<index>` and sort
+  newest first, so Beta is index 0 and Alpha index 1 when Alpha is created
+  first;
+- every step needs a bounded wait for its node rather than one dump, because
+  two of the three failed passes were taps sent into a screen that had not
+  finished rendering.
+
+### What remains for this application
+
+The campaign module has no notesnook observer yet, so no benchmark run has been
+performed and none is written up. What is proven is the build at both
+revisions, the trigger, and that the pair separates.
