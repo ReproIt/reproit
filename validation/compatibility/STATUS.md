@@ -334,15 +334,12 @@ Generated from `validation/support-manifest.json`. Do not edit by hand.
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 - Promotion blockers:
-  - [incomplete-evidence] one of the two required independent application campaigns is executed. cc-
-    switch issue 4302 has three clean affected reproductions on one identity, three reached-
-    observation fixed controls, a minimized trigger, and both controls, and the clean and
-    adversarial corpus now measures the oracle on known-good subjects. The second application is
-    missing for a measured reason, not an untried one: this probe observes only the WebKitGTK
-    webview DOM, and readest and note-gen both need a native GTK window, readest to seed a library
-    and note-gen to observe a file chooser. readest builds in the worker and its argv path was
-    measured to open books transiently without importing them, so its library cannot be seeded
-    through this channel
+  - [incomplete-evidence] one of the two required independent application campaigns is executed,
+    with a clean and adversarial corpus behind its oracle. The second application is reachable but
+    not executed: the worker now has a second observation channel, AT-SPI for native windows, which
+    is fixture-proven and imports fourteen books through readest's real GTK chooser. Two inputs
+    remain: the element readest marks when a row is selected, since neither className nor computed
+    background-color changes, and a Next.js export that is not SIGKILLed by the 8 GB Docker VM
 
 ## Terminal UI
 

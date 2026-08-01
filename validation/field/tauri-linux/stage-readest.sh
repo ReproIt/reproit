@@ -30,6 +30,10 @@ export CARGO_TERM_COLOR=never
 # artifacts behind. Cargo then reports "can't find crate for cc" inside build
 # scripts, which reads like a toolchain fault and is not one. Bound the jobs.
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}"
+# The Next.js export is the other memory peak. Left unbounded, V8 grows until
+# the container is killed, and pnpm reports "Command was killed with SIGKILL"
+# with no other explanation. Bound the old space instead.
+export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=3072}"
 export NEXT_PUBLIC_APP_PLATFORM=tauri
 export NEXT_TELEMETRY_DISABLED=1
 
@@ -44,6 +48,9 @@ pnpm exec tauri build --debug --no-bundle \
 
 # readest is a cargo workspace, so the artifact lands in the workspace target
 # directory at the repository root, not under src-tauri.
-binary="$(find /work/target/debug -maxdepth 1 -type f -perm -u+x -name readest | head -1)"
+# The crate is named Readest, so the artifact is /work/target/debug/Readest.
+# A case-insensitive host mount hides this: `ls` finds the lowercase spelling
+# and `find -name` does not.
+binary="$(find /work/target/debug -maxdepth 1 -type f -perm -u+x -name Readest | head -1)"
 test -n "$binary" || { echo "no Tauri binary was produced" >&2; exit 1; }
 echo "staged $revision -> $binary"

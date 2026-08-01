@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "tauri-native-window-channel",
+  "changeType": "feature",
+  "detail": "Gives the tauri-linux worker a second observation channel. A Tauri application is not only its webview: file choosers, message dialogs, and menus are native GTK windows that WebDriver cannot see, so a run that opens one looked like a run where nothing happened, and two candidate applications were disqualified for that harness limit rather than for anything about them. The channel reads and drives native windows over AT-SPI, polls rather than reading the desktop once, and refuses to act on a subject that exposes no accessible action instead of falling back to synthetic keystrokes. It is proven on a GTK fixture whose own stdout is the pass condition, then exercised on the real subject: fourteen generated EPUBs imported through readest's actual GTK chooser and counted back from readest's bookshelf. The readest campaign itself is not executed and the target stays Preview.",
+  "evidence": [
+    {
+      "path": "validation/field/evidence/tauri-linux-native-window-channel.md",
+      "sha256": "sha256:d8b53505b3371cae593fca12aa0c888f003dfd833c96504112e999243963b6c0"
+    }
+  ]
+}

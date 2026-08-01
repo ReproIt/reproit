@@ -23,11 +23,17 @@ ENV PATH=/usr/local/cargo/bin:/usr/local/bin:$PATH \
     RUSTUP_HOME=/usr/local/rustup \
     DEBIAN_FRONTEND=noninteractive
 
+# python3-pyatspi and the AT-SPI typelib are the second observation channel.
+# A Tauri application is not only its webview: file choosers, message dialogs,
+# and menus are native GTK windows that WebDriver cannot see at all. The webview
+# channel stays primary; this one exists for the windows it cannot reach.
+# gir1.2-gtk-3.0 is here for the channel's own fixture, not for any subject.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential pkg-config ca-certificates curl git \
       libssl-dev libwebkit2gtk-4.1-dev webkit2gtk-driver \
       libayatana-appindicator3-dev librsvg2-dev \
       xvfb dbus dbus-x11 at-spi2-core \
+      python3 python3-gi python3-pyatspi gir1.2-atspi-2.0 gir1.2-gtk-3.0 \
   && rm -rf /var/lib/apt/lists/*
 
 RUN cargo install tauri-driver --locked
