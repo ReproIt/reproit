@@ -291,6 +291,24 @@ class BackendTrace:
                 fields["exchange"] = redacted_exchange
         self._push("effect", fields)
 
+    def oracle(self, oracle_id, detail=None):
+        """Mark an agent oracle on the trace: an authored assertion that this
+        operation violated its own contract (response content/shape,
+        guardrail, loop bound). The marker rides as an `emit` effect so the
+        wire vocabulary is unchanged; capture mode always uploads a marked
+        operation and its failure observation carries the marked id. Unknown
+        ids are rejected so a typo cannot mint an oracle category."""
+        from . import capture as _capture
+
+        if oracle_id not in _capture.AGENT_ORACLES:
+            raise TraceError("InvalidOperation")
+        self.effect(
+            "emit",
+            resource=_capture.ORACLE_MARKER_RESOURCE,
+            key=oracle_id,
+            detail=None if detail is None else {"payload": detail},
+        )
+
     def finish(self, output, status, success, effects_complete):
         if self.finished:
             raise TraceError("AlreadyFinished")

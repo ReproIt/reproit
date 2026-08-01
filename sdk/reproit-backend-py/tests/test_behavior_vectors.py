@@ -137,3 +137,41 @@ def test_trigger_token_is_in_the_protocol_vocabulary() -> None:
     for bad in VECTORS["triggerTokens"]["rejected"]:
         assert f'"{bad}"' not in source
         assert f"'{bad}'" not in source
+
+
+def test_matching_vectors() -> None:
+    for case in VECTORS["matching"]["cases"]:
+        actual = replay._http_request_matcher(case["recorded"], case["live"])
+        assert actual == case["expect"]["matches"], case["name"]
+
+
+def test_pg_matching_vectors() -> None:
+    for case in VECTORS["matching"]["pgCases"]:
+        actual = replay._db_request_matcher(case["recorded"], case["live"])
+        assert actual == case["expect"]["matches"], case["name"]
+
+
+def test_divergence_marker_starts_the_line_and_carries_required_fields(capsys) -> None:
+    case = VECTORS["divergence"]["cases"][0]
+    session = replay.ReplaySession(
+        {
+            "format": "reproit-backend-capture",
+            "version": 2,
+            "operation": "GET /x",
+            "oracle": "backend-server-error",
+            "events": [
+                {"kind": "effect", "sequence": index + 1, "exchange": exchange}
+                for index, exchange in enumerate(case["capsuleExchanges"])
+            ],
+        }
+    )
+    assert session.match("http", {"method": "GET", "url": "http://svc/unknown"}) is None
+    lines = capsys.readouterr().err.splitlines()
+    prefix = VECTORS["divergence"]["markerPrefix"]
+    marker = next(line for line in lines if line.startswith(prefix))
+    report = json.loads(marker[len(prefix):])
+    for field in VECTORS["divergence"]["reportFields"]["required"]:
+        assert field in report, field
+    assert report["consumed"] == case["expect"]["consumed"]
+    assert report["total"] == case["expect"]["total"]
+    assert report["expected"] == case["expect"]["expectedRequest"]

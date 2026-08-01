@@ -39,6 +39,35 @@ CAPTURE_VERSION = 1
 CAPTURE_VERSION_EXCHANGES = 2
 # First-class registry oracle id for an operation that returned HTTP 5xx.
 SERVER_ERROR_ORACLE = "backend-server-error"
+# Agent oracle vocabulary (registry ids, lowest confidence tier): authored
+# assertions an LLM/agent operation marks on its own trace via
+# `trace.oracle(id, detail)`. A marked operation is always captured and its
+# failure observation carries the marked id instead of the 5xx default.
+AGENT_RESPONSE_ORACLE = "agent-response-content"
+AGENT_GUARDRAIL_ORACLE = "agent-guardrail-violation"
+AGENT_LOOP_BOUND_ORACLE = "agent-loop-bound-exceeded"
+AGENT_ORACLES = (
+    AGENT_RESPONSE_ORACLE,
+    AGENT_GUARDRAIL_ORACLE,
+    AGENT_LOOP_BOUND_ORACLE,
+)
+# The effect resource that carries an oracle marker on the trace. A marker is
+# an `emit` effect so the scan-time wire shape stays inside the existing
+# event vocabulary.
+ORACLE_MARKER_RESOURCE = "reproit-oracle"
+
+
+def marked_oracle(events):
+    """First agent oracle marked on a finished trace's events, or None."""
+    for event in events or []:
+        if (
+            isinstance(event, dict)
+            and event.get("kind") == "effect"
+            and event.get("resource") == ORACLE_MARKER_RESOURCE
+            and event.get("key") in AGENT_ORACLES
+        ):
+            return event["key"]
+    return None
 
 # Bounds. Queue overflow drops the OLDEST pending operation; an oversized
 # capture payload drops trailing effect events before it drops itself.
@@ -97,13 +126,14 @@ def _capture_payload(operation, envelope=None):
     context budget; a payload that stays oversized with only start/return
     left is omitted entirely (None)."""
     events = list(operation["events"])
+    oracle = marked_oracle(events) or SERVER_ERROR_ORACLE
     dropped = 0
     while True:
         payload = {
             "format": CAPTURE_FORMAT,
             "version": _payload_version(events),
             "operation": operation["operation"],
-            "oracle": SERVER_ERROR_ORACLE,
+            "oracle": oracle,
             "events": events,
         }
         if envelope is not None:
@@ -249,7 +279,10 @@ class Capture:
             ):
                 status = None
             error = success is False or (status is not None and status >= 500)
-            if not error and not self._sample_healthy():
+            # A marked agent oracle is an authored failure assertion, so the
+            # operation is always captured, like a 5xx.
+            marked = marked_oracle(events) is not None
+            if not error and not marked and not self._sample_healthy():
                 return
             operation = events[0].get("operation") if events else None
             if not isinstance(operation, str):
@@ -441,16 +474,27 @@ class Capture:
             returned,
         )
         status = operation["status"]
-        if status is not None and status >= 500:
-            message = "backend operation %s returned HTTP %d" % (operation["operation"], status)
+        marked = marked_oracle(source_events)
+        if marked is not None or (status is not None and status >= 500):
+            oracle = marked or SERVER_ERROR_ORACLE
+            if marked is None:
+                message = "backend operation %s returned HTTP %d" % (
+                    operation["operation"],
+                    status,
+                )
+            else:
+                message = "agent oracle %s fired on %s" % (oracle, operation["operation"])
             event(
                 {
                     "kind": "observation",
                     "failure": {
-                        "observation": "exception",
+                        # A marked agent oracle is an authored assertion (a
+                        # declared contract the trace itself violated); a bare
+                        # 5xx stays the runtime exception it always was.
+                        "observation": "exception" if marked is None else "contract-violation",
                         "authority": "runtime-diagnosis",
                         "summary": message,
-                        "signature": SERVER_ERROR_ORACLE + ":" + operation["operation"],
+                        "signature": oracle + ":" + operation["operation"],
                         "observationPoint": operation["operation"],
                         "artifactIds": [],
                     },

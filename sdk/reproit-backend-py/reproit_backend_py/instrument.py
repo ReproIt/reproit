@@ -9,12 +9,14 @@ returned. Databases have no equivalent stdlib chokepoint and this SDK takes
 no driver dependency, so `db_run(text, values, live)` is the explicit
 boundary, the same decision the Rust adapter made for the same reason.
 
-`httpx` does NOT go through `http.client`: it carries its own `httpcore`
-transport, so the stdlib hook cannot see it. `install()` therefore also hooks
-`httpx.HTTPTransport.handle_request` and
-`httpx.AsyncHTTPTransport.handle_async_request` when httpx is importable.
-This is an OPTIONAL path: the import is attempted at install time and its
-absence is not an error, so the SDK keeps its zero-dependency runtime.
+`httpx` and `aiohttp` do NOT go through `http.client`: each carries its own
+transport, so the stdlib hook cannot see them. `install()` therefore also
+hooks them when importable (httpx_client.py, aiohttp_client.py), preserving
+streaming: chunk boundaries are observed as the app consumes the body, the
+LLM SSE shape. These are OPTIONAL paths: the imports are attempted at install
+time and their absence is not an error, so the SDK keeps its zero-dependency
+runtime. `wrap_psycopg(psycopg)` wraps the psycopg (v3) driver the same way
+the Node reference wraps pg.
 
 The exchange is what deterministic local replay stubs, so responses are
 captured verbatim up to a fixed inline budget; an over-budget body keeps its
@@ -45,6 +47,10 @@ MAX_EXCHANGE_BODY_BYTES = 8 * 1024
 MAX_EXCHANGE_HEADERS = 32
 # Rows recorded per database result; beyond it the result is marked truncated.
 MAX_DB_ROWS = 64
+# Stream chunk boundaries recorded per exchange (SSE / chunked responses, the
+# LLM streaming shape). Beyond it the boundaries are marked truncated and
+# replay fails closed rather than serve a wrong stream shape.
+MAX_STREAM_CHUNKS = 128
 # A response this large is passed through UNCAPTURED rather than buffered, so
 # a large download inside a traced request cannot balloon the host's memory.
 # Replay of such a call diverges (fails closed) instead of inventing bytes.
@@ -57,9 +63,11 @@ _STATE = {
     # instead of recording live ones.
     "session": None,
     "stats": {"captured_exchanges": 0, "truncated_bodies": 0, "failed_captures": 0},
-    # True when httpx was importable at install time and its transport is
-    # hooked; False means the host app has no httpx and none was needed.
+    # True when the named client library was importable at install time and
+    # its transport is hooked; False means the host app does not have it and
+    # no hook was needed.
     "httpx": False,
+    "aiohttp": False,
 }
 
 
@@ -81,6 +89,10 @@ def _bounded_body(body, content_type):
     in the trace layer sees fields, not text."""
     if body is None:
         return {}
+    # A BodyCollector that overflowed already reduced the body to provable
+    # identity; pass it through instead of stringifying the identity dict.
+    if isinstance(body, dict) and body.get("truncated") is True:
+        return body
     raw = body if isinstance(body, (bytes, bytearray)) else str(body).encode("utf-8")
     if len(raw) == 0:
         return {}
@@ -122,6 +134,61 @@ def _header_value(headers, name):
     return None
 
 
+class BodyCollector:
+    """Collect a stream's chunks up to one byte past the inline budget; enough
+    to know the true size class without holding unbounded memory. The sha256
+    runs over EVERY byte so truncated identity stays provable. Chunk
+    boundaries are recorded as observed byte lengths, bounded by
+    MAX_STREAM_CHUNKS; boundaries past the cap are counted, never guessed.
+
+    Python port of instrument.js bodyCollector."""
+
+    def __init__(self):
+        self._chunks = []
+        self._boundaries = []
+        self._bytes = 0
+        self._dropped_boundaries = 0
+        self._hash = hashlib.sha256()
+
+    def push(self, chunk):
+        raw = chunk if isinstance(chunk, (bytes, bytearray)) else str(chunk).encode("utf-8")
+        self._bytes += len(raw)
+        self._hash.update(raw)
+        if len(self._boundaries) < MAX_STREAM_CHUNKS:
+            self._boundaries.append(len(raw))
+        else:
+            self._dropped_boundaries += 1
+        if self._bytes <= MAX_EXCHANGE_BODY_BYTES:
+            self._chunks.append(bytes(raw))
+
+    def result(self):
+        """The collected body: None when empty, provable identity when over
+        budget, the raw bytes otherwise."""
+        if self._bytes == 0:
+            return None
+        if self._bytes > MAX_EXCHANGE_BODY_BYTES:
+            _STATE["stats"]["truncated_bodies"] += 1
+            return {
+                "bodyBytes": self._bytes,
+                "bodySha256": self._hash.hexdigest(),
+                "truncated": True,
+            }
+        return b"".join(self._chunks)
+
+    def stream(self, is_event_stream):
+        """Chunk boundaries as observed byte lengths. Recorded when the
+        response is a stream (SSE always; anything else only when it actually
+        arrived in more than one chunk, since a single-chunk body replays
+        identically without them)."""
+        if not self._boundaries:
+            return None
+        if not is_event_stream and len(self._boundaries) < 2 and self._dropped_boundaries == 0:
+            return None
+        if self._dropped_boundaries > 0:
+            return {"chunks": list(self._boundaries), "truncated": True}
+        return {"chunks": list(self._boundaries)}
+
+
 def record_exchange(trace, kind, resource, key, exchange):
     """Attach one bounded exchange to a trace. Public so an application can
     record a boundary this module does not hook."""
@@ -134,6 +201,18 @@ def record_exchange(trace, kind, resource, key, exchange):
 
 
 def _record_http_exchange(trace, request, response):
+    response_body = _bounded_body(response["body"], response["content_type"])
+    response_value = dict(
+        {"status": response["status"]},
+        **dict(_bounded_headers(response["headers"]), **response_body),
+    )
+    # Stream shape (SSE / chunked): observed chunk boundaries, so the whole
+    # stream is ONE logical exchange and replay can re-serve it chunk for
+    # chunk. A truncated inline body already fails closed, so boundaries are
+    # only kept for bodies recorded verbatim.
+    stream = response.get("stream")
+    if stream and response_body.get("truncated") is not True:
+        response_value["stream"] = stream
     record_exchange(
         trace,
         "call",
@@ -148,13 +227,7 @@ def _record_http_exchange(trace, request, response):
                     **_bounded_body(request["body"], request["content_type"]),
                 ),
             ),
-            "response": dict(
-                {"status": response["status"]},
-                **dict(
-                    _bounded_headers(response["headers"]),
-                    **_bounded_body(response["body"], response["content_type"]),
-                ),
-            ),
+            "response": response_value,
         },
     )
 
@@ -249,6 +322,16 @@ def _install_capture():
             return response
         try:
             headers = list(response.getheaders())
+            content_type = response.getheader("content-type") or ""
+            # The stdlib hook drains the body in one read, so the observed
+            # stream shape is coarse: SSE records its boundaries as observed
+            # HERE (one drained chunk). Fine-grained boundaries live on the
+            # httpx and aiohttp paths, which see chunks as the app consumes.
+            stream = None
+            if "text/event-stream" in content_type and body:
+                collector = BodyCollector()
+                collector.push(body)
+                stream = collector.stream(True)
             _record_http_exchange(
                 trace,
                 probe,
@@ -256,7 +339,8 @@ def _install_capture():
                     "status": response.status,
                     "headers": headers,
                     "body": body,
-                    "content_type": response.getheader("content-type") or "",
+                    "content_type": content_type,
+                    "stream": stream,
                 },
             )
         except Exception:
@@ -309,164 +393,62 @@ def _install_replay(session):
     http.client.HTTPSConnection.connect = connect
 
 
-def _httpx_module():
-    """The httpx module when the host app has it installed, else None. The
-    import is attempted once at install time so the SDK never depends on it."""
+def _optional_module(name):
+    """A client library the host app may or may not have installed. Absence
+    is not an error: the import is attempted once at install time and the
+    SDK never depends on it, so the runtime stays stdlib pure."""
     try:
-        import httpx
+        return __import__(name)
     except ImportError:
         return None
-    return httpx
-
-
-def _httpx_probe(request):
-    """The live probe for one httpx request, in the shape the matcher wants."""
-    content_type = request.headers.get("content-type") or ""
-    probe = {"method": str(request.method).upper(), "url": str(request.url)}
-    try:
-        raw = request.content
-    except Exception:
-        raw = None
-    if raw:
-        probe["body"] = _replay.try_json(
-            raw.decode("utf-8", errors="replace"), content_type
-        )
-    return probe
-
-
-def _install_httpx_capture(httpx):
-    """Record httpx exchanges at the transport boundary, the one place both
-    the sync and async clients funnel through."""
-    original_sync = httpx.HTTPTransport.handle_request
-    original_async = httpx.AsyncHTTPTransport.handle_async_request
-
-    def rebuilt(response, request, body):
-        # The real response is drained by read(), so hand the caller an
-        # identical one built over the bytes we hold.
-        return httpx.Response(
-            status_code=response.status_code,
-            headers=response.headers,
-            content=body,
-            request=request,
-            extensions=response.extensions,
-        )
-
-    def record(request, response, body):
-        trace = current_trace()
-        if trace is None:
-            return
-        try:
-            raw_request = request.content
-        except Exception:
-            raw_request = None
-        _record_http_exchange(
-            trace,
-            {
-                "method": str(request.method).upper(),
-                "path": request.url.raw_path.decode("ascii", errors="replace"),
-                "url": str(request.url),
-                "host": request.url.host,
-                "headers": dict(request.headers),
-                "body": raw_request,
-                "content_type": request.headers.get("content-type") or "",
-            },
-            {
-                "status": response.status_code,
-                "headers": list(response.headers.items()),
-                "body": body,
-                "content_type": response.headers.get("content-type") or "",
-            },
-        )
-
-    def oversized(response):
-        try:
-            declared = response.headers.get("content-length")
-            return declared is not None and int(declared) > MAX_TEE_BYTES
-        except (TypeError, ValueError):
-            return False
-
-    def handle_request(self, request):
-        response = original_sync(self, request)
-        if current_trace() is None or oversized(response):
-            return response
-        try:
-            body = response.read()
-        except Exception:
-            _STATE["stats"]["failed_captures"] += 1
-            return response
-        try:
-            record(request, response, body)
-        except Exception:
-            _STATE["stats"]["failed_captures"] += 1
-        return rebuilt(response, request, body)
-
-    async def handle_async_request(self, request):
-        response = await original_async(self, request)
-        if current_trace() is None or oversized(response):
-            return response
-        try:
-            body = await response.aread()
-        except Exception:
-            _STATE["stats"]["failed_captures"] += 1
-            return response
-        try:
-            record(request, response, body)
-        except Exception:
-            _STATE["stats"]["failed_captures"] += 1
-        return rebuilt(response, request, body)
-
-    httpx.HTTPTransport.handle_request = handle_request
-    httpx.AsyncHTTPTransport.handle_async_request = handle_async_request
-
-
-def _install_httpx_replay(httpx, session):
-    """Serve recorded exchanges to httpx in process: no connection is made,
-    and an unmatched call gets the same hard 599 the stdlib path serves."""
-
-    def served_response(request):
-        served = _replay.serve_http(session, _httpx_probe(request))
-        return httpx.Response(
-            status_code=served["status"],
-            headers=served["headers"],
-            content=served["body_text"].encode("utf-8"),
-            request=request,
-        )
-
-    def handle_request(self, request):
-        return served_response(request)
-
-    async def handle_async_request(self, request):
-        return served_response(request)
-
-    httpx.HTTPTransport.handle_request = handle_request
-    httpx.AsyncHTTPTransport.handle_async_request = handle_async_request
 
 
 def install():
     """Install the outbound hooks once, process wide. Idempotent. With
     REPROIT_REPLAY set the hooks serve the named capture instead of recording,
-    and the process clock zone and RNG pin to the capture envelope.
+    and the process clock, zone, and RNG pin to the capture envelope.
 
-    httpx is hooked only when the host app has it installed; its absence is
-    not an error and leaves the runtime stdlib pure."""
+    httpx and aiohttp are hooked only when the host app has them installed
+    (they carry their own transports and never touch http.client); psycopg is
+    wrapped explicitly via `wrap_psycopg`, like the Node reference's wrapPg."""
     if _STATE["installed"]:
         return _STATE
     replay_path = os.environ.get("REPROIT_REPLAY")
-    httpx = _httpx_module()
+    httpx = _optional_module("httpx")
+    aiohttp = _optional_module("aiohttp")
+    from . import aiohttp_client, httpx_client
+
     if replay_path:
         session = _replay.ReplaySession.load(replay_path)
         _STATE["session"] = session
         _replay.pin_envelope(session.envelope)
         _install_replay(session)
         if httpx is not None:
-            _install_httpx_replay(httpx, session)
+            httpx_client.install_replay(httpx, session)
+        if aiohttp is not None:
+            aiohttp_client.install_replay(aiohttp, session)
     else:
         _install_capture()
         if httpx is not None:
-            _install_httpx_capture(httpx)
+            httpx_client.install_capture(httpx)
+        if aiohttp is not None:
+            aiohttp_client.install_capture(aiohttp)
     _STATE["httpx"] = httpx is not None
+    _STATE["aiohttp"] = aiohttp is not None
     _STATE["installed"] = True
     return _STATE
+
+
+def wrap_psycopg(psycopg):
+    """Wrap the psycopg (v3) driver: statements and their results are recorded
+    as `pg` exchanges on the ambient trace, and with REPROIT_REPLAY set the
+    recorded results are served in process (psycopg.connect returns a stub,
+    so no server is dialed). Accepts the real module or any module-shaped
+    object exposing the same Cursor/connect surface. psycopg2 is NOT covered:
+    its cursor surface differs and wrapping it is a named capability gap."""
+    from . import psycopg_client
+
+    return psycopg_client.wrap(psycopg)
 
 
 def _db_effect_kind(text):

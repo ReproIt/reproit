@@ -71,6 +71,34 @@ them), bounded flush interval, per-request timeout, and at most `retry_limit` (c
 queued. Uploads use stdlib urllib on one daemon thread. `sdk/test/oracle_contract_test.js` pins
 the `backend-server-error` tagging contract.
 
+## Capsule parity (outbound capture + hermetic replay)
+
+This SDK is at full capsule parity with the Node reference (`sdk/reproit-backend-node`), pinned
+byte-for-byte by `sdk/test/backend_replay_parity_test.js` and the shared behavior vectors:
+
+- Outbound exchange capture at the library layer: `http.client` (covers `requests`/`urllib3`),
+  httpx sync + async, and aiohttp; streaming responses (SSE/chunked, the LLM shape) record their
+  observed chunk boundaries in `response.stream` and the app still consumes the live stream.
+- `wrap_psycopg(psycopg)` wraps the psycopg v3 driver: statements and results record as
+  `pg`-protocol exchanges; in replay `psycopg.connect` returns an in-process stub.
+- `REPROIT_REPLAY=<capture.json>` flips every hook from recorder to stub: strict per-operation
+  ordinal matching, bodies modulo recorded `$reproit` placeholders, first unmatched call fails
+  closed (599 / DivergedError) with the structured `REPROIT:DIVERGENCE` marker; prompt drift
+  names the first differing message index for chat-shaped bodies. TZ, clock (`time.time`) and
+  `random` pin from the capture envelope.
+
+Named capability gaps (recorded here so they are never a silent downgrade):
+
+- psycopg2 is NOT wrapped (different cursor surface); psycopg v3 is the covered driver.
+- numpy's RNG is not seeded by the envelope; only the stdlib `random` module functions rebind.
+- `datetime.datetime.now()` reads the C-level clock and is not pinned; `time.time`/`time_ns` are
+  (the Node reference has the same shape: `Date.now` is pinned, `new Date()` internals are not).
+- The stdlib `http.client` capture path drains the response in one read, so its recorded stream
+  boundaries are coarse (whole-body); fine-grained boundaries come from the httpx/aiohttp hooks.
+- Replayed JSON bodies re-serialize from the canonically stored capture (sorted keys, compact
+  separators, identical to Node): an app comparing raw response TEXT against later raw request
+  text can observe the reordering; structural matching is unaffected.
+
 ## Tests
 
 ```sh

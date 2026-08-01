@@ -275,3 +275,199 @@ def test_httpx_outside_a_trace_records_nothing(upstream):
     before = instrument_module.stats()["captured_exchanges"]
     httpx.get(upstream + "/prices")
     assert instrument_module.stats()["captured_exchanges"] == before
+
+
+class _SseUpstream(BaseHTTPRequestHandler):
+    """Streams three SSE frames with real flushes and pauses, so the client
+    observes more than one chunk on the wire."""
+
+    frames = [
+        b'event: message_start\ndata: {"type":"message_start"}\n\n',
+        b'data: {"type":"content_block_delta","delta":{"text":"Hello"}}\n\n',
+        b'data: {"type":"message_stop"}\n\n',
+    ]
+
+    def do_GET(self):
+        import time as _time
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+        for frame in type(self).frames:
+            self.wfile.write(b"%x\r\n" % len(frame) + frame + b"\r\n")
+            self.wfile.flush()
+            _time.sleep(0.02)
+        self.wfile.write(b"0\r\n\r\n")
+
+    def log_message(self, *args):
+        return None
+
+
+@pytest.fixture
+def sse_upstream():
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _SseUpstream)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield "http://127.0.0.1:%d" % server.server_address[1]
+    server.shutdown()
+    server.server_close()
+
+
+def test_httpx_sse_records_one_exchange_with_chunk_boundaries(sse_upstream):
+    """The LLM streaming shape: the whole stream is ONE logical exchange, the
+    app consumes it live, and the observed chunk boundaries are recorded."""
+    httpx = pytest.importorskip("httpx")
+    trace = _trace()
+    token = use_trace(trace)
+    consumed = []
+    try:
+        with httpx.Client() as client:
+            with client.stream("GET", sse_upstream + "/v1/messages") as response:
+                for chunk in response.iter_raw():
+                    consumed.append(chunk)
+    finally:
+        clear_trace(token)
+    body = b"".join(_SseUpstream.frames)
+    assert b"".join(consumed) == body
+    exchange = _exchanges(trace)[0]
+    assert exchange["response"]["body"] == body.decode("utf-8")
+    stream = exchange["response"]["stream"]
+    assert stream["chunks"] == [len(chunk) for chunk in consumed]
+    assert len(stream["chunks"]) > 1
+    assert sum(stream["chunks"]) == len(body)
+    assert stream.get("truncated") is not True
+
+
+def test_httpx_single_chunk_non_sse_records_no_stream_shape(upstream):
+    httpx = pytest.importorskip("httpx")
+    trace = _trace()
+    token = use_trace(trace)
+    try:
+        httpx.get(upstream + "/plain")
+    finally:
+        clear_trace(token)
+    assert "stream" not in _exchanges(trace)[0]["response"]
+
+
+def test_aiohttp_exchange_is_captured(upstream):
+    """aiohttp never touches http.client either; the ClientSession hook must
+    record the exchange while the app still reads the real bytes."""
+    aiohttp = pytest.importorskip("aiohttp")
+    import asyncio
+
+    async def fetch():
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                upstream + "/convert",
+                json={"amount": 5},
+                headers={"Content-Type": "application/json"},
+            ) as response:
+                return response.status, await response.json()
+
+    trace = _trace()
+    token = use_trace(trace)
+    try:
+        status, body = asyncio.run(fetch())
+    finally:
+        clear_trace(token)
+    assert status == 200
+    assert body["prices"] == [1, 2]
+    exchange = _exchanges(trace)[0]
+    assert exchange["protocol"] == "http"
+    assert exchange["request"]["method"] == "POST"
+    assert exchange["request"]["body"] == {"amount": 5}
+    assert exchange["response"]["status"] == 200
+    assert exchange["response"]["body"]["prices"] == [1, 2]
+    # Redaction reaches inside aiohttp-captured bodies too.
+    assert exchange["response"]["body"]["apiKey"]["$reproit"]["redacted"] is True
+
+
+class _FakeCursor:
+    """psycopg-shaped cursor: enough surface for the wrap to patch and for
+    the canned result to flow through it."""
+
+    rows = [(7, "ACME")]
+    fail = False
+
+    def __init__(self):
+        self.description = None
+        self.rowcount = -1
+        self.statusmessage = None
+        self._result = []
+
+    def execute(self, query, params=None):
+        if type(self).fail:
+            error = RuntimeError("relation missing")
+            error.sqlstate = "42P01"
+            raise error
+        self._result = list(type(self).rows)
+        self.description = (("id",), ("symbol",))
+        self.rowcount = len(self._result)
+        self.statusmessage = "SELECT %d" % len(self._result)
+        return self
+
+    def fetchone(self):
+        return self._result.pop(0) if self._result else None
+
+    def fetchmany(self, size=0):
+        taken = self._result[: max(0, size)]
+        del self._result[: max(0, size)]
+        return taken
+
+    def fetchall(self):
+        taken = list(self._result)
+        self._result = []
+        return taken
+
+
+class _FakePsycopg:
+    """Module-shaped stand-in with the surface wrap_psycopg patches."""
+
+    def __init__(self):
+        self.Cursor = _FakeCursor
+
+    def connect(self, *args, **kwargs):
+        raise AssertionError("capture tests never open a connection")
+
+
+def test_wrap_psycopg_records_rows_and_reserves_them_to_the_app():
+    from reproit_backend_py import wrap_psycopg
+
+    fake = wrap_psycopg(_FakePsycopg())
+    trace = _trace()
+    token = use_trace(trace)
+    try:
+        cursor = fake.Cursor()
+        cursor.execute("SELECT id, symbol FROM issuers WHERE symbol = %s", ["ACME"])
+        # The app's own fetch still sees exactly the driver's rows even
+        # though the wrap drained them to record the exchange.
+        assert cursor.fetchone() == (7, "ACME")
+        assert cursor.fetchone() is None
+    finally:
+        clear_trace(token)
+    exchange = _exchanges(trace)[0]
+    assert exchange["protocol"] == "pg"
+    assert exchange["request"]["text"].startswith("SELECT id, symbol")
+    assert exchange["request"]["values"] == ["ACME"]
+    assert exchange["response"]["command"] == "SELECT"
+    assert exchange["response"]["rowCount"] == 1
+    assert exchange["response"]["rows"] == [[7, "ACME"]]
+
+
+def test_wrap_psycopg_records_errors_with_sqlstate():
+    from reproit_backend_py import wrap_psycopg
+
+    fake = wrap_psycopg(_FakePsycopg())
+    _FakeCursor.fail = True
+    trace = _trace()
+    token = use_trace(trace)
+    try:
+        with pytest.raises(RuntimeError):
+            fake.Cursor().execute("SELECT boom")
+    finally:
+        _FakeCursor.fail = False
+        clear_trace(token)
+    exchange = _exchanges(trace)[0]
+    assert exchange["response"]["error"]["message"] == "relation missing"
+    assert exchange["response"]["error"]["code"] == "42P01"

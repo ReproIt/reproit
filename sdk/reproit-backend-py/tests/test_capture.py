@@ -122,3 +122,57 @@ def test_record_samples_failures_only_by_default():
     # http://c is unreachable: the batch fails and its operation is dropped.
     assert stats["failed_batches"] == 1
     assert stats["dropped_operations"] == 1
+
+
+def test_agent_oracle_markers_ride_the_trace_and_reject_unknown_ids():
+    import pytest
+
+    from reproit_backend_py import AGENT_GUARDRAIL_ORACLE, TraceError, marked_oracle
+
+    capture = _capture()
+    trace = BackendTrace.begin(capture.context(), "POST /assist")
+    with pytest.raises(TraceError):
+        trace.oracle("made-up-oracle")
+    trace.oracle(AGENT_GUARDRAIL_ORACLE, {"tool": "delete_order"})
+    trace.finish({"error": "guardrail"}, 500, False, True)
+    assert marked_oracle(trace.events()) == AGENT_GUARDRAIL_ORACLE
+
+
+def test_a_marked_agent_operation_is_captured_even_without_a_5xx():
+    from reproit_backend_py import AGENT_LOOP_BOUND_ORACLE
+
+    capture = _capture()
+    trace = BackendTrace.begin(capture.context(), "POST /assist")
+    trace.oracle(AGENT_LOOP_BOUND_ORACLE, {"iterations": 9, "bound": 4})
+    trace.finish({"note": "gave up"}, 200, True, True)
+    capture.record(trace)
+    assert capture.stats()["captured_operations"] == 1
+
+
+def test_a_marked_failure_observation_carries_the_agent_oracle_id():
+    from reproit_backend_py import AGENT_GUARDRAIL_ORACLE
+
+    capture = _capture()
+    trace = BackendTrace.begin(capture.context(), "POST /assist")
+    trace.oracle(AGENT_GUARDRAIL_ORACLE, {"tool": "delete_order"})
+    trace.finish({"error": "guardrail"}, 500, False, True)
+    batch = capture._build_batch(
+        [{"operation": "POST /assist", "status": 500, "events": list(trace.events())}]
+    )
+    observation = batch["events"][-1]["event"]
+    assert observation["kind"] == "observation"
+    assert observation["failure"]["signature"] == AGENT_GUARDRAIL_ORACLE + ":POST /assist"
+    assert observation["failure"]["observation"] == "contract-violation"
+
+
+def test_a_marked_capture_payload_carries_the_agent_oracle():
+    from reproit_backend_py import AGENT_RESPONSE_ORACLE
+
+    capture = _capture()
+    trace = BackendTrace.begin(capture.context(), "POST /assist")
+    trace.oracle(AGENT_RESPONSE_ORACLE, {"expected": "json"})
+    trace.finish({"note": "wrong shape"}, 200, True, True)
+    payload, _ = _capture_payload(
+        {"operation": "POST /assist", "status": 200, "events": list(trace.events())}
+    )
+    assert payload["oracle"] == AGENT_RESPONSE_ORACLE
