@@ -191,7 +191,14 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.run_macos_ax
     runs-on: [self-hosted, macOS, ARM64, reproit-ax]
     environment: native-macos-ax
-    timeout-minutes: 20
+    # 20 was the shortest bound of any job here, and this is the only one that
+    # builds Rust from a COLD cargo cache: a self-hosted runner starts with an
+    # empty target directory on its first run, and the hosted jobs that build
+    # Rust are given 45 to 60. The first attempt was cancelled at 20 minutes
+    # mid-build, which reads as a gate failure rather than as a bound that was
+    # never realistic. Subsequent runs reuse the runner's persistent _work
+    # directory, so this ceiling only binds the first one.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
       - name: Select pinned Rust

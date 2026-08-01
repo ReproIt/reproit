@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "ax-gate-cold-build-bound",
+  "changeType": "tooling",
+  "detail": "The macos-ax job carried timeout-minutes 20, the shortest bound of any job in native-gates.yml, while being the only one that builds Rust from a cold cargo cache. A self-hosted runner starts with an empty target directory on its first run, and the hosted jobs that build Rust are allowed 45 to 60. The first dispatch after registering the runner was cancelled at exactly 20 minutes mid-build, which presents as a gate failure when it is a bound that was never realistic for the work. Raised to 60, matching android-hosted, macos-swiftui and windows-uia. Subsequent runs reuse the runner's persistent _work directory, so this ceiling only binds the first one. Recorded rather than adjusted silently because raising a timeout is exactly the change that can hide a genuine hang, and the distinction matters: this run was building, with compiler output, not stalled. Separately and worth stating because it is the real cost driver here, this host's syspolicyd has been pinned near 98 percent CPU since 6 July, and since it performs Gatekeeper assessment every process launch that needs a signature check stalls behind it. That single fault has been measured to explain three unrelated-looking failures: WebDriverAgent never answering because its scheme's build post-action shells out and the shell sleeps in _dyld_start having executed nothing, Gradle-spawned node and vite and the Java compiler daemon stalling the same way while identical commands run instantly from a shell, and a Rust build that cannot finish inside any reasonable bound. Restarting that daemon needs root, so it is recorded here rather than fixed here. No product code changes.",
+  "evidence": [
+    {
+      "path": ".github/workflows/native-gates.yml",
+      "sha256": "sha256:ba14f927af8916427e22a680df3e4af6d24caaac4e69ee5d8f5507c9813b8f4c"
+    }
+  ]
+}
