@@ -824,7 +824,7 @@
         "blockers": [
           {
             "code": "incomplete-evidence",
-            "detail": "no application campaign has been executed. 5 candidate defects across 5 application(s) are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
+            "detail": "no application campaign has been executed. Both remaining candidate applications now build at both revisions in an offline linux/amd64 trixie container, kalk at 940abaf and b452c5a and kclock at ac9abd2 and 033e713, but neither has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
               "validation/field/qualification/linux-qt-quick.json"
@@ -832,11 +832,10 @@
           },
           {
             "code": "incomplete-evidence",
-            "detail": "none of the five qualified candidates is admissible to the benchmark record. validation/field/check-benchmark.py accepts a GitHub HTTPS repository and a GitHub issue URL and nothing else, and all five candidates live on invent.kde.org with bugs.kde.org issue ids. Two GitHub-hosted Qt Quick applications with verified affected and fixed pairs must be mined, or the benchmark and corpus validators must be extended to accept a named set of additional forges",
-            "command": "python3 validation/field/check-benchmark.py validation/field/linux-qt-quick.json",
+            "detail": "the trigger read is unfinished for both candidates and is the only thing between here and a campaign. kalk's expression and result fields are AT-SPI text nodes whose accessible name is empty, so the locale-separator observation has to go through the text interface rather than through node names, and that read is not written. kclock's preset row only renders when TimerPresetModel already holds a preset, so the fixture has to seed one before the timer form is opened, and no such fixture exists yet",
+            "command": null,
             "evidence": [
-              "validation/field/qualification/linux-qt-quick.json",
-              "validation/field/check-benchmark.py"
+              "validation/field/evidence/linux-qt-quick-observability.jsonl"
             ]
           },
           {
