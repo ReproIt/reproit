@@ -366,7 +366,11 @@ complete target-specific record validates.
 - Field benchmark to create: `validation/field/swiftui-ios.json`
 - Open blockers:
   - [incomplete-evidence] no application campaign has been executed. 10 candidate defects across 6
-    independent applications are qualified with verified revisions, but none has three clean
+    independent applications are qualified with verified revisions. Four applications have now been
+    built and driven on disposable simulators: damus and Aidoku return the fixed behavior on their
+    affected revisions on both installed runtimes and are excluded, IceCubesApp does not build under
+    the Xcode 26.2 Swift compiler, and dimeApp has a proven ad-hoc signed launch recipe but no
+    executed trigger. Both kiwix-apple candidates remain unbuilt. No application has three clean
     affected reproductions and three reached-observation fixed controls
   - [incomplete-evidence] no per-target clean and adversarial corpus gate exists, so no false-
     positive rate is measured for this target

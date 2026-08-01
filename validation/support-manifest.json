@@ -449,7 +449,9 @@
           "kind": "missing"
         },
         "packageInstall": {
-          "kind": "missing"
+          "kind": "ci-gate",
+          "job": "rust",
+          "step": "Package every platform SDK release archive"
         },
         "manualReview": {
           "kind": "field-benchmark"
@@ -470,10 +472,12 @@
         "blockers": [
           {
             "code": "incomplete-evidence",
-            "detail": "no application campaign has been executed. 10 candidate defects across 6 independent applications are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls",
+            "detail": "no application campaign has been executed. 10 candidate defects across 6 independent applications are qualified with verified revisions. Four applications have now been built and driven on disposable simulators: damus and Aidoku return the fixed behavior on their affected revisions on both installed runtimes and are excluded, IceCubesApp does not build under the Xcode 26.2 Swift compiler, and dimeApp has a proven ad-hoc signed launch recipe but no executed trigger. Both kiwix-apple candidates remain unbuilt. No application has three clean affected reproductions and three reached-observation fixed controls",
             "command": null,
             "evidence": [
-              "validation/field/qualification/swiftui-ios.json"
+              "validation/field/qualification/swiftui-ios.json",
+              "validation/field/evidence/swiftui-ios-candidate-execution.json",
+              "validation/field/evidence/swiftui-ios-candidate-execution.md"
             ]
           },
           {
@@ -589,10 +593,10 @@
         "blockers": []
       }
     },
-  "windows-avalonia": {
-    "displayName": "Windows Avalonia",
-    "family": "desktop",
-    "maturity": "stable",
+    "windows-avalonia": {
+      "displayName": "Windows Avalonia",
+      "family": "desktop",
+      "maturity": "stable",
       "scope": "Native x86_64 Windows UI Automation on Avalonia",
       "ownedGates": [
         "windows-uia"
@@ -602,14 +606,14 @@
       },
       "promotion": {
         "standard": "schema-3",
-      "fieldBenchmark": "validation/field/windows-avalonia.json",
-      "cleanCorpus": {
-        "kind": "evidence",
-        "path": "validation/field/corpus/windows-avalonia.json"
-      },
-      "adversarialCorpus": {
-        "kind": "evidence",
-        "path": "validation/field/corpus/windows-avalonia.json"
+        "fieldBenchmark": "validation/field/windows-avalonia.json",
+        "cleanCorpus": {
+          "kind": "evidence",
+          "path": "validation/field/corpus/windows-avalonia.json"
+        },
+        "adversarialCorpus": {
+          "kind": "evidence",
+          "path": "validation/field/corpus/windows-avalonia.json"
         },
         "packageInstall": {
           "kind": "ci-gate",
@@ -632,7 +636,7 @@
           "level": "Unqualified",
           "evidence": null
         },
-      "blockers": []
+        "blockers": []
       }
     },
     "windows-winui": {

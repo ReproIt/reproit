@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "swiftui-ios",
   "gate": "S2-candidate-qualification",
-  "status": "candidates-selected",
+  "status": "candidates-executed-none-qualified",
   "declaredBounds": {
     "os": "ios-simulator",
     "arch": "arm64",
@@ -272,7 +272,7 @@
         "verified": false
       },
       "whySuitable": "the strongest candidate for this target. The fix ships its own XCUITest, testPostComposerCursorPosition, whose oracle is a hard string equality on the text view value rather than a layout heuristic, and the defect is SwiftUI state-driven text binding flowing through a UIViewRepresentable, which is exactly the SwiftUI view identity and update path the adapter observes through XCUITest",
-      "qualification": "selected-not-executed",
+      "qualification": "executed-not-reproduced",
       "caveat": "the accessibility identifiers post_button and post_composer_text_view were introduced by the fix, so the harness must port them onto the affected build for the driver to address the same elements. The damusUITests target itself already exists at the affected revision",
       "remaining": [
         "build both revisions for the simulator with CODE_SIGNING_ALLOWED=NO and DEVELOPMENT_TEAM blanked, and record the exact command and result",
@@ -280,6 +280,11 @@
         "state the exact identity and authority for the observable, and minimize the trigger",
         "run three affected reproductions and three fixed controls on a reset simulator with reset evidence",
         "record neighboring legal behavior: typing into a different text field must keep the caret in place on the affected build"
+      ],
+      "executionOutcome": "driven end to end on iPhone 16 Pro simulators on iOS 26.2 and iOS 18.5. The affected revision returns the typed string exactly, so the upstream string equality oracle does not separate the revisions on either installed runtime",
+      "executionEvidence": [
+        "validation/field/evidence/swiftui-ios-candidate-execution.json",
+        "validation/field/evidence/swiftui-ios-candidate-execution.md"
       ]
     },
     {
@@ -323,7 +328,7 @@
         "verified": false
       },
       "whySuitable": "the defect is precisely a SwiftUI to UIKit presentation anchor bug: the popover presentation controller is given a source view with no source rect, and the fix introduces SwiftUI state plus a GeometryReader background feeding onChange. XCUITest observes whether the share sheet appears at all, which is scene and presentation lifecycle rather than view content, so it covers a part of the adapter the other candidates do not",
-      "qualification": "selected-not-executed",
+      "qualification": "executed-not-reproduced",
       "caveat": "it reproduces only on an iPad simulator and needs one pre-created backup as setup, so the device class becomes part of the identity",
       "remaining": [
         "pin an iPad simulator and runtime, and record the pre-created backup as setup rather than as part of the trigger",
@@ -331,6 +336,11 @@
         "state identity and authority, and minimize the trigger",
         "run three affected reproductions and three fixed controls with reset evidence",
         "record neighboring legal behavior: the same export must open the share sheet on an iPhone simulator on the affected build"
+      ],
+      "executionOutcome": "driven on an iPad Pro 11-inch (M4) simulator on iOS 26.2 and iOS 18.5. The affected revision presents the share sheet, so the missing popover source rect no longer suppresses presentation on either installed runtime",
+      "executionEvidence": [
+        "validation/field/evidence/swiftui-ios-candidate-execution.json",
+        "validation/field/evidence/swiftui-ios-candidate-execution.md"
       ]
     },
     {
@@ -405,7 +415,7 @@
         "verified": false
       },
       "whySuitable": "the whole trigger is XCUITest action fidelity on a SwiftUI control: tap the decimal key so the amount reads a zero with a pending decimal, then tap delete. At the affected revision the delete key carries .disabled(price == 0), so it is inert and the amount does not change; the fix widens that to .disabled(price == 0 && !isEditingDecimal). The observable is a pair the driver can read directly, the enabled state of the delete key and the value of the amount label, which makes it a hard state oracle rather than a layout heuristic",
-      "qualification": "selected-not-executed",
+      "qualification": "executed-build-only",
       "caveat": "the WelcomeSheetView shown on first launch must be dismissed as setup before the transaction screen is reachable, and the application has no UI test target, so accessibility identifiers have to be located by label",
       "remaining": [
         "prove the application launches on an unsigned simulator build despite the hardcoded CloudKit container, or record a minimal build configuration change and classify it as such",
@@ -414,6 +424,11 @@
         "state identity and authority, and minimize the trigger",
         "run three affected reproductions and three fixed controls with reset evidence, resetting the application container between runs",
         "record neighboring legal behavior: with a nonzero amount the delete key must work on the affected build"
+      ],
+      "executionOutcome": "the launch question is answered: an unsigned build dies on launch with SIGTRAP, and an ad-hoc signed build that keeps the project entitlements with the team blanked reaches the welcome sheet. The first-run category setup step was not driven, so the delete-key observable was never read",
+      "executionEvidence": [
+        "validation/field/evidence/swiftui-ios-candidate-execution.json",
+        "validation/field/evidence/swiftui-ios-candidate-execution.md"
       ]
     },
     {
@@ -473,7 +488,7 @@
       "id": "icecubes-restore-defaults-1859",
       "application": "IceCubesApp",
       "issueUrl": "https://github.com/Dimillian/IceCubesApp/issues/1859",
-      "issueTitle": "Bug: “Restore Defaults” Button not working",
+      "issueTitle": "Bug: \u201cRestore Defaults\u201d Button not working",
       "pullRequestUrl": null,
       "fixCommitUrl": "https://github.com/Dimillian/IceCubesApp/commit/27da37e9ecddcd031b3f7e73b5585677651a32ab",
       "affectedRevision": "6d12f2528d62b43ed5beec3042f9c36ce1fe328e",
@@ -485,13 +500,18 @@
         "verified": false
       },
       "whySuitable": "a third independent application whose defect is reachable with no account, because settings is one of the two tabs that render logged out, and no network. The trigger flips AppStorage-backed theme state and the whole view tree re-renders, which is state-driven SwiftUI view identity in its purest form, and XCUITest reads the font and color rows back after the restore",
-      "qualification": "selected-not-executed",
+      "qualification": "dropped-unusable",
       "remaining": [
         "synthesize IceCubesApp.xcconfig from the committed template with an empty team and record it as build configuration",
         "build both revisions for the simulator with signing disabled",
         "confirm the settings tab is reachable logged out at the affected revision, since the logged-out tab set is code-defined and may differ there",
         "state identity and authority, and minimize the trigger",
         "run three affected reproductions and three fixed controls with reset evidence, resetting the app container between runs"
+      ],
+      "executionOutcome": "neither revision builds: the RevenueCat package pinned at these January 2024 revisions fails to compile under the Xcode 26.2 Swift compiler, and repinning an application's own dependencies would change the subject",
+      "executionEvidence": [
+        "validation/field/evidence/swiftui-ios-candidate-execution.json",
+        "validation/field/evidence/swiftui-ios-candidate-execution.md"
       ]
     },
     {

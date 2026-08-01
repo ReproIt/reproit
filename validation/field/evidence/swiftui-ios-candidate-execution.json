@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "target": "swiftui-ios",
+  "gate": "S3-candidate-execution",
+  "status": "candidates-executed-none-qualified",
+  "cliCommit": "79e178175a4de92f07eb4b7cb3c6714b0ec2f824",
+  "recordedAt": "2026-08-01T03:00:00Z",
+  "runtime": {
+    "host": "darwin/arm64",
+    "xcode": "26.2 (17C52)",
+    "automation": "Appium 3.5.2 with XCUITest 11.16.2",
+    "simulatorRuntimes": [
+      "com.apple.CoreSimulator.SimRuntime.iOS-26-2 (23C54)",
+      "com.apple.CoreSimulator.SimRuntime.iOS-18-5 (22F77)"
+    ],
+    "devices": ["iPhone 16 Pro", "iPad Pro 11-inch (M4)"],
+    "reset": "disposable simulator created per application, erased and reboot-verified per run",
+    "network": "host network reachable; every executed trigger is local and needs no service",
+    "cleanupVerified": true
+  },
+  "summary": "Four of the six recorded swiftui-ios candidate applications were built and driven on this machine. None produced a reproducing affected observation, so no application campaign could be started and the target stays Preview.",
+  "candidates": [
+    {
+      "id": "damus-composer-cursor-3461",
+      "application": "damus",
+      "repository": "https://github.com/damus-io/damus",
+      "affectedRevision": "f506f9cfe898a0c9f6eaa5ac0eb1e60245a340c8",
+      "fixedRevision": "4941b502d5ea1345e92c89540fab0bfef75cdb0f",
+      "revisionCheck": "4941b502 is the direct child of f506f9cf; the diff is the five files of the fix",
+      "buildOutcome": "builds for the simulator; the unsigned recipe installs but terminates on launch with SIGTRAP before any interface, and an ad-hoc signed build reaches the welcome screen",
+      "buildRecipe": "xcodebuild -project damus.xcodeproj -scheme damus -configuration Release -sdk iphonesimulator CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER= DEVELOPMENT_TEAM=",
+      "affectedBinarySha256": "sha256:cd92017fbf903a5f03a7ef08513dad5100dfbc477c5aee72cdf1969b8800dcf0",
+      "triggerExecuted": true,
+      "trigger": "sign in with the upstream test nsec, clear onboarding, open the post composer from the plus control, focus the composer text view and type Hello",
+      "observations": [
+        {
+          "device": "iPhone 16 Pro",
+          "runtime": "iOS 26.2",
+          "typing": "one character every 0.6 seconds",
+          "sessionId": "64281269-d753-4e6f-8c17-bc9f8b009a17",
+          "readBackText": "Hello",
+          "observationReached": true,
+          "reproduced": false,
+          "screenshotSha256": "sha256:e3efa432cde5060fa6e786948249960e237ef6ce0d0476cc528fe70e64dfda38"
+        },
+        {
+          "device": "iPhone 16 Pro",
+          "runtime": "iOS 26.2",
+          "typing": "single burst",
+          "sessionId": "8b1a485a-06f8-480d-b480-b2dfde0517a4",
+          "readBackText": "Hello",
+          "observationReached": true,
+          "reproduced": false,
+          "screenshotSha256": "sha256:6c2be2073c0046224db57e0623ba77e8b0227c3353dbb71674aea3fdcfde8379"
+        },
+        {
+          "device": "iPhone 16 Pro",
+          "runtime": "iOS 18.5",
+          "typing": "single burst",
+          "sessionId": "5e000676-4cc2-45af-bbf9-4a4783c1cb66",
+          "readBackText": "Hello",
+          "observationReached": true,
+          "reproduced": false,
+          "screenshotSha256": "sha256:663effb192f8262f1f7c12512736b4476e46ee114e559b80fe023c05d2a72cbe"
+        }
+      ],
+      "verdict": "disqualified-on-available-runtimes",
+      "verdictDetail": "the upstream oracle is a hard string equality on the composer text view value, and the affected revision returns the typed string exactly on both installed runtimes, so there is no affected observation to reproduce three times"
+    },
+    {
+      "id": "aidoku-ipad-backup-share-sheet-980",
+      "application": "Aidoku",
+      "repository": "https://github.com/Aidoku/Aidoku",
+      "affectedRevision": "36f121edcb8686e44646bde93ab96f2f9446fcfa",
+      "fixedRevision": "fa2384e8244f2fca2bf23501d0efd30600a6b1fe",
+      "buildOutcome": "builds and launches unsigned on an iPad simulator with no account and no network setup",
+      "buildRecipe": "xcodebuild -project Aidoku.xcodeproj -scheme 'Aidoku (iOS)' -configuration Release -sdk iphonesimulator -skipPackagePluginValidation -skipMacroValidation CODE_SIGNING_ALLOWED=NO DEVELOPMENT_TEAM=",
+      "affectedBinarySha256": "sha256:f384f6ec74b17ec0500e1b975fcdbfae7bb88e93a21be0e8b050ce20a01076a4",
+      "triggerExecuted": true,
+      "trigger": "open Settings, open Backups, long press the automatically created backup row and tap Export",
+      "observations": [
+        {
+          "device": "iPad Pro 11-inch (M4)",
+          "runtime": "iOS 26.2",
+          "sessionId": "163101d1-9fd9-4c1c-b5fb-cdeb76ae656e",
+          "shareSheetPresented": true,
+          "observationReached": true,
+          "reproduced": false,
+          "screenshotSha256": "sha256:adfc2560be9ee9ff28bdfe3f3f5f9ecc8ffed70ae192fb5cc281d544346076de"
+        },
+        {
+          "device": "iPad Pro 11-inch (M4)",
+          "runtime": "iOS 18.5",
+          "sessionId": "explore-185",
+          "shareSheetPresented": true,
+          "observationReached": true,
+          "reproduced": false,
+          "screenshotSha256": "sha256:704f8f507171dd295228b0a27c615a7a783c32a2adac5aff3e6bc401b6ec080e"
+        }
+      ],
+      "verdict": "disqualified-on-available-runtimes",
+      "verdictDetail": "the affected revision presents UIActivityViewController on both installed runtimes; the missing popover source rect no longer suppresses presentation, so the recorded observable does not separate the revisions"
+    },
+    {
+      "id": "dime-numberpad-delete-zero-72",
+      "application": "dimeApp",
+      "repository": "https://github.com/rafsoh/dimeApp",
+      "affectedRevision": "c6d4fc0ad2a35591bd1269613d429d3e1a322a0e",
+      "fixedRevision": "0463cb8caba237de781ae02e70a2ec82ae900c67",
+      "buildOutcome": "the recorded open question is answered: an unsigned build installs and terminates on launch with SIGTRAP, and an ad-hoc signed build that keeps the project entitlements reaches the welcome sheet",
+      "buildRecipe": "xcodebuild -project app/dime.xcodeproj -scheme dime -configuration Release -sdk iphonesimulator CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER= DEVELOPMENT_TEAM=",
+      "affectedBinarySha256": "sha256:2b12547aa6d429ee236eedd0649b64060333e3183f46ae37517715a633c1d033",
+      "launchScreenshotSha256": "sha256:37175f007e3085c7014b15d7b159b643db5c3ddbcc83e383da0d9366e3b948e1",
+      "triggerExecuted": false,
+      "verdict": "unexecuted-trigger-surface-not-reached",
+      "verdictDetail": "the first-run category setup step between the welcome sheet and the transaction number pad was not driven, so the delete-key observable was never read on either revision"
+    },
+    {
+      "id": "icecubes-restore-defaults-1859",
+      "application": "IceCubesApp",
+      "repository": "https://github.com/Dimillian/IceCubesApp",
+      "affectedRevision": "6d12f2528d62b43ed5beec3042f9c36ce1fe328e",
+      "fixedRevision": "27da37e9ecddcd031b3f7e73b5585677651a32ab",
+      "buildOutcome": "does not build on this toolchain",
+      "buildRecipe": "IceCubesApp.xcconfig synthesized from the committed template with an empty team, then xcodebuild -project IceCubesApp.xcodeproj -scheme IceCubesApp -configuration Release -sdk iphonesimulator",
+      "triggerExecuted": false,
+      "verdict": "disqualified-build-failure",
+      "verdictDetail": "the RevenueCat package pinned at these January 2024 revisions fails to compile under the Xcode 26.2 Swift compiler, so neither revision can be materialized without repinning application dependencies"
+    },
+    {
+      "id": "kiwix-ipad-no-zim-sidebar-1607",
+      "application": "kiwix-apple",
+      "repository": "https://github.com/kiwix/kiwix-apple",
+      "affectedRevision": "f3686fe4b47b2c2f87e77145f3dd1f678cbd806f",
+      "fixedRevision": "6f4b760c12a3d7585be0993d35faec8de4a42713",
+      "triggerExecuted": false,
+      "verdict": "unexecuted",
+      "verdictDetail": "no xcodeproj is committed; XcodeGen, localizations.py and the per-revision libkiwix xcframework fetch were not run in this session"
+    },
+    {
+      "id": "kiwix-invalid-deeplink-stuck-1502",
+      "application": "kiwix-apple",
+      "repository": "https://github.com/kiwix/kiwix-apple",
+      "affectedRevision": "2e9d53f06b4f943b9735afb2e96f4633b2428134",
+      "fixedRevision": "c92526c8c5201869df0ee83b6616b24b67566bc4",
+      "triggerExecuted": false,
+      "verdict": "unexecuted",
+      "verdictDetail": "same unbuilt project generation path as the sidebar candidate"
+    }
+  ],
+  "missingInput": "two independent SwiftUI applications whose recorded defect separates the affected and fixed revisions on an installed iOS simulator runtime. Of the six qualified applications, damus and Aidoku are now empirically excluded on iOS 26.2 and iOS 18.5, IceCubesApp cannot be built, dimeApp has a proven build and launch recipe but no executed trigger, and kiwix-apple has never been generated or built."
+}
