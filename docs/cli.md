@@ -105,6 +105,22 @@ capsule path and no flag. Replay runs in the capsule's recorded working
 directory, so relative paths resolve as they did when recorded; a recorded
 directory that no longer exists is inconclusive with that named cause.
 
+A CI TEST capsule (preview) is the same capture payload with a test as its
+trigger: the Node backend SDK's `ci.suite(...)` integration for the `node:test`
+runner records each test's outbound exchanges and envelope when the test job
+sets `REPROIT_CI_CAPTURE=1`, and spools a capsule for every failing test (the
+GitHub action's `test-command` mode uploads the spool as a job artifact). The
+hand-off is file-based and needs no cloud:
+`reproit check <capsule.json> --exec "<test command>"` boots nothing, re-runs
+only the named test with the recorded exchanges served in process, and
+verdicts reproduced (fails the same way), fixed (passes UNDER the recorded
+envelope and exchanges), diverged, or inconclusive. Two honest limits: a plain
+rerun that passes outside the capsule is flaky, envelope-dependent evidence
+and is never reported as fixed (only a pass under the capsule is); and a race
+the replay boundary cannot see (scheduling, shared memory) reports
+inconclusive, never a faked reproduction. Node test runner only today; jest is
+not yet integrated.
+
 `keep <guard> --refresh` re-records a guard whose code has DRIFTED (a diverged
 verdict). It boots the guard's own stored recipe with recording on and replay
 off, fires the guard's recorded inbound trigger, and prints the old-versus-new

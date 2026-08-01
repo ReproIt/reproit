@@ -1,8 +1,10 @@
 # reproit GitHub Action (composite).
 #
-# Add reproit to CI in five lines: on a pull request it fuzzes your app, and on
-# a finding it uploads a minimized, annotated repro to the cloud and posts the
-# PR comment (summary, suspected file:line, cohort, inline clip, dashboard
+# Two modes, selected by which input is set:
+#
+# FUZZ MODE (`app`): on a pull request it fuzzes your app, and on a finding
+# it uploads a minimized, annotated repro to the cloud and posts the PR
+# comment (summary, suspected file:line, cohort, inline clip, dashboard
 # link). Consumers reference it as `uses: reproit/reproit@v1`.
 #
 #   - uses: reproit/reproit@v1
@@ -10,6 +12,17 @@
 #       app: http://localhost:3000
 #       bucket: web-pr
 #       api-key: ${{ secrets.REPROIT_CLOUD_KEY }}
+#
+# CI CAPTURE MODE (`test-command`, preview, Node test runner only): runs your
+# test command with the reproit SDK's CI capture mode enabled
+# (REPROIT_CI_CAPTURE=1). A failing test spools a replayable capsule; a red
+# job uploads the spool as a job artifact and prints the exact local repro
+# command in the job summary. Fully local-first: this mode contacts no cloud
+# and needs no api-key.
+#
+#   - uses: reproit/reproit@v1
+#     with:
+#       test-command: node tests/checkout.test.mjs
 #
 # Composite (not Docker) so it is fast and runs on any hosted or self-hosted
 # runner. It installs a RELEASED reproit binary (no cargo build) via the repo's
@@ -34,13 +47,36 @@ inputs:
   app:
     description: >-
       What to fuzz: a URL or build directory. No reproit.yaml is required.
-    required: true
+      Required for the fuzz mode (ignored when test-command is set).
+    required: false
+    default: ""
   bucket:
-    description: "Cloud bucket the finding's evidence is published to (e.g. web-pr)."
-    required: true
+    description: >-
+      Cloud bucket the finding's evidence is published to (e.g. web-pr).
+      Required for the fuzz mode.
+    required: false
+    default: ""
   api-key:
-    description: "reproit cloud API key. Pass a secret, e.g. ${{ secrets.REPROIT_CLOUD_KEY }}."
-    required: true
+    description: >-
+      reproit cloud API key. Pass a secret, e.g. ${{ secrets.REPROIT_CLOUD_KEY }}.
+      Required for the fuzz mode; the CI capture mode never contacts the cloud.
+    required: false
+    default: ""
+  test-command:
+    description: >-
+      CI capture mode (preview, Node test runner): the test command to run
+      with capture enabled. A red run uploads the capsule spool as a job
+      artifact and prints the local repro command in the job summary.
+    required: false
+    default: ""
+  spool-dir:
+    description: "Capsule spool directory the SDK writes to in CI capture mode."
+    required: false
+    default: ".reproit/ci-spool"
+  artifact-name:
+    description: "Name of the uploaded capsule artifact in CI capture mode."
+    required: false
+    default: "reproit-ci-capsules"
   cloud-url:
     description: "reproit cloud base URL."
     required: false
@@ -80,7 +116,89 @@ inputs:
 runs:
   using: "composite"
   steps:
+    # ---- CI capture mode (test-command set): no install, no cloud. ----
+
+    - name: Run the test command with CI capture enabled
+      if: ${{ inputs.test-command != '' }}
+      id: ci-test
+      shell: bash
+      env:
+        REPROIT_CI_CAPTURE: "1"
+        REPROIT_CI_SPOOL: ${{ inputs.spool-dir }}
+      run: |
+        set -uo pipefail
+        # The exit code is recorded, not raised: the capsule artifact and the
+        # repro summary must ship BEFORE the job goes red, and the final step
+        # re-raises it so a failing suite still fails the job.
+        status=0
+        bash -c "${{ inputs.test-command }}" || status="$?"
+        echo "status=$status" >> "$GITHUB_OUTPUT"
+
+    - name: Publish the local repro command for a red test job
+      if: ${{ inputs.test-command != '' && steps.ci-test.outputs.status != '0' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        spool="${{ inputs.spool-dir }}"
+        {
+          echo "## reproit captured the failing test run"
+          echo
+          if compgen -G "$spool/capsule-*.json" > /dev/null; then
+            echo "Download the capsule artifact and re-execute the exact" \
+              "failing run locally, recorded dependencies included:"
+            echo
+            echo '```sh'
+            echo "gh run download ${{ github.run_id }}" \
+              "-n ${{ inputs.artifact-name }} -D ${{ inputs.spool-dir }}"
+            for capsule in "$spool"/capsule-*.json; do
+              echo "reproit check $capsule --exec \"${{ inputs.test-command }}\""
+            done
+            echo '```'
+          else
+            echo "The test job failed but no capsule was spooled (the" \
+              "failing test may not run under the reproit ci wrapper)."
+          fi
+          if [ -f "$spool/dropped.count" ]; then
+            echo
+            echo "Spool cap reached: $(cat "$spool/dropped.count") capsule(s)" \
+              "dropped."
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload the capsule spool as a job artifact
+      if: ${{ inputs.test-command != '' && steps.ci-test.outputs.status != '0' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.spool-dir }}
+        if-no-files-found: ignore
+
+    - name: Fail the job exactly as the test command did
+      if: ${{ inputs.test-command != '' }}
+      shell: bash
+      run: exit "${{ steps.ci-test.outputs.status }}"
+
+    # ---- Fuzz mode (default): install the released binary and fuzz. ----
+
+    - name: Check fuzz-mode inputs
+      if: ${{ inputs.test-command == '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        # These were `required: true` before the CI capture mode existed, but
+        # required action inputs are advisory, so the mode checks them itself
+        # and fails with the missing name instead of a confusing fuzz error.
+        for pair in "app=${{ inputs.app }}" "bucket=${{ inputs.bucket }}" \
+          "api-key=${{ inputs.api-key }}"; do
+          if [ -z "${pair#*=}" ]; then
+            echo "fuzz mode requires the '${pair%%=*}' input (or set" \
+              "test-command for the CI capture mode)" >&2
+            exit 1
+          fi
+        done
+
     - name: Install reproit (released binary)
+      if: ${{ inputs.test-command == '' }}
       shell: bash
       run: |
         set -euo pipefail
@@ -96,11 +214,14 @@ runs:
     - name: Install web runner browser deps
       # Only for web targets (a URL): fetch chromium + its system libraries so
       # the headless runner can drive/annotate on a clean CI image.
-      if: ${{ startsWith(inputs.app, 'http://') || startsWith(inputs.app, 'https://') }}
+      if: >-
+        ${{ inputs.test-command == '' &&
+            (startsWith(inputs.app, 'http://') || startsWith(inputs.app, 'https://')) }}
       shell: bash
       run: bash "${{ github.action_path }}/.github/scripts/reproit-action-web-deps.sh"
 
     - name: Fuzz and deliver
+      if: ${{ inputs.test-command == '' }}
       shell: bash
       env:
         GITHUB_TOKEN: ${{ github.token }}
