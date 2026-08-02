@@ -1,0 +1,17 @@
+# Standalone flaky-CI fixture (not a workspace member): a planted
+# order-dependent test failure that fires only under CI-like conditions
+# (the CI legacy matrix leaks state into a shared config service), for the
+# Rust SDK's CI capture mode and the rs-flaky-ci-e2e gate.
+[package]
+name = "rs-flaky-ci-fixture"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+reproit-backend = { path = "../../sdk/reproit-backend-rs", features = ["instrument"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[workspace]
