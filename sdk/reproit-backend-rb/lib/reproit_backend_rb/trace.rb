@@ -228,6 +228,23 @@ module ReproitBackendRb
       push("effect", fields)
     end
 
+    # Mark an agent oracle on the trace: an authored assertion that this
+    # operation violated its own contract (response content/shape, guardrail,
+    # loop bound). The marker rides as an `emit` effect so the wire
+    # vocabulary is unchanged; capture mode always uploads a marked operation
+    # and its failure observation carries the marked id. Unknown ids are
+    # rejected so a typo cannot mint an oracle category.
+    def oracle(id, detail = nil)
+      require_relative "capture"
+      raise TraceError, "InvalidOperation" unless ReproitBackendRb::AGENT_ORACLES.include?(id)
+      effect(
+        "emit",
+        resource: ReproitBackendRb::ORACLE_MARKER_RESOURCE,
+        key: id,
+        detail: detail.nil? ? nil : { "payload" => detail }
+      )
+    end
+
     def finish(output, status, success, effects_complete)
       raise TraceError, "AlreadyFinished" if @finished
       push("return", {
