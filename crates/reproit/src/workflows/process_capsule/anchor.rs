@@ -157,8 +157,9 @@ pub fn from_capsule(raw: Option<&Value>) -> Result<Option<ApplicationAnchor>, St
     if raw.get("kind").and_then(Value::as_str) != Some(ANCHOR_KIND_APPLICATION) {
         return Ok(None);
     }
-    let anchor: ApplicationAnchor = serde_json::from_value(raw.clone())
-        .map_err(|error| format!("anchor-malformed: the application anchor is unreadable ({error})"))?;
+    let anchor: ApplicationAnchor = serde_json::from_value(raw.clone()).map_err(|error| {
+        format!("anchor-malformed: the application anchor is unreadable ({error})")
+    })?;
     if anchor.version != ANCHOR_VERSION {
         return Err(format!(
             "anchor-version: this build reads application anchor version {ANCHOR_VERSION}, the \
@@ -228,7 +229,10 @@ pub fn prepare(anchor: &ApplicationAnchor) -> Result<(), String> {
     }
     // Over-cap: the bytes travel outside the capsule, so the file must
     // already be present and must be exactly the recorded artifact.
-    let over = anchor.over_cap.as_ref().expect("from_capsule enforced one of the two");
+    let over = anchor
+        .over_cap
+        .as_ref()
+        .expect("from_capsule enforced one of the two");
     let existing = std::fs::read(&path).map_err(|_| {
         format!(
             "anchor-checkpoint-over-cap: the checkpoint ({} bytes) exceeded the {} byte embed cap \
@@ -282,7 +286,10 @@ mod tests {
         let bytes = std::fs::read(&checkpoint).unwrap();
         assert_eq!(
             anchor.checkpoint_sha256,
-            format!("sha256:{}", crate::workflows::process_capsule::hex_digest(&bytes))
+            format!(
+                "sha256:{}",
+                crate::workflows::process_capsule::hex_digest(&bytes)
+            )
         );
         // No artifact, no anchor: an anchored capture without a checkpoint
         // would be a capsule claiming a fast path it does not have.

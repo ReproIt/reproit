@@ -150,7 +150,10 @@ fn a_failing_test_spools_a_test_trigger_capsule_with_the_exchange() {
             .expect("capsule JSON");
     assert_eq!(capsule["format"], "reproit-backend-capture");
     assert_eq!(capsule["version"], 2);
-    assert_eq!(capsule["operation"], "test:unit#asserts the upstream answer");
+    assert_eq!(
+        capsule["operation"],
+        "test:unit#asserts the upstream answer"
+    );
     assert_eq!(capsule["oracle"], ci::TEST_FAILURE_ORACLE);
     assert!(capsule["envelope"]["replaySeed"].is_string());
     let events = capsule["events"].as_array().expect("events");
@@ -164,7 +167,10 @@ fn a_failing_test_spools_a_test_trigger_capsule_with_the_exchange() {
     assert_eq!(returned["kind"], "return");
     assert_eq!(returned["success"], false);
     let error = returned["output"]["error"].as_str().expect("error text");
-    assert!(error.contains("left") && error.contains('7') && error.contains('8'), "{error}");
+    assert!(
+        error.contains("left") && error.contains('7') && error.contains('8'),
+        "{error}"
+    );
     let _ = std::fs::remove_dir_all(&spool);
 }
 

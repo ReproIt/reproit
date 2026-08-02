@@ -70,12 +70,14 @@ pub(super) async fn run(
             anchor_position,
             command,
         } => {
-            let anchor = anchor_checkpoint.zip(anchor_position).map(
-                |(checkpoint, position)| super::process_capsule::AnchorRequest {
-                    checkpoint,
-                    position,
-                },
-            );
+            let anchor = anchor_checkpoint
+                .zip(anchor_position)
+                .map(
+                    |(checkpoint, position)| super::process_capsule::AnchorRequest {
+                        checkpoint,
+                        position,
+                    },
+                );
             super::process_capsule::capture(ctx, &out, &command, anchor.as_ref())
         }
         InternalCmd::ProcessAnchor {

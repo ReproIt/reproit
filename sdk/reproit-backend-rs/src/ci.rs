@@ -123,7 +123,11 @@ fn bounded_name(value: &str) -> String {
 
 /// The capsule's operation identity: `test:<suite>#<test>`.
 pub fn operation_for(suite: &str, test: &str) -> String {
-    format!("{TEST_TRIGGER_PREFIX}{}#{}", bounded_name(suite), bounded_name(test))
+    format!(
+        "{TEST_TRIGGER_PREFIX}{}#{}",
+        bounded_name(suite),
+        bounded_name(test)
+    )
 }
 
 fn bounded_error(message: &str) -> String {
@@ -217,7 +221,10 @@ fn spool(payload: &Value, operation: &str) -> std::io::Result<Option<PathBuf>> {
         return Ok(None);
     }
     let digest = Sha256::digest(&body);
-    let short: String = digest[..6].iter().map(|byte| format!("{byte:02x}")).collect();
+    let short: String = digest[..6]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
     let file = dir.join(format!("capsule-{short}.json"));
     std::fs::write(&file, &body)?;
     SPOOLED.fetch_add(1, Ordering::Relaxed);
@@ -415,7 +422,10 @@ mod tests {
         );
         let long = "x".repeat(400);
         let operation = operation_for(&long, &long);
-        assert_eq!(operation.chars().count(), TEST_TRIGGER_PREFIX.len() + MAX_NAME * 2 + 1);
+        assert_eq!(
+            operation.chars().count(),
+            TEST_TRIGGER_PREFIX.len() + MAX_NAME * 2 + 1
+        );
     }
 
     #[test]
@@ -440,6 +450,9 @@ mod tests {
         assert_eq!(panic_message(Box::new("boom")), "boom");
         assert_eq!(panic_message(Box::new("boom".to_string())), "boom");
         assert_eq!(panic_message(Box::new(7u8)), "test panicked");
-        assert_eq!(bounded_error(&"e".repeat(4096)).chars().count(), MAX_ERROR_CHARS);
+        assert_eq!(
+            bounded_error(&"e".repeat(4096)).chars().count(),
+            MAX_ERROR_CHARS
+        );
     }
 }

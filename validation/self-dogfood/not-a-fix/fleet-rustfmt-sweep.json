@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "id": "fleet-rustfmt-sweep",
   "changeType": "maintenance",
-  "detail": "Mechanical cargo fmt --all over the four backend_headless files the flaky-CI wedge branch landed unformatted; whitespace only, no semantic change, lib suite identical before and after. Also carries the declaration the policy flagged missing on 6732d15b7cc9.",
+  "detail": "Mechanical cargo fmt --all over the four backend_headless files the flaky-CI wedge branch landed unformatted; whitespace only, no semantic change, lib suite identical before and after. Also carries the declaration the policy flagged missing on 6732d15b7cc9. A second commit completes the sweep: the first staged only four files by explicit path while fmt had touched seven.",
   "evidence": [
     {
       "path": "validation/self-dogfood/evidence/fleet-rustfmt-sweep.md",
-      "sha256": "sha256:306dae71ce8e08fdd4adc68f384a8fc8b873e2a7ed0cef3f63ef57ec260f14ef"
+      "sha256": "sha256:24449e0289b335335ad116610b752fdf2030d627d4ac45f4a6eb80c3b0c7908e"
     }
   ]
 }

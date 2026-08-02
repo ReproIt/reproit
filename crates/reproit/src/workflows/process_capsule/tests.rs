@@ -139,24 +139,20 @@ fn the_thread_id_folds_because_it_changes_on_every_run() {
     // every run, so without the fold a panic identity can never match its
     // own replay (measured on the bevy session subject: INCONCLUSIVE with
     // identical exits).
-    let first = failure_signature(&[
-        "thread 'main' (1681) panicked at src/main.rs:60:17:".to_string(),
-    ]);
-    let second = failure_signature(&[
-        "thread 'main' (2044) panicked at src/main.rs:60:17:".to_string(),
-    ]);
+    let first =
+        failure_signature(&["thread 'main' (1681) panicked at src/main.rs:60:17:".to_string()]);
+    let second =
+        failure_signature(&["thread 'main' (2044) panicked at src/main.rs:60:17:".to_string()]);
     assert!(first.is_some());
     assert_eq!(first, second);
     // The thread NAME is not folded: two panics on differently named
     // threads are different failures.
-    let named = failure_signature(&[
-        "thread 'worker' (1681) panicked at src/main.rs:60:17:".to_string(),
-    ]);
+    let named =
+        failure_signature(&["thread 'worker' (1681) panicked at src/main.rs:60:17:".to_string()]);
     assert_ne!(first, named);
     // A different panic site stays a different failure.
-    let elsewhere = failure_signature(&[
-        "thread 'main' (1681) panicked at src/main.rs:99:5:".to_string(),
-    ]);
+    let elsewhere =
+        failure_signature(&["thread 'main' (1681) panicked at src/main.rs:99:5:".to_string()]);
     assert_ne!(first, elsewhere);
 }
 

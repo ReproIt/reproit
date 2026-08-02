@@ -9,3 +9,10 @@ after, and `cargo fmt --all -- --check` is clean after.
 
 The same push repairs the declaration gap the policy named on 6732d15b7cc9:
 this commit carries the `Reproit-Dogfood` trailer with this record.
+
+Completion note: the first sweep commit staged only four files by explicit
+path while `cargo fmt --all` had also reformatted `internal_dispatch.rs`,
+`process_capsule/anchor.rs`, `process_capsule/tests.rs`, and three
+`sdk/reproit-backend-rs` files (`capture.rs`, `ci.rs`, `tests/ci_harness.rs`);
+this second commit lands the remainder, after which `cargo fmt --all --
+--check` passes twice in a row over the whole workspace at HEAD.

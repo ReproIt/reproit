@@ -1031,7 +1031,9 @@ mod tests {
             AGENT_LOOP_BOUND_ORACLE,
             json!({"iterations": 9, "bound": 4}),
         );
-        healthy.finish(json!({"note": "gave up"}), 200, true, true).unwrap();
+        healthy
+            .finish(json!({"note": "gave up"}), 200, true, true)
+            .unwrap();
         let healthy_batch = capture.build_batch(&[CapturedOperation {
             operation: "POST /assist".into(),
             status: Some(200),
