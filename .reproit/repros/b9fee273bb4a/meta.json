@@ -4,7 +4,7 @@
   "status": "required",
   "seed": 0,
   "created": "2026-07-31T12:43:07.219110+00:00",
-  "last_checked": "2026-07-31T07:21:12.998002-07:00",
+  "last_checked": "2026-07-31T12:53:03.730876-07:00",
   "last_result": "pass",
   "trigger_index": 0,
   "trigger_sig": "cli:contract-null-optional",
