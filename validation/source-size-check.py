@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Reject owned source files above the workspace's 1,000-line boundary."""
+"""Keep owned source files around the workspace's 1,000-line guideline.
+
+The guideline is a target, not a wall: good engineering is being around that
+amount, and a mechanical change (a rustfmt pass, a generated table) must not
+turn the gate red. Files over the guideline are named as warnings; the check
+fails only past the hard ceiling, where "around" has clearly ended.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +13,8 @@ import os
 import sys
 from pathlib import Path
 
-MAX_LINES = 1_000
+GUIDELINE_LINES = 1_000
+HARD_CEILING_LINES = 1_200
 SOURCE_SUFFIXES = {
     ".css",
     ".dart",
@@ -73,17 +80,33 @@ def line_count(path: Path) -> int:
 
 
 def main() -> int:
-    oversized = []
+    over_guideline = []
+    over_ceiling = []
     for root in source_roots():
         for path in source_files(root):
             lines = line_count(path)
-            if lines > MAX_LINES:
-                oversized.append((lines, path))
-    if oversized:
-        for lines, path in sorted(oversized, reverse=True):
-            print(f"{path}: {lines} lines, maximum is {MAX_LINES}", file=sys.stderr)
+            if lines > HARD_CEILING_LINES:
+                over_ceiling.append((lines, path))
+            elif lines > GUIDELINE_LINES:
+                over_guideline.append((lines, path))
+    for lines, path in sorted(over_guideline, reverse=True):
+        print(
+            f"warning: {path}: {lines} lines, over the {GUIDELINE_LINES}-line "
+            f"guideline; split it when the next real change lands",
+            file=sys.stderr,
+        )
+    if over_ceiling:
+        for lines, path in sorted(over_ceiling, reverse=True):
+            print(
+                f"{path}: {lines} lines, past the {HARD_CEILING_LINES}-line "
+                f"hard ceiling (guideline {GUIDELINE_LINES})",
+                file=sys.stderr,
+            )
         return 1
-    print(f"source-size check passed: every owned source file is at most {MAX_LINES} lines")
+    print(
+        f"source-size check passed: guideline {GUIDELINE_LINES} lines "
+        f"({len(over_guideline)} file(s) over, warned), hard ceiling {HARD_CEILING_LINES}"
+    )
     return 0
 
 

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "soft-source-size-gate",
+  "changeType": "tooling",
+  "detail": "The source-size gate becomes a guideline (1000, warn) with a hard ceiling (1200, fail). A rustfmt-only change had crossed the old wall and turned main red; the founder ruled the count is a target to be around, not a strict limit.",
+  "evidence": [
+    {
+      "path": "validation/self-dogfood/evidence/soft-source-size-gate.md",
+      "sha256": "sha256:afe82aac21a8d3926cbcc0fd7ada8cf3fbac115f2b5c6659f5b063acd2d61d9b"
+    }
+  ]
+}
