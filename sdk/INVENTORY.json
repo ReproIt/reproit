@@ -69,7 +69,7 @@
     "reproit-backend-rs": {
       "runs": "clippy and tests with the instrument feature, which the default build never compiles",
       "cargoPackage": "reproit-backend",
-      "gate": ["cargo test -p reproit-backend --features instrument"]
+      "gate": ["cargo test -p reproit-backend --features instrument,pg"]
     },
     "reproit-ios": {
       "runs": "swift test over the whole ReproItTests target",

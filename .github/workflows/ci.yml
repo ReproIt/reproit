@@ -358,7 +358,7 @@ jobs:
         working-directory: sdk/reproit-backend-py
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          uv run --group test -m pytest tests/test_trace.py tests/test_capture.py tests/test_instrument.py tests/test_replay.py tests/test_behavior_vectors.py
+          uv run --group test -m pytest tests/test_trace.py tests/test_capture.py tests/test_instrument.py tests/test_replay.py tests/test_behavior_vectors.py tests/test_ci.py
       # The sixth file under tests/, which CI never ran: a real uvicorn-served
       # FastAPI app with a planted 500 against a stub ingest.
       - name: python e2e (reproit-backend-py)
@@ -420,6 +420,7 @@ jobs:
           ruby sdk/reproit-backend-rb/test/instrument_test.rb
           ruby sdk/reproit-backend-rb/test/replay_test.rb
           ruby sdk/reproit-backend-rb/test/behavior_vectors_test.rb
+          ruby sdk/reproit-backend-rb/test/ci_test.rb
           ruby sdk/reproit-backend-rb/test/e2e_test.rb
       - name: php (reproit-backend-php)
         run: |
