@@ -373,6 +373,28 @@ final class BackendTrace
         $this->push('effect', $fields);
     }
 
+    /**
+     * Mark an agent oracle on the trace: an authored assertion that this
+     * operation violated its own contract (response content/shape,
+     * guardrail, loop bound). The marker rides as an `emit` effect so the
+     * wire vocabulary is unchanged; capture mode always uploads a marked
+     * operation and its failure observation carries the marked id. Unknown
+     * ids are rejected so a typo cannot mint an oracle category. Lazy
+     * require, matching the reference SDKs: trace.php stays loadable alone.
+     */
+    public function oracle(string $id, mixed $detail = null): void
+    {
+        require_once __DIR__ . '/capture.php';
+        if (!\in_array($id, AGENT_ORACLES, true)) {
+            throw new TraceError('InvalidOperation');
+        }
+        $opts = ['resource' => ORACLE_MARKER_RESOURCE, 'key' => $id];
+        if ($detail !== null) {
+            $opts['detail'] = ['payload' => $detail];
+        }
+        $this->effect('emit', $opts);
+    }
+
     public function finish(mixed $output, mixed $status, bool $success, bool $effectsComplete): void
     {
         if ($this->finished) {
