@@ -108,6 +108,20 @@ def stream_output(stream: Any, capture: BoundedCapture) -> None:
             pass
 
 
+def signal_process_group(process: subprocess.Popen[bytes], signum: int) -> None:
+    # A child that exits between poll() and killpg() leaves a zombie group
+    # leader; on macOS killpg then raises EPERM (not ESRCH), which would turn
+    # a finished gate into a harness crash. Fall back to signalling the leader
+    # directly and let wait() reap it.
+    try:
+        os.killpg(process.pid, signum)
+    except (ProcessLookupError, PermissionError):
+        try:
+            process.send_signal(signum)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
 def stop_process_group(process: subprocess.Popen[bytes]) -> None:
     if process.poll() is not None:
         return
@@ -118,11 +132,11 @@ def stop_process_group(process: subprocess.Popen[bytes]) -> None:
         except subprocess.TimeoutExpired:
             process.kill()
         return
-    os.killpg(process.pid, signal.SIGTERM)
+    signal_process_group(process, signal.SIGTERM)
     try:
         process.wait(timeout=PROCESS_TERMINATION_GRACE_SECONDS)
     except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGKILL)
+        signal_process_group(process, signal.SIGKILL)
 
 
 def execute(
