@@ -43,13 +43,13 @@ guards quarantine and report instead of silently re-baselining.
 macOS and Linux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ReproIt/reproit/main/install.sh | sh
+curl -fsSL https://reproit.com/install.sh | sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/ReproIt/reproit/main/install.ps1 | iex
+irm https://reproit.com/install.ps1 | iex
 ```
 
 From source:
