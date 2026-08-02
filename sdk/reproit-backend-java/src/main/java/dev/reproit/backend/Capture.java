@@ -40,6 +40,33 @@ public final class Capture implements TraceSink {
     public static final int CAPTURE_VERSION = 1;
     // First-class registry oracle id for an operation that returned HTTP 5xx.
     public static final String SERVER_ERROR_ORACLE = "backend-server-error";
+    // Agent oracle vocabulary (registry ids, lowest confidence tier): authored
+    // assertions an LLM/agent operation marks on its own trace via
+    // `trace.oracle(id, detail)`. A marked operation is always captured and its
+    // failure observation carries the marked id instead of the 5xx default.
+    public static final String AGENT_RESPONSE_ORACLE = "agent-response-content";
+    public static final String AGENT_GUARDRAIL_ORACLE = "agent-guardrail-violation";
+    public static final String AGENT_LOOP_BOUND_ORACLE = "agent-loop-bound-exceeded";
+    public static final List<String> AGENT_ORACLES = List.of(
+        AGENT_RESPONSE_ORACLE, AGENT_GUARDRAIL_ORACLE, AGENT_LOOP_BOUND_ORACLE);
+    // The effect resource that carries an oracle marker on the trace. A marker
+    // is an `emit` effect so the scan-time wire shape stays inside the
+    // existing event vocabulary.
+    public static final String ORACLE_MARKER_RESOURCE = "reproit-oracle";
+
+    /** First agent oracle marked on a finished trace's events, or null. */
+    public static String markedOracle(List<Map<String, Object>> events) {
+        if (events == null) return null;
+        for (Map<String, Object> event : events) {
+            if (event == null) continue;
+            if (!"effect".equals(event.get("kind"))) continue;
+            if (!ORACLE_MARKER_RESOURCE.equals(event.get("resource"))) continue;
+            if (event.get("key") instanceof String key && AGENT_ORACLES.contains(key)) {
+                return key;
+            }
+        }
+        return null;
+    }
 
     // Bounds. Queue overflow drops the OLDEST pending operation; an oversized
     // capture payload drops trailing effect events before it drops itself.
@@ -211,7 +238,10 @@ public final class Capture implements TraceSink {
                 if (value >= 0 && value <= 0xffff) status = (int) value;
             }
             boolean error = !success || (status != null && status >= 500);
-            if (!error && !sampleHealthy()) return;
+            // A marked agent oracle is an authored failure assertion, so the
+            // operation is always captured, like a 5xx.
+            boolean marked = markedOracle(events) != null;
+            if (!error && !marked && !sampleHealthy()) return;
             Object operation = events.isEmpty() ? null : events.get(0).get("operation");
             if (!(operation instanceof String name)) return;
             lock.lock();
@@ -447,12 +477,19 @@ public final class Capture implements TraceSink {
             "kind", "operation-end",
             "name", operation.operation(),
             "outcome", success ? "succeeded" : "failed")));
-        if (operation.status() != null && operation.status() >= 500) {
-            String signature = SERVER_ERROR_ORACLE + ":" + operation.operation();
-            String message = "backend operation " + operation.operation()
-                + " returned HTTP " + operation.status();
+        String marked = markedOracle(operation.events());
+        if (marked != null || (operation.status() != null && operation.status() >= 500)) {
+            String oracle = marked != null ? marked : SERVER_ERROR_ORACLE;
+            String signature = oracle + ":" + operation.operation();
+            String message = marked == null
+                ? "backend operation " + operation.operation()
+                    + " returned HTTP " + operation.status()
+                : "agent oracle " + oracle + " fired on " + operation.operation();
             Map<String, Object> failure = new LinkedHashMap<>();
-            failure.put("observation", "exception");
+            // A marked agent oracle is an authored assertion (a declared
+            // contract the trace itself violated); a bare 5xx stays the
+            // runtime exception it always was.
+            failure.put("observation", marked == null ? "exception" : "contract-violation");
             failure.put("authority", "runtime-diagnosis");
             failure.put("summary", message);
             failure.put("signature", signature);
@@ -552,13 +589,15 @@ public final class Capture implements TraceSink {
     // left is omitted entirely (null).
     static Payload capturePayload(Operation operation) {
         List<Map<String, Object>> events = new ArrayList<>(operation.events());
+        String marked = markedOracle(events);
+        String oracle = marked != null ? marked : SERVER_ERROR_ORACLE;
         int droppedEffects = 0;
         while (true) {
             Map<String, Object> value = new LinkedHashMap<>();
             value.put("format", CAPTURE_FORMAT);
             value.put("version", CAPTURE_VERSION);
             value.put("operation", operation.operation());
-            value.put("oracle", SERVER_ERROR_ORACLE);
+            value.put("oracle", oracle);
             value.put("events", events);
             byte[] encoded = Json.canonicalJson(value).getBytes(StandardCharsets.UTF_8);
             if (encoded.length <= MAX_CAPTURE_JSON_BYTES) {
