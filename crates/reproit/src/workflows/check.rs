@@ -194,8 +194,7 @@ pub(super) async fn run(
                          command>\" (backend.exec boots the app, which is not a test run)"
                     );
                 };
-                return backend_headless::check_capture_test(ctx, Path::new(reference), exec)
-                    .await;
+                return backend_headless::check_capture_test(ctx, Path::new(reference), exec).await;
             }
             // --exec wins; otherwise an initialized project's backend.exec
             // supplies the boot recipe, so hermetic re-execution is the

@@ -149,8 +149,10 @@ pub async fn run(
                 message
             }
             hermetic::HermeticVerdict::Reproduced => {
-                let message =
-                    format!("{id} still reproduces hermetically on {}", outcome.operation);
+                let message = format!(
+                    "{id} still reproduces hermetically on {}",
+                    outcome.operation
+                );
                 reproducing.push(entry);
                 message
             }
@@ -358,8 +360,7 @@ async fn install_identity_pool_for_verify(ctx: &Ctx, config_path: Option<&Path>)
 fn project_root_with_findings() -> Result<Option<PathBuf>> {
     let cwd = std::env::current_dir()?;
     for root in cwd.ancestors() {
-        if layout::findings_dir(root).is_dir()
-            || !replay_command::hermetic_guards(root).is_empty()
+        if layout::findings_dir(root).is_dir() || !replay_command::hermetic_guards(root).is_empty()
         {
             return Ok(Some(root.to_path_buf()));
         }

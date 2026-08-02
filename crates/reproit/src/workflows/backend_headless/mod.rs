@@ -935,10 +935,10 @@ mod test_trigger;
 pub use hermetic::{
     check_capture_exec, keep_capture_guard, try_replay_hermetic_guard, HermeticVerdict,
 };
-pub use test_trigger::{capture_is_test_trigger, check_capture_test};
 use replay_command::{
     escape_pointer, find_artifact, maybe_reset_target, replay_endpoint, value_as_text,
 };
+pub use test_trigger::{capture_is_test_trigger, check_capture_test};
 mod encoding;
 use crate::domain::json_path::{is_scalar_identity, json_path, set_json_path};
 use encoding::{hex_hash, percent_encode};

@@ -90,12 +90,8 @@ fn watch_stderr(child: &mut std::process::Child) -> Arc<Mutex<Observation>> {
                     }
                 } else if let Some(report) = line.strip_prefix(RESULT_MARKER) {
                     let parsed: Value = serde_json::from_str(report).unwrap_or(Value::Null);
-                    let read = |name: &str| {
-                        parsed
-                            .get(name)
-                            .and_then(Value::as_str)
-                            .map(str::to_string)
-                    };
+                    let read =
+                        |name: &str| parsed.get(name).and_then(Value::as_str).map(str::to_string);
                     if let (Some(operation), Some(status)) = (read("operation"), read("status")) {
                         if let Ok(mut guard) = observation.lock() {
                             // First result wins: the SDK replays one test.
@@ -122,13 +118,17 @@ fn watch_stderr(child: &mut std::process::Child) -> Arc<Mutex<Observation>> {
 /// The recorded failure identity: the bounded assertion message the SDK put
 /// in the return event's output when it spooled the capsule.
 fn recorded_failure(artifact: &super::capture_replay::CaptureArtifact) -> Option<String> {
-    artifact.events.iter().rev().find_map(|event| match &event.event {
-        BackendEventKind::Return { output, .. } => output
-            .get("error")
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        _ => None,
-    })
+    artifact
+        .events
+        .iter()
+        .rev()
+        .find_map(|event| match &event.event {
+            BackendEventKind::Return { output, .. } => output
+                .get("error")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            _ => None,
+        })
 }
 
 /// Pure verdict mapping, split out so the contract is unit-testable.
