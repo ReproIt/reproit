@@ -335,6 +335,30 @@ func (t *BackendTrace) Exchange(kind EffectKind, opts ExchangeOptions) error {
 	return t.push("effect", fields)
 }
 
+// Oracle marks an agent oracle on the trace: an authored assertion that this
+// operation violated its own contract (response content/shape, guardrail,
+// loop bound). The marker rides as an `emit` effect so the wire vocabulary is
+// unchanged; capture mode always uploads a marked operation and its failure
+// observation carries the marked id. Unknown ids are rejected so a typo
+// cannot mint an oracle category.
+func (t *BackendTrace) Oracle(id string, detail any) error {
+	known := false
+	for _, oracle := range AgentOracles {
+		if id == oracle {
+			known = true
+			break
+		}
+	}
+	if !known {
+		return ErrInvalidOperation
+	}
+	opts := EffectOptions{Resource: OracleMarkerResource, Key: id}
+	if detail != nil {
+		opts.Detail = map[string]any{"payload": detail}
+	}
+	return t.Effect(EffectEmit, opts)
+}
+
 // Finish records the single return event. A second finish fails.
 func (t *BackendTrace) Finish(output any, status int, success, effectsComplete bool) error {
 	t.mu.Lock()

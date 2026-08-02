@@ -35,7 +35,46 @@ const (
 	// ServerErrorOracle is the first-class registry oracle id for an
 	// operation that returned HTTP 5xx.
 	ServerErrorOracle = "backend-server-error"
+	// Agent oracle vocabulary (registry ids, lowest confidence tier):
+	// authored assertions an LLM/agent operation marks on its own trace via
+	// `trace.Oracle(id, detail)`. A marked operation is always captured and
+	// its failure observation carries the marked id instead of the 5xx
+	// default.
+	AgentResponseOracle  = "agent-response-content"
+	AgentGuardrailOracle = "agent-guardrail-violation"
+	AgentLoopBoundOracle = "agent-loop-bound-exceeded"
+	// OracleMarkerResource is the effect resource that carries an oracle
+	// marker on the trace. A marker is an `emit` effect so the scan-time
+	// wire shape stays inside the existing event vocabulary.
+	OracleMarkerResource = "reproit-oracle"
 )
+
+// AgentOracles is the closed set of agent oracle ids Oracle accepts.
+var AgentOracles = []string{
+	AgentResponseOracle,
+	AgentGuardrailOracle,
+	AgentLoopBoundOracle,
+}
+
+// MarkedOracle returns the first agent oracle marked on a finished trace's
+// events, or "".
+func MarkedOracle(events []map[string]any) string {
+	for _, event := range events {
+		if kind, _ := event["kind"].(string); kind != "effect" {
+			continue
+		}
+		if resource, _ := event["resource"].(string); resource != OracleMarkerResource {
+			continue
+		}
+		key, _ := event["key"].(string)
+		for _, id := range AgentOracles {
+			if key == id {
+				return id
+			}
+		}
+	}
+	return ""
+}
 
 // Bounds. Queue overflow drops the OLDEST pending operation; an oversized
 // capture payload drops trailing effect events before it drops itself.
@@ -203,7 +242,10 @@ func (c *Capture) Record(trace *BackendTrace) {
 			status = parsed
 		}
 	}
-	if success && status < 500 && !c.sampleHealthy() {
+	// A marked agent oracle is an authored failure assertion, so the
+	// operation is always captured, like a 5xx.
+	marked := MarkedOracle(events) != ""
+	if success && status < 500 && !marked && !c.sampleHealthy() {
 		return
 	}
 	operation, _ := events[0]["operation"].(string)
@@ -458,17 +500,26 @@ func (c *Capture) buildBatch(operations []capturedOperation) map[string]any {
 	add(map[string]any{
 		"kind": "operation-end", "name": operation.operation, "outcome": outcome,
 	}, nil)
-	if operation.status >= 500 {
-		signature := ServerErrorOracle + ":" + operation.operation
-		message := "backend operation " + operation.operation +
-			" returned HTTP " + strconv.Itoa(operation.status)
+	if marked := MarkedOracle(operation.events); marked != "" || operation.status >= 500 {
+		// A marked agent oracle is an authored assertion (a declared contract
+		// the trace itself violated); a bare 5xx stays the runtime exception
+		// it always was.
+		oracle := marked
+		observation := "contract-violation"
+		message := "agent oracle " + oracle + " fired on " + operation.operation
+		if marked == "" {
+			oracle = ServerErrorOracle
+			observation = "exception"
+			message = "backend operation " + operation.operation +
+				" returned HTTP " + strconv.Itoa(operation.status)
+		}
 		add(map[string]any{
 			"kind": "observation",
 			"failure": map[string]any{
-				"observation":      "exception",
+				"observation":      observation,
 				"authority":        "runtime-diagnosis",
 				"summary":          message,
-				"signature":        signature,
+				"signature":        oracle + ":" + operation.operation,
 				"observationPoint": operation.operation,
 				"artifactIds":      []any{},
 			},
@@ -541,6 +592,10 @@ func (c *Capture) send(client *http.Client, batch map[string]any) bool {
 // only start/return left is omitted entirely (ok == false).
 func capturePayload(operation capturedOperation) (map[string]any, int, bool) {
 	events := append([]map[string]any(nil), operation.events...)
+	oracle := MarkedOracle(events)
+	if oracle == "" {
+		oracle = ServerErrorOracle
+	}
 	dropped := 0
 	for {
 		values := make([]any, 0, len(events))
@@ -551,7 +606,7 @@ func capturePayload(operation capturedOperation) (map[string]any, int, bool) {
 			"format":    CaptureFormat,
 			"version":   CaptureVersion,
 			"operation": operation.operation,
-			"oracle":    ServerErrorOracle,
+			"oracle":    oracle,
 			"events":    values,
 		}
 		if len(CanonicalJSON(payload)) <= maxCaptureJSONBytes {

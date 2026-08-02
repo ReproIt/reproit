@@ -196,6 +196,108 @@ func TestConfigBoundsAreClamped(t *testing.T) {
 	}
 }
 
+func TestAgentOracleMarkersRideTheTraceAndRejectUnknownIds(t *testing.T) {
+	trace, err := Begin(&TraceContext{TraceID: "cap-1-1"}, "POST /assist", BeginOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := trace.Oracle("made-up-oracle", nil); err != ErrInvalidOperation {
+		t.Fatalf("unknown oracle id accepted: %v", err)
+	}
+	err = trace.Oracle(AgentGuardrailOracle, map[string]any{"tool": "delete_order"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := trace.Finish(map[string]any{"error": "guardrail"}, 500, false, true); err != nil {
+		t.Fatal(err)
+	}
+	if marked := MarkedOracle(trace.Events()); marked != AgentGuardrailOracle {
+		t.Fatalf("marked oracle %q, want %q", marked, AgentGuardrailOracle)
+	}
+	marker := trace.Events()[1]
+	if marker["effect"] != "emit" || marker["resource"] != OracleMarkerResource {
+		t.Fatalf("marker is not an emit on %s: %v", OracleMarkerResource, marker)
+	}
+	payload, _ := marker["payload"].(map[string]any)
+	if payload["tool"] != "delete_order" {
+		t.Fatalf("marker detail lost: %v", marker)
+	}
+}
+
+func TestMarkedAgentOperationIsCapturedEvenWithoutA5xx(t *testing.T) {
+	// No worker goroutine: enqueue directly, like the overflow test.
+	capture := &Capture{config: NewCaptureConfig("http://c", "sk", "app")}
+	capture.signal = sync.NewCond(&capture.mu)
+	trace, err := Begin(capture.Context(), "POST /assist", BeginOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = trace.Oracle(AgentLoopBoundOracle, map[string]any{"iterations": 9, "bound": 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := trace.Finish(map[string]any{"note": "gave up"}, 200, true, true); err != nil {
+		t.Fatal(err)
+	}
+	capture.Record(trace)
+	if capture.Stats().CapturedOperations != 1 {
+		t.Fatal("marked operation was not captured")
+	}
+}
+
+func TestMarkedFailureObservationCarriesTheAgentOracleId(t *testing.T) {
+	capture := &Capture{config: NewCaptureConfig("http://c", "sk", "app-demo")}
+	trace, err := Begin(capture.Context(), "POST /assist", BeginOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = trace.Oracle(AgentGuardrailOracle, map[string]any{"tool": "delete_order"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := trace.Finish(map[string]any{"error": "guardrail"}, 500, false, true); err != nil {
+		t.Fatal(err)
+	}
+	batch := capture.buildBatch([]capturedOperation{{
+		operation: "POST /assist", status: 500, events: trace.Events(),
+	}})
+	events := batch["events"].([]any)
+	observation := events[len(events)-1].(map[string]any)["event"].(map[string]any)
+	if observation["kind"] != "observation" {
+		t.Fatalf("observation event missing: %v", observation)
+	}
+	failure := observation["failure"].(map[string]any)
+	if failure["signature"] != AgentGuardrailOracle+":POST /assist" {
+		t.Fatalf("observation not tagged with the marked id: %v", failure)
+	}
+	if failure["observation"] != "contract-violation" {
+		t.Fatalf("marked observation must be contract-violation: %v", failure)
+	}
+}
+
+func TestMarkedCapturePayloadCarriesTheAgentOracleId(t *testing.T) {
+	capture := &Capture{config: NewCaptureConfig("http://c", "sk", "app")}
+	trace, err := Begin(capture.Context(), "POST /assist", BeginOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := trace.Oracle(AgentResponseOracle, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := trace.Finish(nil, 200, true, true); err != nil {
+		t.Fatal(err)
+	}
+	payload, dropped, ok := capturePayload(capturedOperation{
+		operation: "POST /assist", status: 200, events: trace.Events(),
+	})
+	if !ok || dropped != 0 {
+		t.Fatalf("payload dropped: ok=%v dropped=%d", ok, dropped)
+	}
+	if payload["oracle"] != AgentResponseOracle {
+		t.Fatalf("payload oracle %v, want %s", payload["oracle"], AgentResponseOracle)
+	}
+}
+
 func TestCaptureEventSequencesAreDenseAndTyped(t *testing.T) {
 	batch := batchFor(t, 500, false)
 	encoded := CanonicalJSON(batch)
