@@ -37,7 +37,11 @@ class FlutterDriveRetryContractTest(unittest.TestCase):
             fake_root = temporary / "root"
             backends = fake_root / "validation/backends"
             backends.mkdir(parents=True)
-            for name in ("run-flutter-drive.sh", "run-output-contract.py"):
+            for name in (
+                "run-flutter-drive.sh",
+                "run-output-contract.py",
+                "sample-stalled-tools.sh",
+            ):
                 shutil.copy(ROOT / "validation/backends" / name, backends / name)
             fixture = fake_root / "examples/flutter-fixture/lib"
             fixture.mkdir(parents=True)

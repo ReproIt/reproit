@@ -1,0 +1,35 @@
+name: native-gates-rerun
+
+# One bounded job-level retry for the native gates. The gates already retry
+# inside the job, but the measured failure mode of 2026-08-02 (run
+# 30747023317) is a sick runner VM: the toolchain wedges before the app even
+# launches, three escalating in-job tiers all stall, and only a fresh VM
+# helps. rerun-failed-jobs reruns exactly the failed jobs on new runners,
+# keeps attempt 1's logs and evidence visible in the run history, and the
+# run_attempt guard hard-bounds this to a single retry: a real regression
+# still fails, one attempt later.
+
+on:
+  workflow_run:
+    workflows: [native-backend-gates]
+    types: [completed]
+
+permissions:
+  actions: write
+
+jobs:
+  rerun-failed-jobs-once:
+    if: >
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.run_attempt < 2
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Rerun the failed gate jobs on fresh runners
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "rerunning failed jobs of run ${{ github.event.workflow_run.id }}" \
+            "(attempt ${{ github.event.workflow_run.run_attempt }})"
+          gh api --method POST \
+            "repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/rerun-failed-jobs"

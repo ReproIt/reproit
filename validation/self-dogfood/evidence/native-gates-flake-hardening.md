@@ -31,6 +31,29 @@ failure. A green run takes ~374s for the same gate; the failing runner was
 2.4x slower, so 900s has no variance headroom. Fix: swiftui-ios
 timeoutSeconds 900 -> 1800.
 
+## Round 2, measured on run 30747023317 (first run after the fixes above)
+
+The budget fix held: all three tiers completed inside the window and the
+attempt evidence printed. But all three attempts stalled as output-idle-timeout
+and the shape was NEW: the tool went silent right after "Xcode build done".
+Tier 1: the simulator log shows the Runner process never launched at all.
+Tier 2 (no-dds): the Runner DID launch and reached UIKit scene setup, yet the
+tool relayed nothing for 150s. So this instance was not DDS: the tool-to-
+simulator launch/log plumbing was wedged for the whole 20-minute job, which no
+in-job retry can cure. Two additions follow from that measurement:
+
+- run-output-contract.py gains --stall-diagnostic-command, run BEFORE the
+  timed-out child is killed (the hung process is the evidence), bounded at
+  60s, incapable of changing the verdict. The flutter gate wires it to
+  sample-stalled-tools.sh, which captures native stacks of the stalled
+  child's own process group only. Proven by three new contract tests
+  (hook runs while child is alive, hook failure keeps the verdict, hook
+  does not run on success) and a live induced stall showing call graphs.
+- native-gates-rerun.yml: when a native-backend-gates run fails on attempt 1,
+  rerun exactly the failed jobs ONCE on fresh runners. Attempt 1 logs and
+  evidence stay visible; the run_attempt guard bounds it; a real regression
+  still fails one attempt later.
+
 ## 3. linux-containers: one docker registry i/o timeout fails the whole job
 
 Run 30729160248: `failed to resolve source metadata for ubuntu:24.04: dial

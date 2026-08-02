@@ -115,6 +115,8 @@ run_drive() {
       --stall-marker 'The Dart VM service is listening on' \
       --stall-timeout-seconds "$VM_CONNECT_TIMEOUT_SECONDS" \
       --stall-name 'vm-service connect' \
+      --stall-diagnostic-command \
+      "bash '$ROOT/validation/backends/sample-stalled-tools.sh'" \
       --success-marker 'JOURNEY DONE' \
       --success-marker 'All tests passed' \
       -- \
@@ -167,13 +169,17 @@ raise SystemExit(1)
 }
 
 collect_stall_diagnostics() {
+  # Runner alone is not enough: run 30747023317 stalled with the app never
+  # launching, so the launch plumbing processes are part of the evidence.
   python3 "$ROOT/validation/backends/run-output-contract.py" \
     --idle-timeout-seconds 30 \
     -- \
     xcrun simctl spawn "$UDID" log show \
     --last 10m \
     --style compact \
-    --predicate 'process == "Runner"' 2>&1 | tail -n 200 || true
+    --predicate 'process == "Runner" OR process == "installd"
+      OR process == "SpringBoard" OR process == "launchd_sim"' \
+    2>&1 | tail -n 300 || true
 
   local app_plist="$APP/build/ios/iphonesimulator/Runner.app/Info.plist"
   local bundle_id

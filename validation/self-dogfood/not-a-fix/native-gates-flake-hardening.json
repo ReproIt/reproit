@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "id": "native-gates-flake-hardening",
   "changeType": "tooling",
-  "detail": "Harden the three chronically flaky native-gates jobs measured on 2026-08-02: flutter-ios gate budget could not fit its own three retry tiers (2400s budget, --no-dds retry tiers with per-attempt dds evidence, 150s retry idle bound), swiftui-ios 900s budget expired during teardown of an already-passing run (now 1800s), and container gates now retry docker build only on transient registry network errors, bounded at three attempts.",
+  "detail": "Harden the three chronically flaky native-gates jobs measured on 2026-08-02: flutter-ios gate budget could not fit its own three retry tiers (2400s budget, --no-dds retry tiers with per-attempt dds evidence, 150s retry idle bound), swiftui-ios 900s budget expired during teardown of an already-passing run (now 1800s), and container gates now retry docker build only on transient registry network errors, bounded at three attempts. Round 2 after run 30747023317: stall-time stack sampling of the hung toolchain via --stall-diagnostic-command, wider simulator-log predicate, and a one-shot rerun of failed gate jobs on fresh runners (sick-VM failure mode).",
   "evidence": [
     {
       "path": "validation/self-dogfood/evidence/native-gates-flake-hardening.md",
-      "sha256": "sha256:aa5be4086f2b86dc4d536b47376a7a71b07d7a818d90408d737797bc2510ec6b"
+      "sha256": "sha256:fc290453b0635b1ac27eb5b90e39740dce1ede5456ef3f1807d02097ae702015"
     }
   ]
 }

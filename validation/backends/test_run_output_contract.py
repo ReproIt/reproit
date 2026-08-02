@@ -143,6 +143,55 @@ class RunOutputContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 124)
         self.assertIn("idle timeout after 1 seconds", result.stderr)
 
+    def test_stall_diagnostics_run_while_the_child_is_still_alive(self) -> None:
+        # The hook exists to look at the hung process; it must fire before the
+        # child is terminated, and its output must land in the contract log.
+        result = run_contract(
+            "--idle-timeout-seconds",
+            "1",
+            "--stall-diagnostic-command",
+            'kill -0 "$REPROIT_STALLED_PID" && echo "diagnosed-alive-$REPROIT_STALLED_PID"',
+            "--",
+            sys.executable,
+            "-c",
+            "import time; time.sleep(30)",
+        )
+
+        self.assertEqual(result.returncode, 124)
+        self.assertIn("diagnosed-alive-", result.stderr)
+
+    def test_failing_stall_diagnostics_do_not_change_the_verdict(self) -> None:
+        result = run_contract(
+            "--idle-timeout-seconds",
+            "1",
+            "--stall-diagnostic-command",
+            "echo diagnostics-attempted; exit 3",
+            "--",
+            sys.executable,
+            "-c",
+            "import time; time.sleep(30)",
+        )
+
+        self.assertEqual(result.returncode, 124)
+        self.assertIn("diagnostics-attempted", result.stderr)
+
+    def test_stall_diagnostics_do_not_run_on_success(self) -> None:
+        result = run_contract(
+            "--idle-timeout-seconds",
+            "2",
+            "--stall-diagnostic-command",
+            "echo diagnostics-attempted",
+            "--success-marker",
+            "JOURNEY DONE",
+            "--",
+            sys.executable,
+            "-c",
+            "print('JOURNEY DONE', flush=True); import time; time.sleep(30)",
+        )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn("diagnostics-attempted", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

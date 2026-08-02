@@ -19,6 +19,24 @@ MAX_IDLE_TIMEOUT_SECONDS = 3600
 OUTPUT_QUEUE_CHUNKS = 128
 READ_CHUNK_BYTES = 64 * 1024
 TERMINATION_GRACE_SECONDS = 5
+DIAGNOSTIC_TIMEOUT_SECONDS = 60
+
+
+def run_stall_diagnostics(diagnostic_command: str | None, child_pid: int) -> None:
+    if not diagnostic_command:
+        return
+    environment = dict(os.environ, REPROIT_STALLED_PID=str(child_pid))
+    try:
+        completed = subprocess.run(
+            ["bash", "-c", diagnostic_command],
+            env=environment,
+            capture_output=True,
+            timeout=DIAGNOSTIC_TIMEOUT_SECONDS,
+        )
+        sys.stderr.buffer.write(completed.stdout + completed.stderr)
+        sys.stderr.flush()
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"stall diagnostics failed: {error}", file=sys.stderr, flush=True)
 
 
 def positive_timeout(value: str) -> int:
@@ -63,6 +81,14 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         "--stall-name",
         default="post-marker",
         help="name used when reporting a stall timeout",
+    )
+    # The stalled process is the evidence; killing it first destroys the only
+    # chance to see WHERE it is stuck. This hook runs while the child is still
+    # alive, bounded, best-effort, and can never change the contract verdict.
+    parser.add_argument(
+        "--stall-diagnostic-command",
+        help="bash command run before terminating a timed-out child; "
+        "receives the child pid as REPROIT_STALLED_PID",
     )
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
@@ -131,6 +157,7 @@ def run(
     stall_marker: str | None = None,
     stall_timeout_seconds: int | None = None,
     stall_name: str = "post-marker",
+    stall_diagnostic_command: str | None = None,
 ) -> int:
     process = subprocess.Popen(
         command,
@@ -184,6 +211,7 @@ def run(
                         file=sys.stderr,
                         flush=True,
                     )
+                    run_stall_diagnostics(stall_diagnostic_command, process.pid)
                     stop_process_group(process)
                     return STALL_TIMEOUT_EXIT_CODE
                 print(
@@ -192,6 +220,7 @@ def run(
                     file=sys.stderr,
                     flush=True,
                 )
+                run_stall_diagnostics(stall_diagnostic_command, process.pid)
                 stop_process_group(process)
                 return IDLE_TIMEOUT_EXIT_CODE
             try:
@@ -241,6 +270,7 @@ def main() -> int:
         args.stall_marker,
         args.stall_timeout_seconds,
         args.stall_name,
+        args.stall_diagnostic_command,
     )
 
 
