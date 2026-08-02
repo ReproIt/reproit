@@ -26,6 +26,36 @@ pub const CAPTURE_FORMAT: &str = "reproit-backend-capture";
 pub const CAPTURE_VERSION: u16 = 1;
 /// First-class registry oracle id for an operation that returned HTTP 5xx.
 pub const SERVER_ERROR_ORACLE: &str = "backend-server-error";
+/// Agent oracle vocabulary (registry ids, lowest confidence tier): authored
+/// assertions an LLM/agent operation marks on its own trace via
+/// `BackendTrace::oracle(id, detail)`. A marked operation is always captured
+/// and its failure observation carries the marked id instead of the 5xx
+/// default.
+pub const AGENT_RESPONSE_ORACLE: &str = "agent-response-content";
+pub const AGENT_GUARDRAIL_ORACLE: &str = "agent-guardrail-violation";
+pub const AGENT_LOOP_BOUND_ORACLE: &str = "agent-loop-bound-exceeded";
+pub const AGENT_ORACLES: [&str; 3] = [
+    AGENT_RESPONSE_ORACLE,
+    AGENT_GUARDRAIL_ORACLE,
+    AGENT_LOOP_BOUND_ORACLE,
+];
+/// The effect resource that carries an oracle marker on the trace. A marker
+/// is an `emit` effect so the scan-time wire shape stays inside the existing
+/// event vocabulary.
+pub const ORACLE_MARKER_RESOURCE: &str = "reproit-oracle";
+
+/// First agent oracle marked on a finished trace's events, or `None`.
+pub fn marked_oracle(events: &[Value]) -> Option<&'static str> {
+    events.iter().find_map(|event| {
+        if event.get("kind").and_then(Value::as_str) != Some("effect")
+            || event.get("resource").and_then(Value::as_str) != Some(ORACLE_MARKER_RESOURCE)
+        {
+            return None;
+        }
+        let key = event.get("key").and_then(Value::as_str)?;
+        AGENT_ORACLES.iter().find(|id| **id == key).copied()
+    })
+}
 
 /// Bounds. Queue overflow drops the OLDEST pending operation; an oversized
 /// capture payload drops trailing effect events before it drops itself.
@@ -204,7 +234,10 @@ impl Capture {
             .and_then(Value::as_u64)
             .and_then(|status| u16::try_from(status).ok());
         let error = !success || status.is_some_and(|status| status >= 500);
-        if !error && !self.sample_healthy() {
+        // A marked agent oracle is an authored failure assertion, so the
+        // operation is always captured, like a 5xx.
+        let marked = marked_oracle(events).is_some();
+        if !error && !marked && !self.sample_healthy() {
             return;
         }
         let Some(operation) = events
@@ -485,17 +518,33 @@ impl Capture {
             }),
             last_mono,
         );
-        if let Some(status) = operation.status.filter(|status| *status >= 500) {
-            let signature = format!("{SERVER_ERROR_ORACLE}:{}", operation.operation);
-            let message = format!(
-                "backend operation {} returned HTTP {status}",
-                operation.operation
-            );
+        let marked = marked_oracle(&operation.events);
+        let server_error = operation.status.filter(|status| *status >= 500);
+        if marked.is_some() || server_error.is_some() {
+            let oracle = marked.unwrap_or(SERVER_ERROR_ORACLE);
+            let signature = format!("{oracle}:{}", operation.operation);
+            // A marked agent oracle is an authored assertion (a declared
+            // contract the trace itself violated); a bare 5xx stays the
+            // runtime exception it always was.
+            let (observation, message) = match marked {
+                Some(id) => (
+                    "contract-violation",
+                    format!("agent oracle {id} fired on {}", operation.operation),
+                ),
+                None => (
+                    "exception",
+                    format!(
+                        "backend operation {} returned HTTP {}",
+                        operation.operation,
+                        server_error.unwrap_or(0)
+                    ),
+                ),
+            };
             push_event(
                 json!({
                     "kind": "observation",
                     "failure": {
-                        "observation": "exception",
+                        "observation": observation,
                         "authority": "runtime-diagnosis",
                         "summary": message,
                         "signature": signature,
@@ -579,13 +628,14 @@ impl Capture {
 #[cfg(test)]
 fn capture_payload(operation: &CapturedOperation) -> Option<(Value, usize)> {
     let mut events = operation.events.clone();
+    let oracle = marked_oracle(&operation.events).unwrap_or(SERVER_ERROR_ORACLE);
     let mut dropped = 0usize;
     loop {
         let payload = json!({
             "format": CAPTURE_FORMAT,
             "version": CAPTURE_VERSION,
             "operation": operation.operation,
-            "oracle": SERVER_ERROR_ORACLE,
+            "oracle": oracle,
             "events": events,
         });
         let size = serde_json::to_vec(&payload).map(|bytes| bytes.len()).ok()?;
@@ -703,7 +753,7 @@ fn resolve_commit_from(
     None
 }
 
-fn now_millis() -> u64 {
+pub(crate) fn now_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_millis() as u64)
@@ -711,7 +761,7 @@ fn now_millis() -> u64 {
 }
 
 /// The ingest protocol token charset (`validate_token` in reproit-protocol).
-fn valid_token(value: &str) -> bool {
+pub(crate) fn valid_token(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
         && value
@@ -789,8 +839,10 @@ mod tests {
         trace
     }
 
-    fn batch_for(status: u16, success: bool) -> Value {
-        let capture = Capture {
+    /// A capture handle without the worker thread: `record` and `build_batch`
+    /// are synchronous over the shared queue, which is all these tests need.
+    fn test_capture() -> Capture {
+        Capture {
             shared: Arc::new(Shared {
                 state: Mutex::new(QueueState::default()),
                 signal: Condvar::new(),
@@ -807,7 +859,11 @@ mod tests {
                 config.build = Some("1.2.3".into());
                 config
             }),
-        };
+        }
+    }
+
+    fn batch_for(status: u16, success: bool) -> Value {
+        let capture = test_capture();
         let trace = finished_trace(status, success);
         let operation = CapturedOperation {
             operation: "createOrder".into(),
@@ -890,6 +946,104 @@ mod tests {
         assert_eq!(kept.len(), 3);
         assert_eq!(kept[1]["kind"], "effect");
         assert_eq!(kept[1]["resource"], "inventory");
+    }
+
+    fn assist_trace(capture: &Capture, oracle: &str, detail: Value) -> BackendTrace {
+        let mut trace = BackendTrace::begin(
+            capture.context(),
+            "POST /assist",
+            None,
+            None,
+            None,
+            Value::Null,
+            Vec::new(),
+        )
+        .unwrap();
+        trace.oracle(oracle, Some(detail)).unwrap();
+        trace
+    }
+
+    // Mirrors the Node reference's agent-oracle tests in test/capture.test.js.
+    #[test]
+    fn agent_oracle_markers_ride_the_trace_and_reject_unknown_ids() {
+        let capture = test_capture();
+        let mut trace = assist_trace(
+            &capture,
+            AGENT_GUARDRAIL_ORACLE,
+            json!({"tool": "delete_order"}),
+        );
+        assert_eq!(
+            trace.oracle("made-up-oracle", None),
+            Err(crate::TraceError::InvalidOperation)
+        );
+        trace
+            .finish(json!({"error": "guardrail"}), 500, false, true)
+            .unwrap();
+        assert_eq!(marked_oracle(trace.events()), Some(AGENT_GUARDRAIL_ORACLE));
+    }
+
+    #[test]
+    fn a_marked_agent_operation_is_captured_even_without_a_5xx() {
+        let capture = test_capture();
+        let mut trace = assist_trace(
+            &capture,
+            AGENT_LOOP_BOUND_ORACLE,
+            json!({"iterations": 9, "bound": 4}),
+        );
+        trace
+            .finish(json!({"note": "gave up"}), 200, true, true)
+            .unwrap();
+        capture.record(&trace);
+        assert_eq!(capture.stats().captured_operations, 1);
+    }
+
+    #[test]
+    fn a_marked_failure_observation_carries_the_agent_oracle_id() {
+        let capture = test_capture();
+        let mut trace = assist_trace(
+            &capture,
+            AGENT_GUARDRAIL_ORACLE,
+            json!({"tool": "delete_order"}),
+        );
+        trace
+            .finish(json!({"error": "guardrail"}), 500, false, true)
+            .unwrap();
+        let operation = CapturedOperation {
+            operation: "POST /assist".into(),
+            status: Some(500),
+            events: trace.events().to_vec(),
+        };
+        let batch = capture.build_batch(&[operation]);
+        let parsed: reproit_protocol::CaptureBatch =
+            serde_json::from_value(batch.clone()).expect("batch matches capture-batch-v1");
+        parsed.validate().expect("batch passes protocol validation");
+        let observation = &batch["events"].as_array().unwrap().last().unwrap()["event"];
+        assert_eq!(observation["kind"], "observation");
+        assert_eq!(
+            observation["failure"]["signature"],
+            format!("{AGENT_GUARDRAIL_ORACLE}:POST /assist")
+        );
+        assert_eq!(observation["failure"]["observation"], "contract-violation");
+        // A marked healthy operation (no 5xx at all) still carries the
+        // authored observation: the mark IS the failure assertion.
+        let mut healthy = assist_trace(
+            &capture,
+            AGENT_LOOP_BOUND_ORACLE,
+            json!({"iterations": 9, "bound": 4}),
+        );
+        healthy.finish(json!({"note": "gave up"}), 200, true, true).unwrap();
+        let healthy_batch = capture.build_batch(&[CapturedOperation {
+            operation: "POST /assist".into(),
+            status: Some(200),
+            events: healthy.events().to_vec(),
+        }]);
+        let observation = &healthy_batch["events"].as_array().unwrap().last().unwrap()["event"];
+        assert_eq!(observation["kind"], "observation");
+        assert_eq!(observation["failure"]["observation"], "contract-violation");
+        assert_eq!(
+            observation["failure"]["signature"],
+            format!("{AGENT_LOOP_BOUND_ORACLE}:POST /assist")
+        );
     }
 
     #[test]

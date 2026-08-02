@@ -67,6 +67,21 @@ impl Recorder {
         }
     }
 
+    /// Mark an agent oracle on the in-flight trace (see
+    /// [`BackendTrace::oracle`]): unknown ids are rejected, a marked
+    /// operation is always captured, and its failure observation carries the
+    /// marked id. Fails once the middleware has finished the trace.
+    pub fn oracle(&self, id: &str, detail: Option<Value>) -> Result<(), TraceError> {
+        let mut guard = self
+            .trace
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match guard.as_mut() {
+            Some(trace) => trace.oracle(id, detail),
+            None => Err(TraceError::AlreadyFinished),
+        }
+    }
+
     /// Record one captured dependency exchange on the in-flight trace.
     /// Fails once the middleware has finished the trace.
     pub fn exchange(

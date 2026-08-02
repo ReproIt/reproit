@@ -20,6 +20,8 @@ pub mod actix;
 #[cfg(feature = "axum")]
 pub mod axum;
 mod capture;
+#[cfg(feature = "instrument")]
+pub mod ci;
 #[cfg(any(feature = "axum", feature = "actix", feature = "instrument"))]
 mod framework;
 #[cfg(feature = "instrument")]
@@ -31,8 +33,9 @@ pub mod pg;
 #[cfg(feature = "instrument")]
 pub mod replay;
 pub use capture::{
-    determinism_envelope, Capture, CaptureConfig, CaptureStats, CAPTURE_FORMAT, CAPTURE_VERSION,
-    SERVER_ERROR_ORACLE,
+    determinism_envelope, marked_oracle, Capture, CaptureConfig, CaptureStats,
+    AGENT_GUARDRAIL_ORACLE, AGENT_LOOP_BOUND_ORACLE, AGENT_ORACLES, AGENT_RESPONSE_ORACLE,
+    CAPTURE_FORMAT, CAPTURE_VERSION, ORACLE_MARKER_RESOURCE, SERVER_ERROR_ORACLE,
 };
 #[cfg(any(feature = "axum", feature = "actix", feature = "instrument"))]
 pub use framework::Recorder;
@@ -267,6 +270,26 @@ impl BackendTrace {
         self.push("effect", fields)
     }
 
+    /// Mark an agent oracle on the trace: an authored assertion that this
+    /// operation violated its own contract (response content/shape,
+    /// guardrail, loop bound). The marker rides as an `emit` effect so the
+    /// wire vocabulary is unchanged; capture mode always uploads a marked
+    /// operation and its failure observation carries the marked id. Unknown
+    /// ids are rejected so a typo cannot mint an oracle category.
+    pub fn oracle(&mut self, id: &str, detail: Option<Value>) -> Result<(), TraceError> {
+        if !capture::AGENT_ORACLES.contains(&id) {
+            return Err(TraceError::InvalidOperation);
+        }
+        self.effect(
+            EffectKind::Emit,
+            Some(capture::ORACLE_MARKER_RESOURCE),
+            Some(id),
+            None,
+            None,
+            detail.map(|payload| json!({ "payload": payload })),
+        )
+    }
+
     pub fn finish(
         &mut self,
         output: Value,
@@ -336,6 +359,26 @@ impl BackendTrace {
             fields.insert("exchange".into(), redacted);
         }
         self.push("effect", fields)
+    }
+
+    /// Finish a TEST-triggered trace (the `ci` module): the return event
+    /// carries no HTTP status, exactly like the Node reference's test
+    /// capsules (`trace.finish(output, undefined, success, false)`).
+    #[cfg(feature = "instrument")]
+    pub(crate) fn finish_test(&mut self, output: Value, success: bool) -> Result<(), TraceError> {
+        if self.finished {
+            return Err(TraceError::AlreadyFinished);
+        }
+        self.push(
+            "return",
+            Map::from_iter([
+                ("output".into(), redact(output)),
+                ("success".into(), json!(success)),
+                ("effectsComplete".into(), json!(false)),
+            ]),
+        )?;
+        self.finished = true;
+        Ok(())
     }
 
     fn push(&mut self, kind: &str, fields: Map<String, Value>) -> Result<(), TraceError> {
@@ -534,6 +577,33 @@ mod tests {
         }
         assert_eq!(trace.events()[2]["output"]["monkey"], "harmless");
         assert_eq!(trace.events()[2]["effectsComplete"], true);
+    }
+
+    #[test]
+    fn oracle_markers_are_emit_effects_inside_the_existing_vocabulary() {
+        let context = TraceContext::from_header_fn(|name| {
+            (name == "x-reproit-trace").then(|| "trace-a".into())
+        })
+        .unwrap();
+        let mut trace = BackendTrace::begin(
+            context,
+            "POST /assist",
+            None,
+            None,
+            None,
+            Value::Null,
+            Vec::new(),
+        )
+        .unwrap();
+        trace
+            .oracle(AGENT_RESPONSE_ORACLE, Some(json!({"expected": "a quote"})))
+            .unwrap();
+        let marker = &trace.events()[1];
+        assert_eq!(marker["kind"], "effect");
+        assert_eq!(marker["effect"], "emit");
+        assert_eq!(marker["resource"], ORACLE_MARKER_RESOURCE);
+        assert_eq!(marker["key"], AGENT_RESPONSE_ORACLE);
+        assert_eq!(marker["payload"]["expected"], "a quote");
     }
 
     #[test]
