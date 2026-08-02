@@ -76,6 +76,11 @@ xcrun simctl boot "$UDID"
 xcrun simctl bootstatus "$UDID" -b
 export REPROIT_IOS_UDID="$UDID"
 export REPROIT_IOS_SIM_UDID="$UDID"
+# The wrapped gate may need to create its own replacement device (fresh-
+# simulator retry tier); hand it the already-selected spec so it cannot pick
+# a different runtime mid-gate.
+export REPROIT_IOS_RUNTIME_ID="$RUNTIME_ID"
+export REPROIT_IOS_DEVICE_TYPE_ID="$DEVICE_TYPE_ID"
 
 echo "iOS simulator reset: created $UDID runtime=$RUNTIME_ID deviceType=$DEVICE_TYPE_ID"
 "$@"

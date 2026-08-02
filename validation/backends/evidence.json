@@ -19,7 +19,7 @@
         "arm64"
       ],
       "tier": "release",
-      "timeoutSeconds": 1200,
+      "timeoutSeconds": 1500,
       "resetStrategy": "create and boot a disposable iPhone simulator plus a generated app",
       "cleanupStrategy": "delete the simulator and remove the temporary application directory",
       "requiredOutput": [
@@ -28,6 +28,7 @@
         "EXPLORE:EDGE ",
         "JOURNEY DONE",
         "All tests passed",
+        "FLUTTER_GATE_ATTEMPTS ",
         "iOS simulator cleanup: deleted "
       ],
       "automation": {
