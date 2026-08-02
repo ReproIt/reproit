@@ -195,7 +195,15 @@ impl ReplaySession {
             report.push(("bodyDelta".to_string(), delta));
         }
         let line = format!("{DIVERGENCE_MARKER}{}", OValue::Obj(report).to_compact());
-        eprintln!("{line}");
+        // Written straight to the stderr handle, not eprintln!: under cargo
+        // test, libtest's output capture would swallow the macro's output and
+        // re-print it on STDOUT, where `reproit check` (which watches
+        // stderr) could never see the marker.
+        {
+            use std::io::Write;
+            let mut stderr = std::io::stderr().lock();
+            let _ = writeln!(stderr, "{line}");
+        }
         lock(&self.markers).push(line);
     }
 
