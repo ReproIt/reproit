@@ -218,16 +218,16 @@ genuinely-impossible surfaces are NAMED gaps, never silent. The full Node surfac
 | Canonical JSON wire + byte parity pins | Level (golden checks vs Node) |
 | Framework adapters (express/fastify) | Level shape: PSR-15 + vanilla wrapper |
 | Production capture mode + ingest upload | Level (`capture.php`; PHP flush model documented) |
-| Outbound HTTP exchange capture | Level, OPT-IN boundary (PSR-18 / `Instrument::http`); curl-direct NAMED gap |
+| Outbound HTTP capture | Level, OPT-IN (PSR-18, `Instrument::http`); curl-direct NAMED gap |
 | DB driver exchange capture (`pg`) | Level shape: PDO wrap (`pdo.php`) |
 | Streaming (SSE/chunked) exchange boundaries | Level (teed PSR-7 stream, chunk boundaries) |
-| Envelope: TZ pin, seeded RNG | Level for `mt_rand`; `random_bytes`/`random_int` NAMED gap (CSPRNG) |
-| Envelope: clock pin | NAMED gap: unpinnable without an extension; `Instrument::clock()` is the seam |
+| Envelope: TZ pin, seeded RNG | Level for `mt_rand`; `random_bytes`/`random_int` NAMED gap |
+| Envelope: clock pin | NAMED gap: unpinnable sans extension; `Instrument::clock()` is the seam |
 | Hermetic replay + `REPROIT:DIVERGENCE ` marker | Level (`replay.php`) |
 | LLM flavor: prompt-drift `bodyDelta` | Level (first differing message index) |
-| Agent oracle API (`trace.oracle`, marked-op capture) | Level (this document, section above) |
-| CI capture (test trigger, spool, `REPROIT:CI-TEST`) | Level for plain scripts; PHPUnit NAMED follow-up gap |
-| Runner integration (node:test wrapper) | Level shape: plain-script `Ci::suite`, the SDK's own idiom |
+| Agent oracle API (marked-op capture) | Level (this document, section above) |
+| CI capture (test trigger, spool, `REPROIT:CI-TEST`) | Level for plain scripts; PHPUnit NAMED gap |
+| Runner integration (node:test wrapper) | Level shape: plain-script `Ci::suite`, the SDK's idiom |
 | Fixture + validation gate (hermetic + flaky-CI) | Level (`php-hermetic-e2e`, `php-flaky-ci-e2e`) |
 
 ## Tests
