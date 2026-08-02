@@ -3,7 +3,52 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+FRESH_UDID=""
+
+# This gate owns at most one extra device: the tier-3 fresh simulator. Delete
+# it with the same verify-after-delete discipline as with-ios-simulator.sh so
+# a leaked device fails the gate instead of accumulating on the runner. The
+# wrapper-created device stays owned by the wrapper's own cleanup.
+cleanup() {
+  local command_status=$?
+  local inventory
+  local probe_status
+  trap - EXIT
+  if [[ -n "$FRESH_UDID" ]]; then
+    xcrun simctl shutdown "$FRESH_UDID" >/dev/null 2>&1 || true
+    xcrun simctl delete "$FRESH_UDID" >/dev/null 2>&1 || true
+    if ! inventory="$(xcrun simctl list devices -j)"; then
+      echo "FlutterDrive fresh simulator cleanup: could not verify $FRESH_UDID" >&2
+      command_status=1
+    elif python3 -c '
+import json
+import sys
+
+target = sys.argv[1]
+devices = json.load(sys.stdin).get("devices", {})
+found = any(
+    device.get("udid") == target
+    for runtime_devices in devices.values()
+    for device in runtime_devices
+)
+raise SystemExit(0 if found else 1)
+' "$FRESH_UDID" <<<"$inventory"; then
+      echo "FlutterDrive fresh simulator cleanup: device still exists $FRESH_UDID" >&2
+      command_status=1
+    else
+      probe_status=$?
+      if [[ "$probe_status" -ne 1 ]]; then
+        echo "FlutterDrive fresh simulator cleanup: bad inventory for $FRESH_UDID" >&2
+        command_status=1
+      else
+        echo "FlutterDrive fresh simulator cleanup: deleted $FRESH_UDID"
+      fi
+    fi
+  fi
+  rm -rf "$WORK"
+  exit "$command_status"
+}
+trap cleanup EXIT
 
 UDID="${REPROIT_IOS_UDID:-$(xcrun simctl list devices booted -j | python3 -c '
 import json,sys
@@ -26,11 +71,16 @@ cargo build -p reproit --manifest-path "$ROOT/Cargo.toml"
 (cd "$APP" && "$ROOT/target/debug/reproit" init --platform flutter --force --yes)
 printf '{"budget":4}' > "$WORK/fuzz.json"
 
-# Flutter's iOS launcher waits indefinitely when a launched app never publishes
-# its VM-service URI. Bound output inactivity here so the outer release gate
-# retains time to collect simulator diagnostics. Retry only that specific stall
-# with the already-built app; assertion failures and other nonzero exits remain
-# immediate failures.
+# The measured CI stall (3x on 2026-08-01): the app publishes its Dart VM
+# service URI, then flutter drive never connects and the VM-service line is
+# the LAST output before 300 silent seconds. flutter drive connecting is the
+# next observable step after that line, so bound that specific gap tightly
+# (exit 121, named) instead of paying the generic idle timeout, and spend the
+# reclaimed time on retry tiers that change something plausibly causal.
+# Assertion failures and other nonzero exits remain immediate failures.
+IDLE_TIMEOUT_SECONDS="${REPROIT_FLUTTER_IDLE_TIMEOUT_SECONDS:-300}"
+VM_CONNECT_TIMEOUT_SECONDS="${REPROIT_FLUTTER_VM_CONNECT_TIMEOUT_SECONDS:-75}"
+
 run_drive() {
   local build_argument="${1:-}"
   local -a drive_command=(
@@ -47,7 +97,10 @@ run_drive() {
   (
     cd "$APP"
     python3 "$ROOT/validation/backends/run-output-contract.py" \
-      --idle-timeout-seconds 300 \
+      --idle-timeout-seconds "$IDLE_TIMEOUT_SECONDS" \
+      --stall-marker 'The Dart VM service is listening on' \
+      --stall-timeout-seconds "$VM_CONNECT_TIMEOUT_SECONDS" \
+      --stall-name 'vm-service connect' \
       --success-marker 'JOURNEY DONE' \
       --success-marker 'All tests passed' \
       -- \
@@ -56,44 +109,29 @@ run_drive() {
   return "${PIPESTATUS[0]}"
 }
 
-set +e
-run_drive
-drive_status=$?
-set -e
+# 121 is the bounded VM-service connect stall; 124 is the generic idle
+# timeout. Both are environmental stall shapes worth a retry; anything else
+# is a real failure and stops the gate immediately.
+is_stall() { [[ "$1" -eq 121 || "$1" -eq 124 ]]; }
 
-if [[ "$drive_status" -eq 124 ]]; then
-  echo "Flutter drive stalled before its output contract; collecting simulator logs"
-  python3 "$ROOT/validation/backends/run-output-contract.py" \
-    --idle-timeout-seconds 30 \
-    -- \
-    xcrun simctl spawn "$UDID" log show \
-    --last 10m \
-    --style compact \
-    --predicate 'process == "Runner"' 2>&1 | tail -n 200 || true
+outcome_for() {
+  case "$1" in
+    0) echo "passed" ;;
+    121) echo "vm-service-connect-stall" ;;
+    124) echo "output-idle-timeout" ;;
+    *) echo "failed-exit-$1" ;;
+  esac
+}
 
-  app_plist="$APP/build/ios/iphonesimulator/Runner.app/Info.plist"
-  if [[ -f "$app_plist" ]]; then
-    bundle_id="$(plutil -extract CFBundleIdentifier raw "$app_plist" 2>/dev/null || true)"
-    if [[ -n "$bundle_id" ]]; then
-      xcrun simctl terminate "$UDID" "$bundle_id" >/dev/null 2>&1 || true
-    fi
-  fi
+ATTEMPT_EVIDENCE=""
+record_attempt() {
+  ATTEMPT_EVIDENCE="${ATTEMPT_EVIDENCE:+$ATTEMPT_EVIDENCE,}"
+  ATTEMPT_EVIDENCE+="$(printf '{"tier":"%s","outcome":"%s"}' "$1" "$2")"
+}
 
-  # Reset the SIMULATOR before retrying, not just the build. Measured on CI:
-  # the retry rebuilt in 7 seconds and then sat silent for the full 300 again,
-  # because --no-build re-tests the variable that was never at fault while
-  # holding the wedged device fixed. The stall is the launched app never
-  # publishing its VM-service URI, and it is preceded by libCoreFSCache
-  # "Errors found! Invalidating cache" in the simulator log, so the device
-  # state is the thing to clear. Erase keeps the same UDID, so the outer
-  # cleanup and its deletion audit still apply.
-  echo "Erasing and rebooting the simulator before the retry"
-  xcrun simctl shutdown "$UDID" > /dev/null 2>&1 || true
-  xcrun simctl erase "$UDID" > /dev/null 2>&1 || true
-  xcrun simctl boot "$UDID" > /dev/null 2>&1 || true
-  # Bounded wait for the device to finish booting; an unbooted device would
-  # fail the retry for a different reason and hide the one being fixed.
-  booted=""
+wait_booted() {
+  local udid="$1"
+  local _
   for _ in $(seq 1 60); do
     if xcrun simctl list devices -j | python3 -c '
 import json,sys
@@ -104,22 +142,123 @@ for devices in j.get("devices", {}).values():
         if d.get("udid") == udid and d.get("state") == "Booted":
             raise SystemExit(0)
 raise SystemExit(1)
-' "$UDID"; then
-      booted="yes"
-      break
+' "$udid"; then
+      return 0
     fi
     sleep 2
   done
-  if [[ -z "$booted" ]]; then
-    echo "simulator $UDID did not reboot within the bound; retrying anyway" >&2
-  fi
+  echo "simulator $udid did not report Booted within the bound; continuing" >&2
+}
 
+collect_stall_diagnostics() {
+  python3 "$ROOT/validation/backends/run-output-contract.py" \
+    --idle-timeout-seconds 30 \
+    -- \
+    xcrun simctl spawn "$UDID" log show \
+    --last 10m \
+    --style compact \
+    --predicate 'process == "Runner"' 2>&1 | tail -n 200 || true
+
+  local app_plist="$APP/build/ios/iphonesimulator/Runner.app/Info.plist"
+  local bundle_id
+  if [[ -f "$app_plist" ]]; then
+    bundle_id="$(plutil -extract CFBundleIdentifier raw "$app_plist" 2>/dev/null || true)"
+    if [[ -n "$bundle_id" ]]; then
+      xcrun simctl terminate "$UDID" "$bundle_id" >/dev/null 2>&1 || true
+    fi
+  fi
+}
+
+# Tier 2 reset: erase keeps the same UDID, so the outer cleanup and its
+# deletion audit still apply. Measured on CI: retrying with --no-build alone
+# rebuilt in 7 seconds and stalled the full window again, because the stall is
+# device state (libCoreFSCache "Errors found! Invalidating cache" precedes it
+# in the simulator log), not the build.
+erase_reboot() {
+  xcrun simctl shutdown "$UDID" > /dev/null 2>&1 || true
+  xcrun simctl erase "$UDID" > /dev/null 2>&1 || true
+  xcrun simctl boot "$UDID" > /dev/null 2>&1 || true
+  wait_booted "$UDID"
+}
+
+# Tier 3 reset: erase reuses the same device record; a device whose backing
+# state survives erase (the measured double-stall shape) needs a genuinely new
+# device. Create one (new UDID), point the drive at it, and drop the fixture's
+# build tree so the final attempt rebuilds from clean state.
+fresh_simulator() {
+  local runtime="${REPROIT_IOS_RUNTIME_ID:-}"
+  local device_type="${REPROIT_IOS_DEVICE_TYPE_ID:-}"
+  local spec
+  if [[ -z "$runtime" || -z "$device_type" ]]; then
+    spec="$(xcrun simctl list devices -j | python3 -c '
+import json
+import sys
+
+devices_by_runtime = json.load(sys.stdin).get("devices", {})
+for runtime, devices in devices_by_runtime.items():
+    if "iOS" not in runtime:
+        continue
+    for device in devices:
+        device_type = device.get("deviceTypeIdentifier", "")
+        if device.get("isAvailable", True) and ".iPhone-" in device_type:
+            print(runtime, device_type)
+            raise SystemExit(0)
+raise SystemExit("no available iPhone simulator runtime and device type")
+')"
+    runtime="${spec%% *}"
+    device_type="${spec#* }"
+  fi
+  xcrun simctl shutdown "$UDID" > /dev/null 2>&1 || true
+  FRESH_UDID="$(xcrun simctl create "Reproit-Gate-Fresh-$$" "$device_type" "$runtime")"
+  echo "FlutterDrive fresh simulator: created $FRESH_UDID" \
+    "runtime=$runtime deviceType=$device_type"
+  xcrun simctl boot "$FRESH_UDID" > /dev/null 2>&1 || true
+  wait_booted "$FRESH_UDID"
+  UDID="$FRESH_UDID"
+  rm -rf "$APP/build"
+}
+
+set +e
+run_drive
+drive_status=$?
+set -e
+succeeded_tier="initial"
+record_attempt initial "$(outcome_for "$drive_status")"
+
+if is_stall "$drive_status"; then
+  echo "Flutter drive stalled before its output contract; collecting simulator logs"
+  collect_stall_diagnostics
+  echo "Erasing and rebooting the simulator before the retry"
+  erase_reboot
   echo "Retrying the built Flutter application after the bounded VM-service stall"
   set +e
   run_drive no-build
   drive_status=$?
   set -e
+  succeeded_tier="erase-reboot"
+  record_attempt erase-reboot "$(outcome_for "$drive_status")"
 fi
+
+if is_stall "$drive_status"; then
+  echo "Second stall on the same device; creating a fresh simulator for the final attempt"
+  collect_stall_diagnostics
+  fresh_simulator
+  echo "Retrying with a rebuilt application on fresh simulator $UDID"
+  set +e
+  run_drive
+  drive_status=$?
+  set -e
+  succeeded_tier="fresh-simulator"
+  record_attempt fresh-simulator "$(outcome_for "$drive_status")"
+fi
+
+if [[ "$drive_status" -eq 0 ]]; then
+  succeeded_tier_json="\"$succeeded_tier\""
+else
+  succeeded_tier_json="null"
+fi
+printf 'FLUTTER_GATE_ATTEMPTS {"attempts":[%s],"succeededTier":%s}\n' \
+  "$ATTEMPT_EVIDENCE" "$succeeded_tier_json"
 
 if [[ "$drive_status" -ne 0 ]]; then
   exit "$drive_status"
