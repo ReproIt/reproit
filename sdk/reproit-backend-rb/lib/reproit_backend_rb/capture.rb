@@ -32,6 +32,32 @@ module ReproitBackendRb
   CAPTURE_VERSION_EXCHANGES = 2
   # First-class registry oracle id for an operation that returned HTTP 5xx.
   SERVER_ERROR_ORACLE = "backend-server-error"
+  # Agent oracle vocabulary (registry ids, lowest confidence tier): authored
+  # assertions an LLM/agent operation marks on its own trace via
+  # `trace.oracle(id, detail)`. A marked operation is always captured and its
+  # failure observation carries the marked id instead of the 5xx default.
+  AGENT_RESPONSE_ORACLE = "agent-response-content"
+  AGENT_GUARDRAIL_ORACLE = "agent-guardrail-violation"
+  AGENT_LOOP_BOUND_ORACLE = "agent-loop-bound-exceeded"
+  AGENT_ORACLES = [
+    AGENT_RESPONSE_ORACLE,
+    AGENT_GUARDRAIL_ORACLE,
+    AGENT_LOOP_BOUND_ORACLE,
+  ].freeze
+  # The effect resource that carries an oracle marker on the trace. A marker
+  # is an `emit` effect so the scan-time wire shape stays inside the existing
+  # event vocabulary.
+  ORACLE_MARKER_RESOURCE = "reproit-oracle"
+
+  # First agent oracle marked on a finished trace's events, or nil.
+  def self.marked_oracle(events)
+    (events || []).each do |event|
+      next unless event.is_a?(Hash) && event["kind"] == "effect"
+      next unless event["resource"] == ORACLE_MARKER_RESOURCE
+      return event["key"] if AGENT_ORACLES.include?(event["key"])
+    end
+    nil
+  end
 
   # Bounds. Queue overflow drops the OLDEST pending operation; an oversized
   # capture payload drops trailing effect events before it drops itself.
@@ -80,13 +106,14 @@ module ReproitBackendRb
   # left is omitted entirely (nil). Returns [payload, dropped].
   def self.capture_payload(operation, envelope = nil)
     events = operation["events"].dup
+    oracle = marked_oracle(events) || SERVER_ERROR_ORACLE
     dropped = 0
     loop do
       payload = {
         "format" => CAPTURE_FORMAT,
         "version" => payload_version(events),
         "operation" => operation["operation"],
-        "oracle" => SERVER_ERROR_ORACLE,
+        "oracle" => oracle,
         "events" => events,
       }
       payload["envelope"] = envelope unless envelope.nil?
@@ -193,7 +220,10 @@ module ReproitBackendRb
       status = returned["status"]
       status = nil unless status.is_a?(Integer) && status >= 0 && status <= 0xFFFF
       error = success == false || (!status.nil? && status >= 500)
-      return if !error && !sample_healthy?
+      # A marked agent oracle is an authored failure assertion, so the
+      # operation is always captured, like a 5xx.
+      marked = !ReproitBackendRb.marked_oracle(events).nil?
+      return if !error && !marked && !sample_healthy?
       operation = events.empty? ? nil : events[0]["operation"]
       return unless operation.is_a?(String)
       captured = { "operation" => operation, "status" => status, "events" => events.dup }
@@ -378,18 +408,26 @@ module ReproitBackendRb
         "outcome" => returned["success"] == true ? "succeeded" : "failed",
       }, returned)
       status = operation["status"]
-      unless status.nil? || status < 500
-        signature = SERVER_ERROR_ORACLE + ":" + operation["operation"]
-        message = format(
-          "backend operation %s returned HTTP %d", operation["operation"], status
-        )
+      marked = ReproitBackendRb.marked_oracle(operation["events"])
+      if !marked.nil? || (!status.nil? && status >= 500)
+        oracle = marked || SERVER_ERROR_ORACLE
+        message = if marked.nil?
+                    format(
+                      "backend operation %s returned HTTP %d", operation["operation"], status
+                    )
+                  else
+                    format("agent oracle %s fired on %s", oracle, operation["operation"])
+                  end
         add.call({
           "kind" => "observation",
           "failure" => {
-            "observation" => "exception",
+            # A marked agent oracle is an authored assertion (a declared
+            # contract the trace itself violated); a bare 5xx stays the
+            # runtime exception it always was.
+            "observation" => marked.nil? ? "exception" : "contract-violation",
             "authority" => "runtime-diagnosis",
             "summary" => message,
-            "signature" => signature,
+            "signature" => oracle + ":" + operation["operation"],
             "observationPoint" => operation["operation"],
             "artifactIds" => [],
           },

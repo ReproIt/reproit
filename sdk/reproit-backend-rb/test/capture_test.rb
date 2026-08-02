@@ -157,6 +157,53 @@ class CaptureTest < Minitest::Test
     assert_equal 1, stats[:dropped_operations]
   end
 
+  def test_agent_oracle_markers_ride_the_trace_and_reject_unknown_ids
+    handle = capture
+    trace = R::BackendTrace.begin(handle.context, "POST /assist")
+    error = assert_raises(R::TraceError) { trace.oracle("made-up-oracle") }
+    assert_equal "InvalidOperation", error.code
+    trace.oracle(R::AGENT_GUARDRAIL_ORACLE, { "tool" => "delete_order" })
+    trace.finish({ "error" => "guardrail" }, 500, false, true)
+    assert_equal R::AGENT_GUARDRAIL_ORACLE, R.marked_oracle(trace.events)
+  end
+
+  def test_a_marked_agent_operation_is_captured_even_without_a_5xx
+    handle = capture
+    trace = R::BackendTrace.begin(handle.context, "POST /assist")
+    trace.oracle(R::AGENT_LOOP_BOUND_ORACLE, { "iterations" => 9, "bound" => 4 })
+    trace.finish({ "note" => "gave up" }, 200, true, true)
+    handle.record(trace)
+    assert_equal 1, handle.stats[:captured_operations]
+  end
+
+  def test_a_marked_failure_observation_carries_the_agent_oracle_id
+    handle = capture
+    trace = R::BackendTrace.begin(handle.context, "POST /assist")
+    trace.oracle(R::AGENT_GUARDRAIL_ORACLE, { "tool" => "delete_order" })
+    trace.finish({ "error" => "guardrail" }, 500, false, true)
+    batch = handle.build_batch(
+      [{ "operation" => "POST /assist", "status" => 500, "events" => trace.events.dup }]
+    )
+    observation = batch["events"].last["event"]
+    assert_equal "observation", observation["kind"]
+    assert_equal(
+      R::AGENT_GUARDRAIL_ORACLE + ":POST /assist",
+      observation["failure"]["signature"]
+    )
+    assert_equal "contract-violation", observation["failure"]["observation"]
+  end
+
+  def test_a_marked_capture_payload_carries_the_agent_oracle
+    handle = capture
+    trace = R::BackendTrace.begin(handle.context, "POST /assist")
+    trace.oracle(R::AGENT_RESPONSE_ORACLE, { "expected" => "json" })
+    trace.finish({ "note" => "wrong shape" }, 200, true, true)
+    payload, = R.capture_payload(
+      { "operation" => "POST /assist", "status" => 200, "events" => trace.events.dup }
+    )
+    assert_equal R::AGENT_RESPONSE_ORACLE, payload["oracle"]
+  end
+
   def test_built_batch_has_dense_causal_parentage
     batch_for(500, false)["events"].each_with_index do |event, index|
       assert_equal index + 1, event["sequence"]
