@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "readme-backend-emphasis",
+  "changeType": "maintenance",
+  "detail": "The README opened on the production backend loop and then undercut it with a flat alphabetical list of 21 atomic targets, in which Backend contracts sat between Jetpack Compose Android and Electron Linux. A reader scanning that list infers shallow coverage of 21 things rather than depth in one, which contradicts both the paragraph above it and the focus freeze already recorded in the production-capsule plan (no UI target leaves Preview until the backend production-to-local case exists). The list is generated from validation/support-manifest.json, so the fix belongs in the generator, not in prose that would drift: readme_platforms now groups targets by their manifest family with backend first, and maturity stays out of the README because docs/compatibility.md is the promotion surface. Added prose names the eight backend SDKs and the four-verdict acceptance test each one carries, a claim gated by sdk/INVENTORY.json rather than hand-maintained. No product code and no promotion state changed: check.py --check-generated passes and the 24 compatibility contract tests pass. Recorded rather than changed silently because editing a generated public compatibility surface is exactly the change that could quietly overstate support.",
+  "evidence": [
+    {
+      "path": "README.md",
+      "sha256": "sha256:dcb09008e1fd8c4f6cd61bd7a929b9f5f6574ef7c63f9bcb57a49747c51ed653"
+    },
+    {
+      "path": "validation/compatibility/check.py",
+      "sha256": "sha256:daaf04165af78fec9fd6c98b8b6e0ad32ba5167221ae8aa4625ace1967ca4ab8"
+    }
+  ]
+}

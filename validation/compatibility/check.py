@@ -435,11 +435,47 @@ def stability_plan(status: dict, gates: dict) -> str:
     return "\n".join(lines)
 
 
+README_FAMILY_ORDER = (
+    "backend",
+    "web",
+    "desktop-webview",
+    "desktop",
+    "native-mobile",
+    "flutter",
+    "tui",
+)
+
+README_FAMILY_TITLES = {
+    "backend": "Backend services",
+    "web": "Web",
+    "desktop-webview": "Desktop webview",
+    "desktop": "Desktop native",
+    "native-mobile": "Mobile",
+    "flutter": "Flutter",
+    "tui": "Terminal",
+}
+
+
 def readme_platforms(status: dict) -> str:
-    return "\n".join(
-        f"- {target['displayName']}"
-        for target in status["targets"]
-    )
+    """Render the README list grouped by family, backend first.
+
+    The grouping is generated, not hand-written prose, so the emphasis cannot
+    drift from the promotion record. Maturity is deliberately absent here and
+    stays in `docs/compatibility.md`: this list answers "does Reproit reach my
+    stack", not "what tier is it".
+    """
+    families: dict[str, list[dict]] = {}
+    for target in status["targets"]:
+        families.setdefault(target["family"], []).append(target)
+    unordered = sorted(set(families) - set(README_FAMILY_ORDER))
+    blocks = []
+    for family in (*README_FAMILY_ORDER, *unordered):
+        targets = families.get(family)
+        if not targets:
+            continue
+        names = "\n".join(f"- {target['displayName']}" for target in targets)
+        blocks.append(f"**{README_FAMILY_TITLES.get(family, family)}**\n\n{names}")
+    return "\n\n".join(blocks)
 
 
 def compatibility_section(status: dict) -> str:

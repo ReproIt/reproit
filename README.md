@@ -77,31 +77,66 @@ bugs and hands out occurrence ids; it never executes your code and never holds y
 source. Captured values are classified and redacted at the source before they become
 replayable.
 
-## Supported platforms
+## Backend services are where this goes deepest
+
+Eight server SDKs record a failing operation together with its outbound exchanges, and
+serve those exchanges back at replay: **node, python, rust, go, java, dotnet, php, ruby**.
+Each one ships its own acceptance test that pins all four verdicts on a real failure
+(reproduced with the dependencies stopped, fixed once the bug is repaired, reproduced
+again after the fix is reverted, diverged when a recorded exchange goes missing), so the
+capsule any of them writes re-executes on another machine with the database down and the
+network denied. `sdk/INVENTORY.json` gates that list: an SDK in this repository runs its
+own suite on every push, and a failure fails the build.
+
+The UI targets below use the same capture, replay, and verdict machinery through their
+own runners. Per-target promotion state, bounds, and evidence live in
+[compatibility](docs/compatibility.md).
+
+## Where Reproit runs
 
 <!-- generated:platforms -->
 
+**Backend services**
+
 - Backend contracts
-- Jetpack Compose Android
+
+**Web**
+
+- Web Chromium
+- Web Firefox
+- Web WebKit
+
+**Desktop webview**
+
 - Electron Linux
-- Flutter Android
-- Flutter iOS
+- Tauri Linux
+
+**Desktop native**
+
 - Linux GTK
 - Linux Qt Quick/QML
 - Linux Qt Widgets
 - Linux wxWidgets
 - macOS Accessibility
-- React Native Android
-- React Native iOS
-- SwiftUI iOS
-- Tauri Linux
-- Terminal UI
-- Web Chromium
-- Web Firefox
-- Web WebKit
 - Windows Avalonia
 - Windows WinUI 3
 - Windows WPF
+
+**Mobile**
+
+- Jetpack Compose Android
+- React Native Android
+- React Native iOS
+- SwiftUI iOS
+
+**Flutter**
+
+- Flutter Android
+- Flutter iOS
+
+**Terminal**
+
+- Terminal UI
 
 <!-- /generated:platforms -->
 
