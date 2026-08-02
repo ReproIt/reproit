@@ -241,7 +241,7 @@ func TestSpoolMaxIsClampedToItsBounds(t *testing.T) {
 	if spoolMaxBytes() != spoolMaxFloorBytes {
 		t.Fatalf("floor not applied: %d", spoolMaxBytes())
 	}
-	t.Setenv("REPROIT_CI_SPOOL_MAX", strconv.Itoa(1 << 30))
+	t.Setenv("REPROIT_CI_SPOOL_MAX", strconv.Itoa(1<<30))
 	if spoolMaxBytes() != spoolMaxCeilBytes {
 		t.Fatalf("ceiling not applied: %d", spoolMaxBytes())
 	}
