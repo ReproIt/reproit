@@ -1,31 +1,42 @@
 # Reproit
 
-Reproit turns a software failure into an exact local reproduction, minimizes the
-trigger, and keeps the fixed case as a regression guard.
+Make software failures reproducible.
+
+A report tells you what happened. A repro makes it happen again. Logs, screenshots, and
+tickets are passive evidence: someone still has to rebuild the actions, state,
+dependencies, timing, and environment, and hope the rebuild is faithful. Reproit captures
+the failure as an executable reproduction instead: run it, fix the bug, run it again to
+verify, keep it as a regression guard.
 
 ```sh
-reproit init
-reproit doctor
-reproit find
-reproit fnd_0123456789abcdef
+reproit occ_8f3a2c91    # the production failure, re-executed on your machine
 # fix the bug
-reproit keep fnd_0123456789abcdef --as checkout-freeze
-reproit check
+reproit occ_8f3a2c91    # Fixed
+reproit keep occ_8f3a2c91
+reproit check           # every kept repro, replayed in CI
 ```
 
-## Product workflows
+## What a repro is made of
 
-- `capture` preserves a known failure from an application, bounded command, or
-  signed support bundle.
-- `find` discovers failures, confirms their identities, and minimizes successful
-  reproductions.
-- `check` replays saved cases and distinguishes an exact failure, a different
-  failure, flakiness, stale evidence, and infrastructure failure.
-- `list` shows guards, blocked candidates, and confirmed production bugs.
+Four properties turn a failure into something you can run:
 
-Direct finding, occurrence, and saved-reproduction IDs run one exact case.
-`init`, `doctor`, `keep`, and `login` support the four workflows. Older
-specialist commands remain compatibility aliases, not separate product paths.
+1. **Trigger**: the request, input sequence, or test invocation, re-fired exactly.
+2. **Dependency boundary**: every outbound call recorded with its response, served back
+   at replay, so the repro runs with the database stopped and the network denied.
+3. **Determinism envelope**: clock, RNG seed, timezone, and runtime identity pinned.
+4. **Oracle**: a machine-checkable statement of what failing means.
+
+## From an unexplained failure to a verified fix
+
+Replay re-executes your code with the recorded boundary and verdicts the result:
+**Reproduced**, **Fixed**, **Diverged** (the code now makes different calls, named), or
+**Inconclusive**. A similar crash is a different failure. Unknown calls fail closed with
+the first mismatch named; there are no similarity scores. A repro is `reproduced` only
+when a clean run reaches the observation point and matches the original failure identity.
+
+A repro is portable: it replays from a copy of the checkout at any path, on another
+machine, with dependencies down. Kept repros run in CI as regression guards; drifted
+guards quarantine and report instead of silently re-baselining.
 
 ## Install
 
@@ -47,27 +58,24 @@ From source:
 cargo install --git https://github.com/ReproIt/reproit --locked reproit
 ```
 
-Run `reproit doctor` after installation. It checks the selected platform and
-reports concrete repairs for missing prerequisites.
+`reproit init` sets up a project; `reproit doctor` checks the platform and reports
+concrete repairs.
 
-## Exactness and recall
+## Where failures come from
 
-Reproit measures the full funnel:
+- **Production**: a backend SDK records the failing operation and its outbound exchanges
+  in place; the occurrence id reproduces it locally.
+- **CI**: a failing test spools its capsule as a job artifact; `reproit check <capsule>`
+  re-executes that exact run on a laptop.
+- **A known failure you can point at**: `reproit capture` preserves it from an
+  application, bounded command, or signed support bundle.
+- **Discovery**: `reproit find` can also search for failures you have not seen yet, and
+  confirms and minimizes anything it reports.
 
-```text
-observed -> captured -> eligible -> executed -> exact -> minimized -> fixed -> guarded
-```
-
-A result is `reproduced` only when a clean run reaches the observation point and
-matches the original failure identity. A similar crash, timeout, or error is a
-different failure. Missing evidence and unsupported capabilities produce typed
-blockers.
-
-Evidence describes facts and requirements. Executable commands, directories,
-timeouts, environment values, and cleanup actions come only from trusted
-adapters or the current checkout. Local execution may use a host process,
-container, simulator, emulator, VM, or permissioned hardware without mutating
-production.
+Execution stays on your side of the line. The cloud groups production failures into
+bugs and hands out occurrence ids; it never executes your code and never holds your
+source. Captured values are classified and redacted at the source before they become
+replayable.
 
 ## Supported platforms
 
@@ -96,19 +104,6 @@ production.
 - Windows WPF
 
 <!-- /generated:platforms -->
-
-## Causal capture
-
-Every shipped SDK registers against one generated `CaptureBatch` schema. CI
-checks semantic parsing, unknown-field rejection, SDK registration, and the
-canonical fixture bytes:
-
-```sh
-cargo run -q -p reproit-protocol --bin capture-schema
-```
-
-Captured values are classified and redacted before they become replayable or
-exportable. Work, retries, output, memory growth, and cleanup are bounded.
 
 ## Documentation
 
