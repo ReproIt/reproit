@@ -372,8 +372,8 @@ jobs:
       # gates.
       - name: rust (reproit-backend-rs, all features)
         run: |
-          cargo clippy -p reproit-backend --features axum,actix,instrument --all-targets -- -D warnings
-          cargo test -p reproit-backend --features instrument
+          cargo clippy -p reproit-backend --features axum,actix,instrument,pg --all-targets -- -D warnings
+          cargo test -p reproit-backend --features instrument,pg
 
   # The other four backend SDKs. Until this job they had no mention in ci.yml at
   # all: their suites existed, passed, and gated nothing, which is what the
