@@ -195,6 +195,12 @@ pub struct ProcessCapsule {
     pub entries: Vec<String>,
     #[serde(default)]
     pub truncated_entries: usize,
+    /// Additive, versioned anchor section (anchor.rs for the application
+    /// kind, workflows/checkpoint.rs for the criu kind). A capsule without
+    /// one loads and replays exactly as before; with one, the boundary log
+    /// covers the tail from the anchor forward only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<Value>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -402,13 +408,34 @@ fn digest_of(path: &Path) -> Option<String> {
     Some(format!("sha256:{}", hex_digest(&bytes)))
 }
 
+/// An anchored capture's request: the checkpoint artifact the command
+/// resumes from, and the position it corresponds to. Both come from the
+/// operator's argv, never from a capsule.
+pub struct AnchorRequest {
+    pub checkpoint: std::path::PathBuf,
+    pub position: u64,
+}
+
 /// `reproit internal process-capture --out <capsule> -- <command>`: run the
 /// command under the recording shim and assemble a capsule from what the
-/// boundary saw plus how the program died.
-pub fn capture(ctx: &Ctx, out: &Path, command: &[String]) -> Result<ExitCode> {
+/// boundary saw plus how the program died. With `--anchor-checkpoint`, the
+/// command must be the program's own resume invocation; the capsule then
+/// carries the checkpoint artifact as an application anchor and its boundary
+/// log covers the tail only, from the anchor forward.
+pub fn capture(
+    ctx: &Ctx,
+    out: &Path,
+    command: &[String],
+    anchor_request: Option<&AnchorRequest>,
+) -> Result<ExitCode> {
     let Some((program, arguments)) = command.split_first() else {
         bail!("process capture needs a command to run");
     };
+    // Built BEFORE the program runs, so the digest describes the artifact the
+    // program is about to load rather than whatever the run leaves behind.
+    let application_anchor = anchor_request
+        .map(|request| anchor::build(&request.checkpoint, request.position))
+        .transpose()?;
     let shim = shim_path()?;
     // Refuse a target the boundary cannot see, BEFORE running it. A static
     // binary would produce a capsule of nothing, and a capsule of nothing
@@ -528,6 +555,10 @@ pub fn capture(ctx: &Ctx, out: &Path, command: &[String]) -> Result<ExitCode> {
         outcome,
         entries,
         truncated_entries: truncated,
+        anchor: application_anchor
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()?,
     };
     std::fs::write(out, serde_json::to_vec_pretty(&capsule)?)?;
     ctx.emit(&json!({
@@ -537,6 +568,7 @@ pub fn capture(ctx: &Ctx, out: &Path, command: &[String]) -> Result<ExitCode> {
         "truncated": capsule.truncated_entries,
         "oracle": capsule.oracle,
         "outcome": capsule.outcome,
+        "anchor": capsule.anchor,
     }));
     ctx.say(format!(
         "Captured {} into {}",
@@ -548,6 +580,13 @@ pub fn capture(ctx: &Ctx, out: &Path, command: &[String]) -> Result<ExitCode> {
         "  outcome:          {}",
         capsule.outcome.describe()
     ));
+    if let Some(anchored) = &application_anchor {
+        ctx.say(format!(
+            "  anchor:           application checkpoint at {} {} ({})",
+            anchored.position.unit, anchored.position.ordinal, anchored.checkpoint_sha256
+        ));
+        ctx.say("  the boundary log covers the tail from the anchor forward only");
+    }
     Ok(ExitCode::SUCCESS)
 }
 
@@ -740,9 +779,31 @@ pub(super) async fn replay(capsule: &ProcessCapsule, command: &str) -> Result<Re
 }
 
 /// `reproit check <capsule> --exec "<command>"`: replay the capsule and
-/// report the four-way verdict.
+/// report the four-way verdict. An application anchor is verified and its
+/// checkpoint put back where the program loads it BEFORE the program runs;
+/// any anchor problem is a named refusal, never a replay from zero.
 pub async fn check_exec(ctx: &Ctx, file: &Path, command: &str, _auto: bool) -> Result<ExitCode> {
     let capsule = parse(file)?;
+    let abstain = |reason: String| Replay {
+        verdict: HermeticVerdict::Inconclusive,
+        observed: Outcome {
+            exit_code: None,
+            signal: None,
+        },
+        observed_failure: None,
+        divergences: Vec::new(),
+        counters: None,
+        abstained: Some(reason),
+    };
+    match anchor::from_capsule(capsule.anchor.as_ref()) {
+        Err(refusal) => return Ok(report(ctx, file, &capsule, &abstain(refusal))),
+        Ok(Some(anchored)) => {
+            if let Err(refusal) = anchor::prepare(&anchored) {
+                return Ok(report(ctx, file, &capsule, &abstain(refusal)));
+            }
+        }
+        Ok(None) => {}
+    }
     let outcome = replay(&capsule, command).await?;
     Ok(report(ctx, file, &capsule, &outcome))
 }
@@ -763,6 +824,16 @@ pub(super) fn report(
         abstained,
     } = replayed;
     let (verdict, observed, divergences, counters) = (*verdict, *observed, divergences, *counters);
+    // The honesty bound travels with the verdict: the statement STORED in the
+    // artifact (not a constant this build happens to agree with) is printed
+    // verbatim whenever the capsule carries an application anchor.
+    let statement = capsule
+        .anchor
+        .as_ref()
+        .filter(|raw| raw.get("kind").and_then(Value::as_str) == Some("application"))
+        .and_then(|raw| raw.get("uncontrolledSources"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
 
     ctx.emit(&json!({
         "command": "check",
@@ -770,6 +841,7 @@ pub(super) fn report(
             "file": file.display().to_string(),
             "format": FORMAT,
             "mode": "process-hermetic",
+            "anchor": capsule.anchor,
             "oracle": capsule.oracle,
             "verdict": verdict.as_str(),
             "recordedOutcome": capsule.outcome,
@@ -835,6 +907,9 @@ pub(super) fn report(
             counters.env_fallthrough
         ));
     }
+    if let Some(statement) = statement {
+        ctx.say(format!("  {statement}"));
+    }
     match verdict {
         HermeticVerdict::Fixed => ExitCode::SUCCESS,
         HermeticVerdict::Reproduced => Exit::Regression.code(),
@@ -870,6 +945,7 @@ fn rand_seed() -> u64 {
     stamp ^ (std::process::id() as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)
 }
 
+pub mod anchor;
 mod keep;
 pub use keep::{keep_capsule_guard, try_replay_process_guard};
 

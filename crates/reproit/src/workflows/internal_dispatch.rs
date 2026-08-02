@@ -64,8 +64,19 @@ pub(super) async fn run(
                 Ok(ExitCode::SUCCESS)
             }
         },
-        InternalCmd::ProcessCapture { out, command } => {
-            super::process_capsule::capture(ctx, &out, &command)
+        InternalCmd::ProcessCapture {
+            out,
+            anchor_checkpoint,
+            anchor_position,
+            command,
+        } => {
+            let anchor = anchor_checkpoint.zip(anchor_position).map(
+                |(checkpoint, position)| super::process_capsule::AnchorRequest {
+                    checkpoint,
+                    position,
+                },
+            );
+            super::process_capsule::capture(ctx, &out, &command, anchor.as_ref())
         }
         InternalCmd::ProcessAnchor {
             capsule,

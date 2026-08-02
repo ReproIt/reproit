@@ -1,5 +1,82 @@
 # Checkpoint anchoring (Class C): what was measured
 
+Two anchor kinds exist and must never be confused. The criu kind below
+(everything from "The survey" down) checkpoints the REPLAYING process and is
+an investigation accelerator that can never verify a fix. The APPLICATION
+kind, measured 2026-08-01 in the next section, is the plan's preferred path:
+the checkpoint the program itself wrote, which the new binary can load, so a
+tail flipping to a clean exit is a real fix verification.
+
+## The application anchor (measured 2026-08-01)
+
+The anchor is an artifact the program already writes (a trainer's save file),
+and the capture runs the program's own resume invocation, so the boundary log
+covers the tail from the anchor forward BY CONSTRUCTION rather than by
+splitting a longer log at an ordinal nobody measured. The capsule gains an
+additive versioned `anchor` section: the checkpoint by digest plus embedded
+bytes (16 MiB embed cap, the shim's REPROIT_FILE_CAP, one number for the
+whole size story; past it a named over-cap marker), the ordinal position, and
+the uncontrolled-sources statement. Anchor-less capsules load and replay
+unchanged (gate case 2 pins that).
+
+Reproduce with `validation/process-checkpoint/gate-anchor.sh` (self-wrapping
+in Docker; image and cargo volume shared with gate-session.sh). Fixture:
+`examples/trainer-checkpoint-fixture/trainer.c`, a scalar SGD loop over 400
+one-line samples that checkpoints every 50 steps and dies on a declared
+assertion at step 380 (poisoned label), so the last checkpoint sits at 350,
+near the failure.
+
+| case | linux/arm64 (seccomp layer) | linux/amd64 (emulated, libc only) |
+| --- | --- | --- |
+| docker image / glibc | rust:1.97.1-trixie, glibc 2.41 | rust:1.97.1-trixie, glibc 2.41 |
+| baseline: failure at step 380, own checkpoint at 350 | PASS | PASS |
+| additive: anchor-less capsule still replays | PASS | SKIP by name (below) |
+| anchored capture: digest + position + statement stored | PASS | SKIP |
+| portability: clean copy, other absolute path, ckpt deleted and materialized back | PASS reproduced | SKIP |
+| head skipped: no head step line in the tail replay | PASS (350 of 400 skipped) | SKIP |
+| fix: TRAINER_FIXED=1 flips the tail to exit 0 | PASS | SKIP |
+| tampered checkpoint digest refuses by name, program never ran | PASS anchor-checkpoint-digest | SKIP |
+| deleted boundary read diverges naming the file | PASS incomplete-file | SKIP |
+| statement verbatim in output == statement in artifact | PASS | SKIP |
+| gate total | 9/9 | 1/1 + named skip |
+| criu availability (for the criu kind, unchanged) | criu 3.17.1 "Looks good" in privileged bookworm, re-probed 2026-08-01 | not re-probed; prior survey stands |
+
+The amd64 SKIP, measured before it became a skip: Docker's x86_64 emulation
+answers EINVAL to `SECCOMP_SET_MODE_FILTER` with `NEW_LISTENER` (the
+emulator's limit, per validation/process/MEASUREMENT.md, where a real x86_64
+kernel installs the layer and passes the full completeness gate), so the shim
+falls back to the libc boundary as a named event. The trainer reads through
+stdio (`fopen`/`fscanf`), whose internal reads bypass the interposed `read`,
+so the libc-only capture held the data file's open (7196 bytes) and no
+content, and the replay refused LOUDLY: `incomplete-file recorded=7196
+served=0`, exit 3, divergence naming the file. Fail-closed held exactly as
+designed; the gate now probes the layer first (the same probe
+gate-completeness.sh uses) and skips rows 2-9 by name on a layer-less host.
+
+The statement, stored in every anchored capsule and printed verbatim with the
+verdict (`crates/reproit/src/workflows/process_capsule/anchor.rs`):
+
+> UNCONTROLLED-SOURCES pinned: file reads, socket reads, clock reads, and RNG
+> draws observed at the boundary; the environment block; the replay seed; the
+> checkpoint artifact by digest. not pinned: in-process RNG state carried
+> inside the checkpoint, thread scheduling, GPU kernel execution,
+> floating-point reassociation across builds. The tail replays under the
+> pinned sources only; this is never a bit-exact re-execution claim.
+
+Named limits of the application kind, honestly:
+
+- The position ordinal is DECLARED by the operator (`--anchor-position`), not
+  measured out of the program; the trainer prints "resumed from checkpoint at
+  step 350" and the gate cross-checks the two, but a program that lies about
+  where its checkpoint sits is not caught.
+- The fix flip is real only because an application checkpoint is data; it
+  holds for a fixed BINARY loading the same checkpoint format. A fix that
+  changes the checkpoint format itself invalidates the anchor (the resume
+  refuses or diverges), which is the correct failure but is not a verdict.
+- The over-cap arm (checkpoint past 16 MiB) is unit-tested
+  (`process_capsule::anchor::tests`), not gate-exercised; the gate's
+  checkpoint is bytes, not gigabytes, on purpose.
+
 Platform for every number: Linux aarch64 in Docker (Docker Desktop VM, kernel
 6.12), `criu` 3.17.1 from Debian bookworm, `--privileged`. Reproduce with
 `validation/process-checkpoint/run.sh` inside such a container.
