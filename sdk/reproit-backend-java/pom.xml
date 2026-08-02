@@ -22,10 +22,25 @@
       <version>5.0.0</version>
       <scope>provided</scope>
     </dependency>
+    <!-- Only for the ReproitCi extension; suites using it already have JUnit
+         on the classpath, and the SDK jar stays zero-dependency for apps. -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-api</artifactId>
+      <version>5.10.2</version>
+      <scope>provided</scope>
+    </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
       <version>5.10.2</version>
+      <scope>test</scope>
+    </dependency>
+    <!-- Embedded launcher for the ReproitCi extension's own tests. -->
+    <dependency>
+      <groupId>org.junit.platform</groupId>
+      <artifactId>junit-platform-launcher</artifactId>
+      <version>1.10.2</version>
       <scope>test</scope>
     </dependency>
     <!-- Real servlet container for the functional e2e test only. -->

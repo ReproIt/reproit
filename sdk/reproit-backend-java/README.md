@@ -81,6 +81,59 @@ them), bounded flush interval (floor 100 ms), per-request timeout, and at most `
 before anything is queued. Uploads use `java.net.http.HttpClient` on one daemon thread.
 `sdk/test/oracle_contract_test.js` pins the `backend-server-error` tagging contract.
 
+## Agent oracles (LLM/agent operations)
+
+An LLM/agent operation can mark an authored failure assertion on its own trace, the same
+vocabulary as the Node and Python SDKs:
+
+```java
+trace.oracle(Capture.AGENT_GUARDRAIL_ORACLE, Map.of("tool", "delete_order"));
+```
+
+The three registry ids (lowest confidence tier) are `agent-response-content`,
+`agent-guardrail-violation`, and `agent-loop-bound-exceeded` (`Capture.AGENT_ORACLES`).
+Unknown ids are rejected with `TraceError` so a typo cannot mint an oracle category. The
+marker rides as an `emit` effect (resource `reproit-oracle`), so the wire vocabulary is
+unchanged. A marked operation is ALWAYS captured, like a 5xx, even when it returns 200; its
+failure observation is a `contract-violation` whose signature carries the marked id instead
+of the `backend-server-error` default, and the replayable capture payload's `oracle` field
+is the marked id.
+
+## CI capture mode (the flaky-CI wedge)
+
+Same capsule, captured in CI instead of production: the trigger identity is the TEST
+(`operation` = `test:<suite>#<test>`), the oracle is the existing
+`backend-authored-invariant` id (a test IS an authored invariant), and the wire is
+untouched. Two integration surfaces share one core (`Ci`):
+
+- JUnit 5: `@ExtendWith(ReproitCi.class)` on the test class. Suite = the class's simple
+  name, test = the method name. JUnit is a `provided` dependency: the extension only loads
+  in suites that already ship JUnit 5, and the SDK jar stays zero-dependency for apps.
+- The dependency-free micro-runner, for fixtures and hermetic gates (compiles with plain
+  javac, no jars): `Ci.Suite suite = Ci.suite("checkout"); suite.test(name, body);
+  System.exit(suite.exitCode());`
+
+With `REPROIT_CI_CAPTURE=1` every test runs inside its own trace, so the wrapped outbound
+clients record dependency exchanges plus the determinism envelope exactly as production
+capture does. A FAILING test spools a version-2 capture capsule to a bounded on-disk spool
+(`REPROIT_CI_SPOOL`, default `.reproit/ci-spool`; total-bytes cap `REPROIT_CI_SPOOL_MAX`,
+default 16 MiB, floor 4 KiB, ceiling 64 MiB; over-cap capsules are dropped and counted in
+`Ci.stats()` plus the on-disk `dropped.count`, never silently) and announces it with the
+`REPROIT:CI-CAPSULE` stderr marker. The failure always reaches the runner untouched.
+
+`reproit check <capsule> --exec "java -cp classes CheckoutTest"` re-runs the command with
+`REPROIT_REPLAY` set: only the capsule's named test runs (everything else is skipped or
+disabled with the target named), the SDK serves the recorded exchanges in process, and the
+observed result is the `REPROIT:CI-TEST` stderr marker the CLI's four-way verdict reads
+(reproduced / fixed-under-the-capsule / diverged / inconclusive). A plain rerun passing
+OUTSIDE the capsule is flaky evidence, never Fixed. Honest limit, same as Node's: races the
+exchange boundary cannot see are Inconclusive, never a fake reproduction.
+
+Fixture: `examples/java-flaky-ci-fixture/` (planted order-dependent failure invisible in a
+plain run); gate: `validation/backend/java-flaky-ci-e2e/run.sh` (six legs: plain run
+passes, CI run spools, plain rerun passes without a fix, reproduce / fix / revert /
+deleted-exchange-diverges under the PORTABILITY bar, replay compiled with plain javac).
+
 ## Capsule parity: outbound exchange capture and hermetic replay
 
 The capsule boundary is library-layer only (no `-javaagent`, no bytecode weaving), per the
@@ -126,6 +179,24 @@ The money-test fixture lives in `examples/java-backend-fixture/` and the four-ve
 revert / deleted-exchange-diverges). `sdk/test/backend_replay_parity_test.js` byte-compares the
 served exchange, the 599 body, and the divergence marker against the Node reference.
 
+## Level matrix against the Node reference
+
+Founder rule: every capability the Node SDK has, this SDK has, and a genuinely-impossible
+surface is a NAMED gap here, never a silent downgrade.
+
+| Node surface (file)                          | Java surface                       | Level |
+| -------------------------------------------- | ---------------------------------- | ----- |
+| Scan-time trace, bounds, redaction, header (index.js) | `BackendTrace`, `Json`      | same, golden-byte pinned |
+| Framework adapters (express.js, fastify.js)  | `ReproitFilter` (any jakarta.servlet container) | same role; servlet is the Java-idiomatic host |
+| Production capture + batch shape (capture.js) | `Capture`                         | same, batch shape pinned |
+| Agent oracle API (`trace.oracle`, AGENT_* ids, marked-op capture) | `BackendTrace.oracle`, `Capture.AGENT_ORACLES` | same |
+| Outbound HTTP capture (instrument.js patches http/https/fetch process-wide) | `ReproitHttpClient.wrap`, `Instrument.Http.send` | same recording; NAMED GAP: no auto-install. Library layer only, no bytecode weaving, so only wrapped clients are visible |
+| DB capture (instrument.js patches the pg driver) | `ReproitJdbc`, `Instrument.Db.run` | same recording; NAMED GAP as above, plus the JDBC subset listed under capsule parity |
+| Determinism envelope (seeded RNG, pinned clock/TZ/locale) | `Instrument.random()`, `Instrument.clock()`, envelope pin | same seams; NAMED GAP: direct `System.currentTimeMillis`/`Instant.now`, app-constructed `Random`, `Math.random`, `ThreadLocalRandom` stay live; `SecureRandom` unpinnable by design |
+| Hermetic replay, strict ordinals, 599, `REPROIT:DIVERGENCE` + `bodyDelta` (replay.js) | `Replay` | same, marker byte-identical |
+| Streaming (SSE) exchanges with chunk boundaries | TEE subscriber in `ReproitHttpClient` | same |
+| CI capture mode (ci.js wraps node:test)      | `ReproitCi` (JUnit 5) + `Ci.suite` micro-runner | same semantics, markers and spool bounds identical; the runner wrapped differs because the runtimes' test frameworks differ |
+
 ## Tests
 
 ```sh
@@ -137,3 +208,6 @@ Unit tests pin bounds, redaction, tagging, and batch shape (through a Java port 
 `sdk/test/event_batch_v1.js`), plus golden-byte canonical JSON parity with the Node SDK. The e2e
 test runs `ReproitFilter` in a real Jetty container with a planted 500 and asserts the tagged
 finding batch at a local stub ingest, and the scan-time `x-reproit-events` round-trip.
+`AgentOracleTest` pins the marked-oracle contract, `CiTest` the CI capture/replay/spool
+semantics against the Node reference's ci.test.js, and `CiExtensionTest` runs the JUnit 5
+extension through the embedded platform launcher.

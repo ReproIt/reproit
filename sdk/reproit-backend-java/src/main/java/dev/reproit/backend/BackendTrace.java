@@ -324,6 +324,25 @@ public final class BackendTrace {
         fields.put(name, value);
     }
 
+    /**
+     * Mark an agent oracle on the trace: an authored assertion that this
+     * operation violated its own contract (response content/shape, guardrail,
+     * loop bound). The marker rides as an `emit` effect so the wire vocabulary
+     * is unchanged; capture mode always uploads a marked operation and its
+     * failure observation carries the marked id. Unknown ids are rejected so
+     * a typo cannot mint an oracle category.
+     */
+    public void oracle(String id, Object detail) {
+        if (!Capture.AGENT_ORACLES.contains(id)) throw new TraceError("InvalidOperation");
+        Effect marker = new Effect().resource(Capture.ORACLE_MARKER_RESOURCE).key(id);
+        if (detail != null) {
+            Map<String, Object> wrapped = new LinkedHashMap<>();
+            wrapped.put("payload", detail);
+            marker.detail(wrapped);
+        }
+        effect("emit", marker);
+    }
+
     public void finish(Object output, Integer status, boolean success, boolean effectsComplete) {
         if (finished) throw new TraceError("AlreadyFinished");
         Map<String, Object> fields = new LinkedHashMap<>();
