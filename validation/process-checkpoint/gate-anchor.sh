@@ -37,14 +37,26 @@
 # twice. REPROIT_GATE_ARCH=amd64 measures the other arch.
 set -u
 
-VOLUME=reproit-session-cargo
 if [[ "$(uname -s)" != "Linux" ]]; then
   ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
   ARCH="${REPROIT_GATE_ARCH:-arm64}"
-  IMAGE="${REPROIT_GATE_IMAGE:-reproit-session-gate:latest}"
+  # One cargo volume per arch: an emulated amd64 build clobbering the arm64
+  # cache would make every later arm64 gate rebuild the world.
+  if [[ "$ARCH" == "arm64" ]]; then
+    VOLUME=reproit-session-cargo
+  else
+    VOLUME="reproit-anchor-cargo-$ARCH"
+  fi
+  # The shared image is built for the host arch only; a cross-arch run gets
+  # its own tag so docker does not try to pull a nonexistent remote image.
+  if [[ "$ARCH" == "arm64" ]]; then
+    IMAGE="${REPROIT_GATE_IMAGE:-reproit-session-gate:latest}"
+  else
+    IMAGE="${REPROIT_GATE_IMAGE:-reproit-anchor-gate:$ARCH}"
+  fi
   if ! docker image inspect "$IMAGE" > /dev/null 2>&1; then
     echo "=== building $IMAGE (one time, shared with gate-session) ==="
-    docker build -t "$IMAGE" - <<'DOCKERFILE' || exit 1
+    docker build --platform "linux/$ARCH" -t "$IMAGE" - <<'DOCKERFILE' || exit 1
 FROM rust:1.97.1-trixie
 # libatspi2.0-dev because the CLI links -latspi; sdl2 for the C engine.
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
@@ -64,6 +76,36 @@ EXPECTED_CASES=9
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT="$(mktemp -d /tmp/reproit-anchor-gate.XXXXXX)"
+
+# Is the seccomp completeness layer available HERE? Docker's x86_64 emulation
+# on an arm64 host answers EINVAL to SECCOMP_FILTER_FLAG_NEW_LISTENER (an
+# emulator limit, measured by gate-completeness.sh, not a kernel fact). The
+# trainer reads through stdio (fopen/fscanf), whose internal reads only the
+# syscall layer sees; MEASURED on emulated amd64: the libc-only capture
+# records the data file's open (7196 bytes) and can serve none of it, so the
+# replay refuses LOUDLY with incomplete-file recorded=7196 served=0. That is
+# the correct fail-closed behavior, and it means every shim row here needs
+# the completeness layer, so they are SKIPPED by name without it.
+cat > "$OUT/layer.c" <<'C_LAYER'
+#define _GNU_SOURCE
+#include <linux/filter.h>
+#include <linux/seccomp.h>
+#include <stddef.h>
+#include <sys/prctl.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+int main(void) {
+    struct sock_filter f[] = {
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+    };
+    struct sock_fprog p = {.len = 2, .filter = f};
+    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) return 1;
+    return syscall(__NR_seccomp, SECCOMP_SET_MODE_FILTER, 1UL << 3, &p) >= 0 ? 0 : 1;
+}
+C_LAYER
+gcc -O1 -o "$OUT/layer" "$OUT/layer.c" || { echo "FAIL layer probe build" >&2; exit 1; }
+if "$OUT/layer"; then SECCOMP_LIVE=1; else SECCOMP_LIVE=0; fi
 # The capture's working directory is part of the capsule and must still exist
 # at replay, so it lives OUTSIDE the build directory the portability row
 # deletes (the same stated requirement gate-session.sh carries).
@@ -72,7 +114,8 @@ mkdir -p "$HOME_DIR"
 cleanup() { rm -rf "$OUT"; }
 trap cleanup EXIT
 
-echo "platform: $(uname -m), glibc $(ldd --version | awk 'NR==1{print $NF}')"
+echo "platform: $(uname -m), glibc $(ldd --version | awk 'NR==1{print $NF}'),\
+ completeness layer: $([[ $SECCOMP_LIVE -eq 1 ]] && echo seccomp || echo 'libc only')"
 
 # --- toolchain: shim, CLI, trainer ----------------------------------------
 
@@ -157,6 +200,24 @@ if [[ "$CKPT_STEP" -ne "$ANCHOR_STEP" ]]; then
 fi
 CASES_RUN=$((CASES_RUN + 1))
 echo "PASS baseline: failure at step $POISON_STEP, the trainer's own checkpoint at $CKPT_STEP"
+
+# Scope gate, the same shape run.sh and gate-completeness.sh use: without the
+# completeness layer every remaining row would measure a different boundary,
+# so they are SKIPPED by name rather than silently varied or left red.
+if [[ "$SECCOMP_LIVE" -ne 1 ]]; then
+  if [[ "$CASES_RUN" -ne 1 ]]; then
+    echo "FAIL harness accounting: $CASES_RUN of 1 cases ran before the scope gate" >&2
+    exit 1
+  fi
+  echo "SKIP anchor rows 2-9: seccomp user-notify unavailable here (Docker's"
+  echo "  x86_64 emulation answers EINVAL to SET_MODE_FILTER|NEW_LISTENER; a"
+  echo "  real x86_64 kernel installs the layer, see validation/process/"
+  echo "  MEASUREMENT.md). The trainer reads through stdio, which the libc"
+  echo "  boundary cannot see; measured here: its capture refuses loudly at"
+  echo "  replay (incomplete-file recorded=7196 served=0), never silently."
+  echo "gate-anchor: baseline only; anchoring NOT EVALUATED on this host"
+  exit 0
+fi
 
 # 2 additive: a plain capture (no anchor) of the FULL run still works, so
 # the anchor section is additive and an anchor-less capsule stays valid.
