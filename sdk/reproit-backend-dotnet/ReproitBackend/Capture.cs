@@ -47,7 +47,38 @@ public sealed class Capture
     public const int CaptureVersion = 1;
     // First-class registry oracle id for an operation that returned HTTP 5xx.
     public const string ServerErrorOracle = "backend-server-error";
+    // Agent oracle vocabulary (registry ids, lowest confidence tier): authored assertions an
+    // LLM/agent operation marks on its own trace via `trace.Oracle(id, detail)`. A marked
+    // operation is always captured and its failure observation carries the marked id instead
+    // of the 5xx default.
+    public const string AgentResponseOracle = "agent-response-content";
+    public const string AgentGuardrailOracle = "agent-guardrail-violation";
+    public const string AgentLoopBoundOracle = "agent-loop-bound-exceeded";
+    public static readonly IReadOnlyList<string> AgentOracles = new[]
+    {
+        AgentResponseOracle,
+        AgentGuardrailOracle,
+        AgentLoopBoundOracle,
+    };
+    // The effect resource that carries an oracle marker on the trace. A marker is an `emit`
+    // effect so the scan-time wire shape stays inside the existing event vocabulary.
+    public const string OracleMarkerResource = "reproit-oracle";
     public const string SdkName = "reproit-backend-dotnet";
+
+    // First agent oracle marked on a finished trace's events, or null.
+    public static string? MarkedOracle(IReadOnlyList<Dictionary<string, object?>> events)
+    {
+        foreach (var evt in events)
+        {
+            if (evt.GetValueOrDefault("kind") as string == "effect" &&
+                evt.GetValueOrDefault("resource") as string == OracleMarkerResource &&
+                evt.GetValueOrDefault("key") is string key && AgentOracles.Contains(key))
+            {
+                return key;
+            }
+        }
+        return null;
+    }
 
     // Bounds. Queue overflow drops the OLDEST pending operation; an oversized capture payload
     // drops trailing effect events before it drops itself.
@@ -60,6 +91,8 @@ public sealed class Capture
     // The ingest protocol token charset (`validate_token` in reproit-protocol).
     private static readonly Regex Token =
         new("^[A-Za-z0-9._:-]{1,128}$", RegexOptions.Compiled);
+
+    internal static bool ValidToken(string? value) => value != null && Token.IsMatch(value);
 
     private static readonly HttpClient Client =
         new() { Timeout = Timeout.InfiniteTimeSpan };
@@ -192,7 +225,10 @@ public sealed class Capture
             long? status = returned.TryGetValue("status", out var rawStatus) &&
                 rawStatus is long code && code >= 0 && code <= 0xffff ? code : null;
             var error = !success || status >= 500;
-            if (!error && !SampleHealthy()) return;
+            // A marked agent oracle is an authored failure assertion, so the operation is
+            // always captured, like a 5xx.
+            var marked = MarkedOracle(events) != null;
+            if (!error && !marked && !SampleHealthy()) return;
             if (events.Count == 0 ||
                 !events[0].TryGetValue("operation", out var rawOperation) ||
                 rawOperation is not string operation)
@@ -437,13 +473,19 @@ public sealed class Capture
             operation.Operation,
             success ? "succeeded" : "failed",
             Context(returned ?? first, parent));
-        if (operation.Status is >= 500)
+        var marked = MarkedOracle(operation.Events);
+        if (marked != null || operation.Status is >= 500)
         {
-            var signature = ServerErrorOracle + ":" + operation.Operation;
-            var message = "backend operation " + operation.Operation +
-                " returned HTTP " + operation.Status;
+            var oracle = marked ?? ServerErrorOracle;
+            var signature = oracle + ":" + operation.Operation;
+            var message = marked == null
+                ? "backend operation " + operation.Operation +
+                    " returned HTTP " + operation.Status
+                : "agent oracle " + oracle + " fired on " + operation.Operation;
+            // A marked agent oracle is an authored assertion (a declared contract the trace
+            // itself violated); a bare 5xx stays the runtime exception it always was.
             recorder.Failure(
-                "exception",
+                marked == null ? "exception" : "contract-violation",
                 message,
                 signature,
                 observationPoint: operation.Operation,
@@ -557,6 +599,7 @@ public sealed class Capture
         CapturedOperation operation)
     {
         var events = operation.Events.ToList();
+        var oracle = MarkedOracle(operation.Events) ?? ServerErrorOracle;
         var droppedEffects = 0;
         while (true)
         {
@@ -565,7 +608,7 @@ public sealed class Capture
                 ["format"] = CaptureFormat,
                 ["version"] = (long)CaptureVersion,
                 ["operation"] = operation.Operation,
-                ["oracle"] = ServerErrorOracle,
+                ["oracle"] = oracle,
                 ["events"] = events,
             };
             if (Json.CanonicalUtf8(value).Length <= MaxCaptureJsonBytes)
