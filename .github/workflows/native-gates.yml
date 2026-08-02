@@ -162,10 +162,11 @@ jobs:
   macos-flutter:
     if: github.event_name != 'workflow_dispatch' || inputs.run_flutter_ios
     runs-on: macos-15
-    # The gate now has a third retry tier that creates a fresh simulator and
-    # rebuilds the fixture; the fail-fast VM-service bound reclaims most of
-    # the old dead wait, but the extra rebuild needs headroom over 25.
-    timeout-minutes: 30
+    # The gate budget (2400s) must cover three full retry tiers; both red runs
+    # on 2026-08-02 show the old 1500s budget killing the fresh-simulator tier
+    # mid-attempt, so the ladder never got its final bounded try. 50 minutes is
+    # that gate budget plus checkout, Flutter, Rust, and cache setup.
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v6
       - uses: subosito/flutter-action@v2

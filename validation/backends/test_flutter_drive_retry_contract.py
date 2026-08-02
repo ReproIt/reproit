@@ -131,9 +131,13 @@ class FlutterDriveRetryContractTest(unittest.TestCase):
             self.attempts(result.stdout),
             {
                 "attempts": [
-                    {"tier": "initial", "outcome": "vm-service-connect-stall"},
-                    {"tier": "erase-reboot", "outcome": "vm-service-connect-stall"},
-                    {"tier": "fresh-simulator", "outcome": "passed"},
+                    {"tier": "initial", "outcome": "vm-service-connect-stall", "dds": True},
+                    {
+                        "tier": "erase-reboot",
+                        "outcome": "vm-service-connect-stall",
+                        "dds": False,
+                    },
+                    {"tier": "fresh-simulator", "outcome": "passed", "dds": False},
                 ],
                 "succeededTier": "fresh-simulator",
             },
@@ -150,7 +154,7 @@ class FlutterDriveRetryContractTest(unittest.TestCase):
         self.assertEqual(
             self.attempts(result.stdout),
             {
-                "attempts": [{"tier": "initial", "outcome": "passed"}],
+                "attempts": [{"tier": "initial", "outcome": "passed", "dds": True}],
                 "succeededTier": "initial",
             },
         )
@@ -164,9 +168,17 @@ class FlutterDriveRetryContractTest(unittest.TestCase):
             self.attempts(result.stdout),
             {
                 "attempts": [
-                    {"tier": "initial", "outcome": "vm-service-connect-stall"},
-                    {"tier": "erase-reboot", "outcome": "vm-service-connect-stall"},
-                    {"tier": "fresh-simulator", "outcome": "vm-service-connect-stall"},
+                    {"tier": "initial", "outcome": "vm-service-connect-stall", "dds": True},
+                    {
+                        "tier": "erase-reboot",
+                        "outcome": "vm-service-connect-stall",
+                        "dds": False,
+                    },
+                    {
+                        "tier": "fresh-simulator",
+                        "outcome": "vm-service-connect-stall",
+                        "dds": False,
+                    },
                 ],
                 "succeededTier": None,
             },

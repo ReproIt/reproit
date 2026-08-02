@@ -67,7 +67,7 @@ export REPROIT_BINARY=/tmp/reproit-target/debug/reproit
 exec bash /repo/validation/process-checkpoint/run.sh
 EOF
 
-docker build -t "$IMAGE" "$WORK"
+bash "$ROOT/validation/backends/docker-build-retry.sh" -t "$IMAGE" "$WORK"
 docker run --rm --privileged \
   -e REPROIT_CHECKPOINT_SCOPE="${REPROIT_CHECKPOINT_SCOPE:-full}" \
   -v "$ROOT:/repo:ro$VOLUME_LABEL" \

@@ -77,6 +77,6 @@ for _ in $(seq 1 50); do [ -e /tmp/.X11-unix/X99 ] && break; sleep 0.1; done
 exec dbus-run-session -- bash /work/inner.sh
 EOF
 
-docker build -t "$IMAGE" "$WORK"
+bash "$ROOT/validation/backends/docker-build-retry.sh" -t "$IMAGE" "$WORK"
 docker run --rm -v "$ROOT:/repo:ro$VOLUME_LABEL" -v "$WORK:/work:ro$VOLUME_LABEL" \
   "$IMAGE" bash /work/entry.sh

@@ -78,11 +78,22 @@ printf '{"budget":4}' > "$WORK/fuzz.json"
 # (exit 121, named) instead of paying the generic idle timeout, and spend the
 # reclaimed time on retry tiers that change something plausibly causal.
 # Assertion failures and other nonzero exits remain immediate failures.
+#
+# Measured again on 2026-08-02 (3 consecutive red runs): the tool ECHOES the
+# VM-service URI and then hangs in the connect, so discovery is fine and the
+# hang sits in the tool's VM-service/DDS attach. The retry tiers therefore
+# disable DDS (a documented mitigation for exactly this attach hang); the
+# per-attempt evidence records the dds flag so CI accumulates the A/B data.
+# The retry tiers also run with a tighter idle bound: with the build already
+# proven, the longest legitimate silent gap is app launch, not compilation.
 IDLE_TIMEOUT_SECONDS="${REPROIT_FLUTTER_IDLE_TIMEOUT_SECONDS:-300}"
+RETRY_IDLE_TIMEOUT_SECONDS="${REPROIT_FLUTTER_RETRY_IDLE_TIMEOUT_SECONDS:-150}"
 VM_CONNECT_TIMEOUT_SECONDS="${REPROIT_FLUTTER_VM_CONNECT_TIMEOUT_SECONDS:-75}"
 
 run_drive() {
   local build_argument="${1:-}"
+  local dds_argument="${2:-}"
+  local idle_timeout_seconds="${3:-$IDLE_TIMEOUT_SECONDS}"
   local -a drive_command=(
     flutter drive
     --driver=test_driver/integration_driver.dart
@@ -94,10 +105,13 @@ run_drive() {
   if [[ "$build_argument" == "no-build" ]]; then
     drive_command+=(--no-build)
   fi
+  if [[ "$dds_argument" == "no-dds" ]]; then
+    drive_command+=(--no-dds)
+  fi
   (
     cd "$APP"
     python3 "$ROOT/validation/backends/run-output-contract.py" \
-      --idle-timeout-seconds "$IDLE_TIMEOUT_SECONDS" \
+      --idle-timeout-seconds "$idle_timeout_seconds" \
       --stall-marker 'The Dart VM service is listening on' \
       --stall-timeout-seconds "$VM_CONNECT_TIMEOUT_SECONDS" \
       --stall-name 'vm-service connect' \
@@ -125,8 +139,10 @@ outcome_for() {
 
 ATTEMPT_EVIDENCE=""
 record_attempt() {
+  local dds="true"
+  [[ "${3:-}" == "no-dds" ]] && dds="false"
   ATTEMPT_EVIDENCE="${ATTEMPT_EVIDENCE:+$ATTEMPT_EVIDENCE,}"
-  ATTEMPT_EVIDENCE+="$(printf '{"tier":"%s","outcome":"%s"}' "$1" "$2")"
+  ATTEMPT_EVIDENCE+="$(printf '{"tier":"%s","outcome":"%s","dds":%s}' "$1" "$2" "$dds")"
 }
 
 wait_booted() {
@@ -230,26 +246,26 @@ if is_stall "$drive_status"; then
   collect_stall_diagnostics
   echo "Erasing and rebooting the simulator before the retry"
   erase_reboot
-  echo "Retrying the built Flutter application after the bounded VM-service stall"
+  echo "Retrying the built Flutter application without DDS after the bounded stall"
   set +e
-  run_drive no-build
+  run_drive no-build no-dds "$RETRY_IDLE_TIMEOUT_SECONDS"
   drive_status=$?
   set -e
   succeeded_tier="erase-reboot"
-  record_attempt erase-reboot "$(outcome_for "$drive_status")"
+  record_attempt erase-reboot "$(outcome_for "$drive_status")" no-dds
 fi
 
 if is_stall "$drive_status"; then
   echo "Second stall on the same device; creating a fresh simulator for the final attempt"
   collect_stall_diagnostics
   fresh_simulator
-  echo "Retrying with a rebuilt application on fresh simulator $UDID"
+  echo "Retrying with a rebuilt application, still without DDS, on fresh simulator $UDID"
   set +e
-  run_drive
+  run_drive "" no-dds
   drive_status=$?
   set -e
   succeeded_tier="fresh-simulator"
-  record_attempt fresh-simulator "$(outcome_for "$drive_status")"
+  record_attempt fresh-simulator "$(outcome_for "$drive_status")" no-dds
 fi
 
 if [[ "$drive_status" -eq 0 ]]; then

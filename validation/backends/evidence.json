@@ -19,7 +19,7 @@
         "arm64"
       ],
       "tier": "release",
-      "timeoutSeconds": 1500,
+      "timeoutSeconds": 2400,
       "resetStrategy": "create and boot a disposable iPhone simulator plus a generated app",
       "cleanupStrategy": "delete the simulator and remove the temporary application directory",
       "requiredOutput": [
@@ -303,7 +303,7 @@
         "arm64"
       ],
       "tier": "release",
-      "timeoutSeconds": 900,
+      "timeoutSeconds": 1800,
       "resetStrategy": "create and boot a disposable iPhone simulator, then install a fresh app",
       "cleanupStrategy": "delete the simulator and remove build and fuzz directories",
       "requiredOutput": [

@@ -197,7 +197,7 @@ done
 exec dbus-run-session -- bash /work/inner.sh
 EOF
 
-docker build -t "$IMAGE" "$WORK"
+bash "$ROOT/validation/backends/docker-build-retry.sh" -t "$IMAGE" "$WORK"
 docker run --rm \
   -v "$ROOT:/repo:ro$VOLUME_LABEL" \
   -v "$WORK:/work:rw$VOLUME_LABEL" \
