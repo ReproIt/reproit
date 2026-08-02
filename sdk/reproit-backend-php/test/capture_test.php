@@ -23,10 +23,18 @@ foreach (['REPROIT_COMMIT', 'GITHUB_SHA'] as $ambient) {
     putenv($ambient);
 }
 
+use const ReproitBackend\AGENT_GUARDRAIL_ORACLE;
+use const ReproitBackend\AGENT_LOOP_BOUND_ORACLE;
 use const ReproitBackend\CAPTURE_FORMAT;
+use const ReproitBackend\CI_RESULT_MARKER;
+use const ReproitBackend\CI_SPOOL_MARKER;
 use const ReproitBackend\SERVER_ERROR_ORACLE;
+use const ReproitBackend\TEST_FAILURE_ORACLE;
+
+use function ReproitBackend\marked_oracle;
 
 require __DIR__ . '/../reproit.php';
+require __DIR__ . '/../ci.php';
 require __DIR__ . '/support.php';
 require __DIR__ . '/event_batch_v1.php';
 
@@ -199,5 +207,182 @@ check_same(1, $drainCapture->stats()['failedBatches'], 'unreachable ingest count
 check_same(1, $drainCapture->stats()['droppedOperations'], 'failed batch drops its operations');
 // Empty the overflow capture too so the shutdown drain stays a no-op.
 $reflectedQueue->setValue($capture, []);
+
+// agent oracle markers ride the trace and reject unknown ids
+$capture = Capture::create([
+    'endpoint' => 'http://c/v1/events', 'apiKey' => 'sk', 'appId' => 'app',
+]);
+$trace = BackendTrace::begin($capture->context(), 'POST /assist', ['input' => null]);
+check_throws(
+    fn () => $trace->oracle('made-up-oracle'),
+    'InvalidOperation',
+    'unknown oracle id rejected'
+);
+$trace->oracle(AGENT_GUARDRAIL_ORACLE, ['tool' => 'delete_order']);
+$trace->finish(['error' => 'guardrail'], 500, false, true);
+check_same(
+    AGENT_GUARDRAIL_ORACLE,
+    marked_oracle($trace->events()),
+    'marked oracle found on the finished trace'
+);
+
+// a marked agent operation is captured even without a 5xx
+$markedTrace = BackendTrace::begin($capture->context(), 'POST /assist', ['input' => null]);
+$markedTrace->oracle(AGENT_LOOP_BOUND_ORACLE, ['iterations' => 9, 'bound' => 4]);
+$markedTrace->finish(['note' => 'gave up'], 200, true, true);
+$capture->record($markedTrace);
+check_same(1, $capture->stats()['capturedOperations'], 'marked operation captured without 5xx');
+
+// a marked failure observation carries the agent oracle id
+$batch = $capture->buildBatch([
+    ['operation' => 'POST /assist', 'status' => 500, 'events' => $trace->events()],
+]);
+$observation = $batch['events'][\count($batch['events']) - 1]['event'];
+check_same('observation', $observation['kind'], 'marked batch ends in the observation');
+check_same(
+    AGENT_GUARDRAIL_ORACLE . ':POST /assist',
+    $observation['failure']['signature'],
+    'marked signature carries the agent oracle id'
+);
+check_same(
+    'contract-violation',
+    $observation['failure']['observation'],
+    'marked observation is a contract violation'
+);
+// The replayable capture payload carries the marked id in place of the 5xx
+// default too.
+[$payload] = \ReproitBackend\capture_payload([
+    'operation' => 'POST /assist', 'status' => 500, 'events' => $trace->events(),
+]);
+check_same(AGENT_GUARDRAIL_ORACLE, $payload['oracle'], 'capture payload carries the marked id');
+$reflectedQueue->setValue($capture, []); // keep the process-end shutdown drain a no-op
+
+// --- CI capture mode (ci.php): each scenario runs the plain-script wrapper
+// in a child process because capture/replay mode is decided by env at
+// suite() time and the wrapper owns the process exit code. Mirrors
+// sdk/reproit-backend-node/test/ci.test.js.
+
+// unknown suite options are rejected, not ignored
+$rejected = false;
+try {
+    \ReproitBackend\Ci::suite('s', ['retries' => 2]);
+} catch (\InvalidArgumentException $error) {
+    $rejected = str_contains($error->getMessage(), 'unknown option');
+}
+check($rejected, 'unknown suite option rejected');
+
+// One upstream call, one assertion that fails unless FIXED=1. The upstream
+// stub only boots outside replay, exactly like a real suite's dependencies.
+$ciDir = sys_get_temp_dir() . '/reproit-php-ci-' . getmypid();
+@mkdir($ciDir, 0o777, true);
+file_put_contents($ciDir . '/upstream.php', <<<'PHP'
+<?php
+header('Content-Type: application/json');
+echo json_encode(['n' => 7]);
+PHP);
+$sdkDir = \dirname(__DIR__);
+file_put_contents($ciDir . '/fixture.php', <<<PHP
+<?php
+require '$sdkDir/reproit.php';
+require '$sdkDir/ci.php';
+\$test = \\ReproitBackend\\Ci::suite('unit');
+\$test('asserts the upstream answer', function (): void {
+    \$response = \\ReproitBackend\\Instrument::http('GET', 'http://127.0.0.1:19981/n');
+    \$body = json_decode(\$response->body, true);
+    \$n = \$body['n'] ?? null;
+    \$expected = getenv('FIXED') === '1' ? 7 : 8;
+    if (\$n !== \$expected) {
+        throw new RuntimeException(\$n . ' !== ' . \$expected);
+    }
+});
+PHP);
+$upstream = proc_open(
+    [PHP_BINARY, '-S', '127.0.0.1:19981', $ciDir . '/upstream.php'],
+    [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']],
+    $upstreamPipes
+);
+for ($i = 0; $i < 100 && @file_get_contents('http://127.0.0.1:19981/n') === false; $i++) {
+    usleep(50000);
+}
+
+/** Run the child fixture with `$env` on top of a clean inherited set. */
+function run_ci(string $fixture, array $env): array
+{
+    $spec = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+    $proc = proc_open([PHP_BINARY, $fixture], $spec, $pipes, null, $env + getenv());
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    $status = proc_close($proc);
+    return [$status, (string) $stderr, (string) $stdout];
+}
+
+// a failing test spools a test-trigger capsule with the exchange
+$spool = $ciDir . '/spool';
+[$status, $stderr] = run_ci($ciDir . '/fixture.php', [
+    'REPROIT_CI_CAPTURE' => '1', 'REPROIT_CI_SPOOL' => $spool,
+]);
+check($status !== 0, 'failing capture-mode run exits non-zero');
+check(str_contains($stderr, CI_SPOOL_MARKER), 'spool marker written');
+$capsules = glob($spool . '/capsule-*.json') ?: [];
+check_same(1, \count($capsules), 'exactly one capsule spooled');
+$capsule = json_decode((string) file_get_contents($capsules[0]), true);
+check_same(CAPTURE_FORMAT, $capsule['format'], 'capsule format');
+check_same(2, $capsule['version'], 'capsule version 2');
+check_same('test:unit#asserts the upstream answer', $capsule['operation'], 'test identity');
+check_same(TEST_FAILURE_ORACLE, $capsule['oracle'], 'authored-invariant oracle');
+check(\is_string($capsule['envelope']['replaySeed'] ?? null), 'envelope carries a replay seed');
+$exchanges = array_values(array_filter(
+    $capsule['events'],
+    fn (array $event): bool => \is_array($event['exchange'] ?? null)
+));
+check_same(1, \count($exchanges), 'capsule carries the upstream exchange');
+check_same(7, $exchanges[0]['exchange']['response']['body']['n'], 'recorded response body');
+$returned = $capsule['events'][\count($capsule['events']) - 1];
+check_same(false, $returned['success'], 'return records the failure');
+check(str_contains((string) $returned['output']['error'], '7 !== 8'), 'bounded failure message');
+
+// replay re-runs the named test and reports failed, then passed. No live
+// upstream is needed; the SDK serves the recording in process.
+[$status, $stderr] = run_ci($ciDir . '/fixture.php', ['REPROIT_REPLAY' => $capsules[0]]);
+check($status !== 0, 'replay of the unfixed test exits non-zero');
+$line = null;
+foreach (explode("\n", $stderr) as $candidate) {
+    if (str_starts_with($candidate, CI_RESULT_MARKER)) {
+        $line = json_decode(substr($candidate, \strlen(CI_RESULT_MARKER)), true);
+        break;
+    }
+}
+check(\is_array($line), 'replay writes the structured result marker');
+check_same('failed', $line['status'] ?? null, 'replay reports failed');
+check_same('test:unit#asserts the upstream answer', $line['operation'] ?? null, 'named test');
+check(str_contains((string) ($line['failure'] ?? ''), '7 !== 8'), 'replay failure message');
+[$status, $stderr] = run_ci($ciDir . '/fixture.php', [
+    'REPROIT_REPLAY' => $capsules[0], 'FIXED' => '1',
+]);
+check_same(0, $status, 'replay of the fixed test exits zero');
+check(str_contains($stderr, '"status":"passed"'), 'replay reports passed');
+
+// a full spool drops the capsule and counts the drop
+$full = $ciDir . '/full-spool';
+@mkdir($full, 0o777, true);
+file_put_contents($full . '/existing.json', str_repeat('x', 4 * 1024));
+[$status, $stderr] = run_ci($ciDir . '/fixture.php', [
+    'REPROIT_CI_CAPTURE' => '1',
+    'REPROIT_CI_SPOOL' => $full,
+    'REPROIT_CI_SPOOL_MAX' => (string) (4 * 1024),
+]);
+check($status !== 0, 'over-cap run still fails the test');
+check_same(0, \count(glob($full . '/capsule-*.json') ?: []), 'over-cap capsule not written');
+check_same(1, (int) file_get_contents($full . '/dropped.count'), 'drop counted on disk');
+
+// without capture or replay env the wrapper is inert plain execution
+[$status, $stderr] = run_ci($ciDir . '/fixture.php', []);
+check($status !== 0, 'plain failing run exits non-zero');
+check(!str_contains($stderr, CI_SPOOL_MARKER), 'no spool marker without capture env');
+check(!str_contains($stderr, CI_RESULT_MARKER), 'no result marker without replay env');
+
+proc_terminate($upstream);
+proc_close($upstream);
+shell_exec('rm -rf ' . escapeshellarg($ciDir));
 
 report('capture_test');

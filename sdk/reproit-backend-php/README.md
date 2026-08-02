@@ -147,6 +147,89 @@ upstream call plus PDO query) on `examples/php-backend-fixture/app.php` and re-e
 a copied checkout with every dependency stopped, asserting all four verdicts (reproduced /
 fixed / reproduced / diverged-naming-the-call).
 
+## Agent oracle API (LLM/agent capsule flavor)
+
+`$trace->oracle($id, $detail)` marks an authored assertion on the trace: this operation
+violated its own contract (response content/shape, guardrail, loop bound). Semantics are
+identical to the Node reference and the Python port:
+
+- Registry ids only, lowest confidence tier: `agent-response-content`,
+  `agent-guardrail-violation`, `agent-loop-bound-exceeded` (`AGENT_ORACLES`). An unknown id
+  throws `TraceError(InvalidOperation)`, so a typo cannot mint an oracle category.
+- The marker rides as an `emit` effect on the resource `reproit-oracle`, so the scan-time wire
+  vocabulary is unchanged and old readers keep working.
+- A marked operation is ALWAYS captured, like a 5xx, even when it returns 200/success.
+- The capture's failure observation carries the marked id in its signature and reports
+  `contract-violation` (an authored assertion) instead of the 5xx default `exception`; the
+  replayable capture payload's `oracle` field carries the marked id too.
+
+```php
+$trace->oracle(\ReproitBackend\AGENT_GUARDRAIL_ORACLE, ['tool' => 'delete_order']);
+```
+
+Prompt-drift divergence naming (`bodyDelta` with the first differing message index) already
+ships in `replay.php`; the oracle API completes the agent flavor on this SDK.
+
+## CI capture mode (the flaky-CI wedge)
+
+`Ci::suite($name)` (in `ci.php`, required separately like Node's lazy `ci.js`) returns a
+`$test($name, $fn)` callable for the plain test scripts this SDK itself uses, run directly as
+`php test/x_test.php`. The trigger identity is the TEST, riding the existing `operation` field
+as `test:<suite>#<test>`; a failed test carries the existing `backend-authored-invariant`
+registry oracle. No new protocol fields, no new oracle ids.
+
+- `REPROIT_CI_CAPTURE=1`: every test runs inside its own capture-envelope trace, installed as
+  the ambient `Instrument` trace, so the explicit outbound boundary records dependency
+  exchanges exactly as production capture does. A FAILING test spools a version-2
+  `reproit-backend-capture` capsule to a bounded on-disk spool (`REPROIT_CI_SPOOL`, default
+  `.reproit/ci-spool`; total-bytes cap `REPROIT_CI_SPOOL_MAX`, default 16 MiB, floor 4 KiB,
+  ceil 64 MiB; over-cap capsules are dropped and counted in the on-disk `dropped.count`,
+  never silently) and prints the `REPROIT:CI-CAPSULE ` stderr marker.
+- `REPROIT_REPLAY=<capsule>`: the SAME wrapper re-runs ONLY the capsule's named test with the
+  recorded exchanges served in process and the envelope pinned, and reports the observed
+  result as the `REPROIT:CI-TEST ` structured stderr marker `reproit check` parses. The
+  recorded exec re-runs the single named test file directly: `reproit check <capsule> --exec
+  "php tests/checkout_test.php"`.
+- Neither env: plain execution; the wrapper only keeps the script's exit code honest.
+
+Process model, same seam as capture mode: the spool write happens synchronously when the test
+throws, and a `register_shutdown_function` safety net spools the in-flight test when a fatal
+error kills the request-scoped process before the catch can run.
+
+Named follow-up gap: the wrapper targets the plain-script runner this repo's PHP tests use;
+a PHPUnit listener is a follow-up, not shipped, so PHPUnit suites are not yet wired (adding
+PHPUnit as a dependency was deliberately avoided).
+
+Acceptance: `validation/backend/php-flaky-ci-e2e/run.sh` on
+`examples/php-flaky-ci-fixture/` (a planted order-dependent failure invisible in a plain
+run), cloned leg for leg from `validation/backend/flaky-ci-e2e`: plain run passes, the
+simulated CI run spools, a plain rerun from the copy passes (flaky evidence, never Fixed),
+then reproduced (1) / fixed (0) / reproduced again (1) / deleted exchange diverges (3)
+naming the call, all under the PORTABILITY bar.
+
+## Level matrix against the Node reference
+
+Founder rule: all backend SDKs sit at the same level as the Node reference in all ways;
+genuinely-impossible surfaces are NAMED gaps, never silent. The full Node surface, row by row:
+
+| Node surface | PHP status |
+| --- | --- |
+| Scan-time trace adapter (`x-reproit-trace` -> `x-reproit-events`) | Level (`trace.php`) |
+| Canonical JSON wire + byte parity pins | Level (golden checks vs Node) |
+| Framework adapters (express/fastify) | Level shape: PSR-15 + vanilla wrapper |
+| Production capture mode + ingest upload | Level (`capture.php`; PHP flush model documented) |
+| Outbound HTTP exchange capture | Level, OPT-IN boundary (PSR-18 / `Instrument::http`); curl-direct NAMED gap |
+| DB driver exchange capture (`pg`) | Level shape: PDO wrap (`pdo.php`) |
+| Streaming (SSE/chunked) exchange boundaries | Level (teed PSR-7 stream, chunk boundaries) |
+| Envelope: TZ pin, seeded RNG | Level for `mt_rand`; `random_bytes`/`random_int` NAMED gap (CSPRNG) |
+| Envelope: clock pin | NAMED gap: unpinnable without an extension; `Instrument::clock()` is the seam |
+| Hermetic replay + `REPROIT:DIVERGENCE ` marker | Level (`replay.php`) |
+| LLM flavor: prompt-drift `bodyDelta` | Level (first differing message index) |
+| Agent oracle API (`trace.oracle`, marked-op capture) | Level (this document, section above) |
+| CI capture (test trigger, spool, `REPROIT:CI-TEST`) | Level for plain scripts; PHPUnit NAMED follow-up gap |
+| Runner integration (node:test wrapper) | Level shape: plain-script `Ci::suite`, the SDK's own idiom |
+| Fixture + validation gate (hermetic + flaky-CI) | Level (`php-hermetic-e2e`, `php-flaky-ci-e2e`) |
+
 ## Tests
 
 ```sh
