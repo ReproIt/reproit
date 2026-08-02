@@ -2,38 +2,53 @@
 //!
 //! Rust port of the Node SDK's `instrument.js` + `replay.js`. Rust has no
 //! monkeypatching, so the boundary is explicit and OPT-IN: route outbound
-//! HTTP through [`http::send`] and database calls through [`db::run`], and
-//! every dependency exchange (request AND response) is recorded onto the
-//! ambient request trace, bounded and redacted at source. With the
-//! `REPROIT_REPLAY` environment variable naming a `reproit-backend-capture`
-//! payload, the SAME entry points serve the recorded exchanges instead:
-//! strict per-protocol ordinal matching, `$reproit` redaction placeholders
-//! match any value, a truncated-at-capture body fails closed, and the first
-//! unmatched call emits a structured `REPROIT:DIVERGENCE` stderr line and
-//! answers 599 (HTTP) or an error (db). No live dependency is touched in
-//! replay mode.
+//! HTTP through [`http::send`] (buffered) or [`http::send_stream`] (a TEE:
+//! chunks reach the app live and the exchange records at end of body),
+//! database calls through [`db::run`] or the `pg` feature's tokio-postgres
+//! wrapper, and every dependency exchange (request line+headers+body AND
+//! response status+headers+body, stream chunk boundaries included) is
+//! recorded onto the ambient request trace, bounded and redacted at source.
+//!
+//! With `REPROIT_REPLAY` naming a `reproit-backend-capture` payload, the
+//! SAME entry points serve the recorded exchanges instead: strict
+//! per-operation ordinal matching, `$reproit` placeholders match any value,
+//! truncated-at-capture bodies and stream shapes fail closed, and the first
+//! unmatched call emits the structured `REPROIT:DIVERGENCE` stderr line
+//! (byte-identical to Node's, `bodyDelta` included) and answers 599 (HTTP)
+//! or an error (db). No live dependency is touched in replay mode; see
+//! `replay.rs` for the matcher and the envelope pins.
 //!
 //! The capture envelope pins replay determinism: `TZ` is set from the
-//! capture, and [`replay_rng`] yields the seeded stream. Honesty note: the
-//! seed makes REPLAY runs deterministic; it does not reproduce the
-//! randomness the app drew in production.
+//! capture, [`now_millis`] offsets to the capture moment, and [`replay_rng`]
+//! yields the seeded stream. Honesty notes: the seed makes REPLAY runs
+//! deterministic, it does not reproduce the randomness the app drew in
+//! production; and Rust cannot intercept direct `SystemTime::now` /
+//! `rand::random` calls, so only reads routed through the shim are pinned.
 
 use crate::framework::Recorder;
+use crate::ojson::OValue;
+use crate::replay::{self, ReplaySession};
 use crate::EffectKind;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::future::Future;
-use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
 
 /// Inline body budget per exchange side. Beyond it the body is dropped and
 /// only provable identity (byte count + sha256) remains.
 pub const MAX_EXCHANGE_BODY_BYTES: usize = 8 * 1024;
-/// Recorded response headers are capped to keep events bounded.
+/// Recorded headers are capped to keep events bounded. The cap is defined
+/// over NAME SORTED order (see [`bounded_headers`]).
 pub const MAX_EXCHANGE_HEADERS: usize = 32;
 /// Rows recorded per db result; beyond it the result is marked truncated.
-const MAX_DB_ROWS: usize = 64;
+pub const MAX_DB_ROWS: usize = 64;
+/// Stream chunk boundaries recorded per exchange (SSE / chunked responses,
+/// the LLM streaming shape). Beyond it the boundaries are marked truncated
+/// and replay fails closed rather than serve a wrong stream shape.
+pub const MAX_STREAM_CHUNKS: usize = 128;
 /// The structured divergence marker, byte-identical to the Node SDK's.
-pub const DIVERGENCE_MARKER: &str = "REPROIT:DIVERGENCE ";
+pub const DIVERGENCE_MARKER: &str = replay::DIVERGENCE_MARKER;
 
 tokio::task_local! {
     static AMBIENT: Recorder;
@@ -50,10 +65,32 @@ fn ambient() -> Option<Recorder> {
     AMBIENT.try_with(Clone::clone).ok()
 }
 
+/// Capture/replay counters, the Node reference's `stats()`. The failed
+/// count is the drop counter for exchanges a finished or full trace (the
+/// per-trace event cap) could not accept.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct InstrumentStats {
+    pub captured_exchanges: u64,
+    pub truncated_bodies: u64,
+    pub failed_captures: u64,
+}
+
+static CAPTURED: AtomicU64 = AtomicU64::new(0);
+static TRUNCATED: AtomicU64 = AtomicU64::new(0);
+static FAILED: AtomicU64 = AtomicU64::new(0);
+
+pub fn stats() -> InstrumentStats {
+    InstrumentStats {
+        captured_exchanges: CAPTURED.load(Ordering::Relaxed),
+        truncated_bodies: TRUNCATED.load(Ordering::Relaxed),
+        failed_captures: FAILED.load(Ordering::Relaxed),
+    }
+}
+
 /// Load the replay session (when `REPROIT_REPLAY` is set) and pin the
 /// process envelope. Idempotent; the first [`http::send`] or [`db::run`]
-/// triggers it lazily, but calling it from `main` pins `TZ` before any
-/// time-zone-sensitive code runs.
+/// triggers it lazily, but calling it from `main` pins `TZ` and the clock
+/// before any time-sensitive code runs.
 pub fn init() {
     let _ = session();
 }
@@ -64,6 +101,12 @@ pub fn replaying() -> bool {
     session().is_some()
 }
 
+/// The process clock through the determinism shim: real in capture mode,
+/// pinned to the capture moment in replay mode. See `replay::now_millis`.
+pub fn now_millis() -> u64 {
+    replay::now_millis()
+}
+
 fn session() -> Option<&'static ReplaySession> {
     static SESSION: OnceLock<Option<ReplaySession>> = OnceLock::new();
     SESSION
@@ -72,15 +115,20 @@ fn session() -> Option<&'static ReplaySession> {
             if path.trim().is_empty() {
                 return None;
             }
-            let session = ReplaySession::load(&path)?;
-            session.pin_envelope();
+            // Fail CLOSED: a replay run whose capture cannot load must never
+            // silently fall back to dialing live dependencies.
+            let session = ReplaySession::load(&path)
+                .unwrap_or_else(|error| panic!("reproit replay refused: {error}"));
+            replay::pin_envelope(&session.envelope);
             Some(session)
         })
         .as_ref()
 }
 
 /// Deterministic xorshift64* stream from the capture's `replaySeed`. `None`
-/// outside replay mode or when the capture carries no envelope.
+/// outside replay mode or when the capture carries no envelope. Named gap:
+/// this pins randomness the app draws THROUGH the SDK; direct `rand` /
+/// `getrandom` calls in application code cannot be intercepted in Rust.
 pub fn replay_rng() -> Option<ReplayRng> {
     let seed = session()?
         .envelope
@@ -107,210 +155,19 @@ impl ReplayRng {
     }
 }
 
-struct ExchangeEntry {
-    exchange: Value,
-    consumed: bool,
-}
-
-struct ReplaySession {
-    envelope: Value,
-    exchanges: Mutex<Vec<ExchangeEntry>>,
-}
-
-impl ReplaySession {
-    fn load(path: &str) -> Option<Self> {
-        let payload: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
-        if payload.get("format").and_then(Value::as_str) != Some("reproit-backend-capture") {
-            return None;
-        }
-        let version = payload.get("version").and_then(Value::as_u64).unwrap_or(0);
-        if !(1..=2).contains(&version) {
-            return None;
-        }
-        let exchanges = payload
-            .get("events")
-            .and_then(Value::as_array)
-            .map(|events| {
-                events
-                    .iter()
-                    .filter(|event| event.get("kind").and_then(Value::as_str) == Some("effect"))
-                    .filter_map(|event| event.get("exchange"))
-                    .filter(|exchange| !exchange.is_null())
-                    .map(|exchange| ExchangeEntry {
-                        exchange: exchange.clone(),
-                        consumed: false,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        Some(Self {
-            envelope: payload.get("envelope").cloned().unwrap_or(Value::Null),
-            exchanges: Mutex::new(exchanges),
-        })
-    }
-
-    fn pin_envelope(&self) {
-        if let Some(tz) = self.envelope.get("tz").and_then(Value::as_str) {
-            if !tz.is_empty() {
-                std::env::set_var("TZ", tz);
-            }
-        }
-    }
-
-    /// Strict next-unconsumed match: the first unconsumed exchange of the
-    /// protocol is the ONLY candidate; skipping it silently would be a fuzzy
-    /// match. `None` is a divergence, already reported.
-    fn matched(&self, protocol: &str, probe: &Value) -> Option<Value> {
-        let mut entries = self
-            .exchanges
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        for entry in entries.iter_mut() {
-            if entry.consumed
-                || entry.exchange.get("protocol").and_then(Value::as_str) != Some(protocol)
-            {
-                continue;
-            }
-            let request = entry
-                .exchange
-                .get("request")
-                .cloned()
-                .unwrap_or(Value::Null);
-            let hit = match protocol {
-                "http" => http_request_matches(&request, probe),
-                _ => db_request_matches(&request, probe),
-            };
-            if hit {
-                entry.consumed = true;
-                return Some(entry.exchange.clone());
-            }
-            break;
-        }
-        let expected = entries
-            .iter()
-            .find(|entry| {
-                !entry.consumed
-                    && entry.exchange.get("protocol").and_then(Value::as_str) == Some(protocol)
-            })
-            .map(|entry| {
-                entry
-                    .exchange
-                    .get("request")
-                    .cloned()
-                    .unwrap_or(Value::Null)
-            });
-        let consumed = entries.iter().filter(|entry| entry.consumed).count();
-        let total = entries.len();
-        drop(entries);
-        self.diverge(protocol, probe, expected, consumed, total);
-        None
-    }
-
-    fn diverge(
-        &self,
-        protocol: &str,
-        probe: &Value,
-        expected: Option<Value>,
-        consumed: usize,
-        total: usize,
-    ) {
-        let report = json!({
-            "protocol": protocol,
-            "got": probe,
-            "expected": expected.unwrap_or(Value::Null),
-            "consumed": consumed,
-            "total": total,
-        });
-        eprintln!("{DIVERGENCE_MARKER}{report}");
-    }
-}
-
-/// A recorded value matches a live one when equal, or when the recorded side
-/// is a `$reproit` redaction placeholder (any value stood here at capture).
-/// Objects compare per key; a recorded null/absent side matches anything.
-fn matches(recorded: &Value, live: Option<&Value>) -> bool {
-    match recorded {
-        Value::Null => true,
-        Value::Object(object) => {
-            if object.contains_key("$reproit") {
-                return true;
-            }
-            let Some(Value::Object(live)) = live else {
-                return false;
-            };
-            object
-                .iter()
-                .all(|(key, value)| matches(value, live.get(key)))
-        }
-        Value::Array(items) => {
-            let Some(Value::Array(live)) = live else {
-                return false;
-            };
-            items.len() == live.len()
-                && items
-                    .iter()
-                    .zip(live)
-                    .all(|(recorded, live)| matches(recorded, Some(live)))
-        }
-        value => live == Some(value),
-    }
-}
-
-fn url_path_and_query(url: &str) -> String {
-    match reqwest::Url::parse(url) {
-        Ok(parsed) => match parsed.query() {
-            Some(query) => format!("{}?{query}", parsed.path()),
-            None => parsed.path().to_string(),
-        },
-        Err(_) => url.to_string(),
-    }
-}
-
-/// Method, path+query of the original URL, and body modulo placeholders.
-/// Recorded headers are deliberately not matched: they carry per-run noise.
-fn http_request_matches(recorded: &Value, probe: &Value) -> bool {
-    if recorded.get("method") != probe.get("method") {
-        return false;
-    }
-    let recorded_url = recorded.get("url").and_then(Value::as_str).unwrap_or("");
-    let probe_url = probe.get("url").and_then(Value::as_str).unwrap_or("");
-    if url_path_and_query(recorded_url) != url_path_and_query(probe_url) {
-        return false;
-    }
-    match recorded.get("body") {
-        None => true,
-        Some(body) => matches(body, probe.get("body")),
-    }
-}
-
-/// Exact statement text, values modulo placeholders.
-fn db_request_matches(recorded: &Value, probe: &Value) -> bool {
-    if recorded.get("text") != probe.get("text") {
-        return false;
-    }
-    match recorded.get("values") {
-        None => true,
-        Some(values) => matches(values, probe.get("values")),
-    }
-}
-
 /// Bound one exchange body: within budget it is recorded verbatim (JSON
 /// parsed when declared), beyond it only byte count + sha256 + truncated.
+/// The digest runs over EVERY byte so truncated identity stays provable.
 pub fn bounded_body(body: &[u8], content_type: &str) -> Map<String, Value> {
     let mut fields = Map::new();
     if body.is_empty() {
         return fields;
     }
     if body.len() > MAX_EXCHANGE_BODY_BYTES {
+        TRUNCATED.fetch_add(1, Ordering::Relaxed);
         let digest = Sha256::digest(body);
         fields.insert("bodyBytes".into(), json!(body.len()));
-        fields.insert(
-            "bodySha256".into(),
-            json!(digest
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>()),
-        );
+        fields.insert("bodySha256".into(), json!(hex(&digest)));
         fields.insert("truncated".into(), json!(true));
         return fields;
     }
@@ -323,6 +180,10 @@ pub fn bounded_body(body: &[u8], content_type: &str) -> Map<String, Value> {
     }
     fields.insert("body".into(), json!(text));
     fields
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// The cap is defined over NAME SORTED order, never the order the headers
@@ -345,9 +206,169 @@ pub fn bounded_headers(headers: impl Iterator<Item = (String, String)>) -> Map<S
     fields
 }
 
+/// Collect a stream's chunks up to one byte past the inline budget; enough
+/// to know the true size class without holding unbounded memory. The sha256
+/// runs over EVERY byte. Chunk boundaries are recorded as observed byte
+/// lengths, bounded by [`MAX_STREAM_CHUNKS`]; boundaries past the cap are
+/// counted, never guessed. Port of the Node reference's `bodyCollector`.
+struct BodyCollector {
+    chunks: Vec<Vec<u8>>,
+    boundaries: Vec<usize>,
+    bytes: usize,
+    dropped_boundaries: usize,
+    hash: Sha256,
+}
+
+impl BodyCollector {
+    fn new() -> Self {
+        Self {
+            chunks: Vec::new(),
+            boundaries: Vec::new(),
+            bytes: 0,
+            dropped_boundaries: 0,
+            hash: Sha256::new(),
+        }
+    }
+
+    fn push(&mut self, chunk: &[u8]) {
+        self.bytes += chunk.len();
+        self.hash.update(chunk);
+        if self.boundaries.len() < MAX_STREAM_CHUNKS {
+            self.boundaries.push(chunk.len());
+        } else {
+            self.dropped_boundaries += 1;
+        }
+        if self.bytes <= MAX_EXCHANGE_BODY_BYTES {
+            self.chunks.push(chunk.to_vec());
+        }
+    }
+
+    /// The recorded body fields: empty, inline verbatim, or provable
+    /// identity (byte count + digest + truncated) when over budget.
+    fn body_fields(self, content_type: &str) -> Map<String, Value> {
+        if self.bytes == 0 {
+            return Map::new();
+        }
+        if self.bytes > MAX_EXCHANGE_BODY_BYTES {
+            TRUNCATED.fetch_add(1, Ordering::Relaxed);
+            let mut fields = Map::new();
+            fields.insert("bodyBytes".into(), json!(self.bytes));
+            fields.insert("bodySha256".into(), json!(hex(&self.hash.finalize())));
+            fields.insert("truncated".into(), json!(true));
+            return fields;
+        }
+        bounded_body(&self.chunks.concat(), content_type)
+    }
+
+    /// Chunk boundaries as observed byte lengths. Recorded when the response
+    /// is a stream (SSE always; anything else only when it actually arrived
+    /// in more than one chunk, since a single-chunk body replays identically
+    /// without them). Boundaries past the cap are counted, never guessed.
+    fn stream(&self, is_event_stream: bool) -> Option<Value> {
+        if self.boundaries.is_empty() {
+            return None;
+        }
+        if !is_event_stream && self.boundaries.len() < 2 && self.dropped_boundaries == 0 {
+            return None;
+        }
+        let mut fields = Map::new();
+        fields.insert("chunks".into(), json!(self.boundaries));
+        if self.dropped_boundaries > 0 {
+            fields.insert("truncated".into(), json!(true));
+        }
+        Some(Value::Object(fields))
+    }
+}
+
 /// Outbound HTTP through the exchange boundary.
 pub mod http {
     use super::*;
+
+    /// The request identity carried from send to record time.
+    struct RequestMeta {
+        method: String,
+        url: String,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+        content_type: String,
+    }
+
+    fn request_meta(request: &reqwest::Request) -> RequestMeta {
+        RequestMeta {
+            method: request.method().as_str().to_string(),
+            url: request.url().to_string(),
+            headers: request
+                .headers()
+                .iter()
+                .filter_map(|(name, value)| {
+                    Some((name.as_str().to_string(), value.to_str().ok()?.to_string()))
+                })
+                .collect(),
+            body: request
+                .body()
+                .and_then(|body| body.as_bytes())
+                .map(<[u8]>::to_vec)
+                .unwrap_or_default(),
+            content_type: request
+                .headers()
+                .get("content-type")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("")
+                .to_string(),
+        }
+    }
+
+    /// The live probe for one request, in the ordered shape the matcher and
+    /// the divergence marker want (field order mirrors the Node reference).
+    fn probe_of(meta: &RequestMeta) -> OValue {
+        let mut fields = vec![
+            ("method".to_string(), OValue::Str(meta.method.clone())),
+            ("url".to_string(), OValue::Str(meta.url.clone())),
+        ];
+        if !meta.body.is_empty() {
+            let text = String::from_utf8_lossy(&meta.body).into_owned();
+            let body = if meta.content_type.contains("application/json") {
+                crate::ojson::parse(&text).unwrap_or(OValue::Str(text))
+            } else {
+                OValue::Str(text)
+            };
+            fields.push(("body".to_string(), body));
+        }
+        OValue::Obj(fields)
+    }
+
+    fn record_exchange(meta: &RequestMeta, response_value: Map<String, Value>) {
+        let Some(recorder) = ambient() else {
+            return;
+        };
+        let host = reqwest::Url::parse(&meta.url)
+            .ok()
+            .and_then(|parsed| parsed.host_str().map(str::to_string))
+            .unwrap_or_default();
+        let mut request_value = Map::from_iter([
+            ("method".into(), json!(meta.method)),
+            ("url".into(), json!(meta.url)),
+        ]);
+        request_value.extend(bounded_headers(meta.headers.iter().cloned()));
+        request_value.extend(bounded_body(&meta.body, &meta.content_type));
+        let key = format!("{} {}", meta.method, replay::url_path_and_query(&meta.url));
+        // The trace may already have finished or hit its per-trace event
+        // cap; the host request goes on and the drop is counted.
+        let outcome = recorder.exchange(
+            EffectKind::Call,
+            Some(&host),
+            Some(&key),
+            json!({
+                "protocol": "http",
+                "request": Value::Object(request_value),
+                "response": Value::Object(response_value),
+            }),
+        );
+        match outcome {
+            Ok(()) => CAPTURED.fetch_add(1, Ordering::Relaxed),
+            Err(_) => FAILED.fetch_add(1, Ordering::Relaxed),
+        };
+    }
 
     /// The uniform response both modes produce: capture mode buffers the
     /// live response, replay mode synthesizes it from the recording. 599
@@ -369,85 +390,26 @@ pub mod http {
         }
     }
 
-    fn diverged_599(reason: &str) -> ExchangeResponse {
-        ExchangeResponse {
-            status: 599,
-            headers: std::collections::BTreeMap::from([(
-                "content-type".into(),
-                "application/json".into(),
-            )]),
-            body: serde_json::to_vec(&json!({"reproit": reason})).unwrap_or_default(),
-        }
-    }
-
-    /// Send `request` through the exchange boundary. Capture mode executes
-    /// it and records request+response onto the ambient trace; replay mode
-    /// serves the recorded exchange with no network at all.
+    /// Send `request` through the exchange boundary, buffered. Capture mode
+    /// executes it and records request+response (headers, body, observed
+    /// chunk boundaries) onto the ambient trace; replay mode serves the
+    /// recorded exchange with no network at all.
     pub async fn send(
         client: &reqwest::Client,
         request: reqwest::Request,
     ) -> Result<ExchangeResponse, reqwest::Error> {
-        let method = request.method().as_str().to_string();
-        let url = request.url().to_string();
-        let content_type = request
-            .headers()
-            .get("content-type")
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or("")
-            .to_string();
-        let request_body = request
-            .body()
-            .and_then(|body| body.as_bytes())
-            .map(<[u8]>::to_vec)
-            .unwrap_or_default();
+        let meta = request_meta(&request);
         if let Some(session) = session() {
-            let mut probe =
-                Map::from_iter([("method".into(), json!(method)), ("url".into(), json!(url))]);
-            probe.extend(bounded_body(&request_body, &content_type));
-            let probe = Value::Object(probe);
-            let Some(recorded) = session.matched("http", &probe) else {
-                return Ok(diverged_599("diverged"));
-            };
-            let response = recorded.get("response").cloned().unwrap_or(Value::Null);
-            if response.get("truncated").and_then(Value::as_bool) == Some(true) {
-                // The capture kept identity but not bytes; serving a guessed
-                // body would be a silent lie. Fail closed with the reason.
-                session.diverge("http", &probe, Some(recorded.clone()), 0, 0);
-                return Ok(diverged_599("truncated-exchange-body"));
-            }
-            let status = response
-                .get("status")
-                .and_then(Value::as_u64)
-                .and_then(|status| u16::try_from(status).ok())
-                .unwrap_or(200);
-            let mut headers = std::collections::BTreeMap::new();
-            if let Some(Value::Object(recorded_headers)) = response.get("headers") {
-                for (name, value) in recorded_headers {
-                    if matches!(
-                        name.as_str(),
-                        "content-length" | "transfer-encoding" | "content-encoding"
-                    ) {
-                        continue;
-                    }
-                    if let Some(value) = value.as_str() {
-                        headers.insert(name.clone(), value.to_string());
-                    }
-                }
-            }
-            let body = match response.get("body") {
-                None => Vec::new(),
-                Some(Value::String(text)) => text.clone().into_bytes(),
-                Some(other) => serde_json::to_vec(other).unwrap_or_default(),
-            };
+            let served = replay::serve_http(session, &probe_of(&meta));
             return Ok(ExchangeResponse {
-                status,
-                headers,
-                body,
+                status: served.status,
+                headers: served.headers.into_iter().collect(),
+                body: served.body_text.into_bytes(),
             });
         }
-        let response = client.execute(request).await?;
+        let mut response = client.execute(request).await?;
         let status = response.status().as_u16();
-        let response_content_type = response
+        let content_type = response
             .headers()
             .get("content-type")
             .and_then(|value| value.to_str().ok())
@@ -460,41 +422,146 @@ pub mod http {
                 Some((name.as_str().to_string(), value.to_str().ok()?.to_string()))
             })
             .collect();
-        let body = response.bytes().await?.to_vec();
-        if let Some(recorder) = ambient() {
-            let host = reqwest::Url::parse(&url)
-                .ok()
-                .and_then(|parsed| parsed.host_str().map(str::to_string))
-                .unwrap_or_default();
-            let mut request_value =
-                Map::from_iter([("method".into(), json!(method)), ("url".into(), json!(url))]);
-            request_value.extend(bounded_body(&request_body, &content_type));
-            let mut response_value = Map::from_iter([("status".into(), json!(status))]);
-            response_value.extend(bounded_headers(header_pairs.iter().cloned()));
-            response_value.extend(bounded_body(&body, &response_content_type));
-            // The trace may already have finished; the host request goes on.
-            let _ = recorder.exchange(
-                EffectKind::Call,
-                Some(&host),
-                Some(&format!("{method} {}", url_path_and_query(&url))),
-                json!({
-                    "protocol": "http",
-                    "request": Value::Object(request_value),
-                    "response": Value::Object(response_value),
-                }),
-            );
+        // The network chunks tee through the collector (boundaries + digest)
+        // while the full body is buffered for the caller.
+        let mut collector = BodyCollector::new();
+        let mut body = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            collector.push(&chunk);
+            body.extend_from_slice(&chunk);
         }
+        let stream = collector.stream(content_type.contains("text/event-stream"));
+        let mut response_value = Map::from_iter([("status".into(), json!(status))]);
+        response_value.extend(bounded_headers(header_pairs.iter().cloned()));
+        let body_fields = collector.body_fields(&content_type);
+        let truncated = body_fields.get("truncated") == Some(&json!(true));
+        response_value.extend(body_fields);
+        // A truncated inline body already fails closed at replay, so
+        // boundaries are only kept for bodies recorded verbatim.
+        if let (Some(stream), false) = (stream, truncated) {
+            response_value.insert("stream".into(), stream);
+        }
+        record_exchange(&meta, response_value);
         Ok(ExchangeResponse {
             status,
             headers: header_pairs.into_iter().collect(),
             body,
         })
     }
+
+    /// A streamed exchange: chunks reach the app as they arrive (a TEE, not
+    /// a drain), and the exchange records at end of body. An abandoned
+    /// stream (dropped before EOF) records nothing, exactly like a response
+    /// nobody reads. In replay mode the recorded stream shape is re-served
+    /// chunk for chunk.
+    pub struct ExchangeStream {
+        pub status: u16,
+        pub headers: std::collections::BTreeMap<String, String>,
+        state: StreamState,
+    }
+
+    enum StreamState {
+        Live(Box<LiveStream>),
+        Served {
+            chunks: std::collections::VecDeque<Vec<u8>>,
+        },
+    }
+
+    struct LiveStream {
+        response: reqwest::Response,
+        collector: Option<BodyCollector>,
+        meta: RequestMeta,
+        content_type: String,
+        header_pairs: Vec<(String, String)>,
+    }
+
+    impl ExchangeStream {
+        /// The next body chunk, `None` at end of stream (which is the moment
+        /// the exchange lands on the trace in capture mode).
+        pub async fn chunk(&mut self) -> Result<Option<Vec<u8>>, reqwest::Error> {
+            match &mut self.state {
+                StreamState::Served { chunks } => Ok(chunks.pop_front()),
+                StreamState::Live(live) => {
+                    if let Some(chunk) = live.response.chunk().await? {
+                        if let Some(collector) = live.collector.as_mut() {
+                            collector.push(&chunk);
+                        }
+                        return Ok(Some(chunk.to_vec()));
+                    }
+                    // End of body: record exactly once.
+                    if let Some(collector) = live.collector.take() {
+                        let status = live.response.status().as_u16();
+                        let stream =
+                            collector.stream(live.content_type.contains("text/event-stream"));
+                        let mut response_value = Map::from_iter([("status".into(), json!(status))]);
+                        response_value.extend(bounded_headers(live.header_pairs.iter().cloned()));
+                        let body_fields = collector.body_fields(&live.content_type);
+                        let truncated = body_fields.get("truncated") == Some(&json!(true));
+                        response_value.extend(body_fields);
+                        if let (Some(stream), false) = (stream, truncated) {
+                            response_value.insert("stream".into(), stream);
+                        }
+                        record_exchange(&live.meta, response_value);
+                    }
+                    Ok(None)
+                }
+            }
+        }
+    }
+
+    /// Send `request` through the exchange boundary as a stream (the LLM
+    /// SSE shape). See [`ExchangeStream`].
+    pub async fn send_stream(
+        client: &reqwest::Client,
+        request: reqwest::Request,
+    ) -> Result<ExchangeStream, reqwest::Error> {
+        let meta = request_meta(&request);
+        if let Some(session) = session() {
+            let served = replay::serve_http(session, &probe_of(&meta));
+            let chunks = served
+                .chunks
+                .unwrap_or_else(|| vec![served.body_text.into_bytes()]);
+            return Ok(ExchangeStream {
+                status: served.status,
+                headers: served.headers.into_iter().collect(),
+                state: StreamState::Served {
+                    chunks: chunks.into(),
+                },
+            });
+        }
+        let response = client.execute(request).await?;
+        let status = response.status().as_u16();
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let header_pairs: Vec<(String, String)> = response
+            .headers()
+            .iter()
+            .filter_map(|(name, value)| {
+                Some((name.as_str().to_string(), value.to_str().ok()?.to_string()))
+            })
+            .collect();
+        Ok(ExchangeStream {
+            status,
+            headers: header_pairs.iter().cloned().collect(),
+            state: StreamState::Live(Box::new(LiveStream {
+                response,
+                collector: Some(BodyCollector::new()),
+                meta,
+                content_type,
+                header_pairs,
+            })),
+        })
+    }
 }
 
 /// Database calls through the exchange boundary. Rust has no driver to
-/// monkeypatch, so the app routes each statement through [`run`]; anything
-/// not routed here is invisible to capture and unavailable at replay.
+/// monkeypatch, so the app routes each statement through [`run`] (or the
+/// `pg` feature's tokio-postgres wrapper, which routes here); anything not
+/// routed is invisible to capture and unavailable at replay.
 pub mod db {
     use super::*;
 
@@ -551,6 +618,19 @@ pub mod db {
         }
     }
 
+    /// The live probe in the ordered shape the matcher and marker want.
+    fn probe_of(text: &str, values: &[Value]) -> OValue {
+        let mut fields = vec![("text".to_string(), OValue::Str(text.to_string()))];
+        if !values.is_empty() {
+            fields.push((
+                "values".to_string(),
+                crate::ojson::parse(&serde_json::to_string(values).unwrap_or_default())
+                    .unwrap_or(OValue::Arr(Vec::new())),
+            ));
+        }
+        OValue::Obj(fields)
+    }
+
     /// Run one statement through the boundary: replay mode serves the
     /// recorded outcome without calling `live`; capture mode awaits `live`
     /// and records the exchange either way it settles.
@@ -560,18 +640,17 @@ pub mod db {
         Fut: Future<Output = Result<DbOutcome, DbError>>,
     {
         if let Some(session) = session() {
-            let mut probe = Map::from_iter([("text".into(), json!(text))]);
-            if !values.is_empty() {
-                probe.insert("values".into(), json!(values));
-            }
-            let probe = Value::Object(probe);
-            let Some(recorded) = session.matched("pg", &probe) else {
+            let probe = probe_of(text, values);
+            let Some(recorded) = session.match_exchange("pg", &probe) else {
                 return Err(DbError {
                     message: "reproit: db call diverged from the capture".into(),
                     code: None,
                 });
             };
-            let response = recorded.get("response").cloned().unwrap_or(Value::Null);
+            let response = recorded
+                .get("response")
+                .map(OValue::to_serde)
+                .unwrap_or(Value::Null);
             if let Some(error) = response.get("error") {
                 return Err(DbError {
                     message: error
@@ -607,7 +686,7 @@ pub mod db {
             if !values.is_empty() {
                 request.insert("values".into(), json!(values));
             }
-            let _ = recorder.exchange(
+            let outcome = recorder.exchange(
                 effect_kind(text),
                 Some("pg"),
                 Some(&text.chars().take(256).collect::<String>()),
@@ -617,6 +696,10 @@ pub mod db {
                     "response": outcome_value(&result),
                 }),
             );
+            match outcome {
+                Ok(()) => CAPTURED.fetch_add(1, Ordering::Relaxed),
+                Err(_) => FAILED.fetch_add(1, Ordering::Relaxed),
+            };
         }
         result
     }

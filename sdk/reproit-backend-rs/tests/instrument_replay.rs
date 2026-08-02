@@ -146,6 +146,20 @@ fn replay_serves_and_diverges_in_a_child_process() {
                 "response": {"status": 200, "headers": {"content-type": "application/json"},
                              "body": {"prices": null}},
             }},
+            {"kind": "effect", "effect": "call", "exchange": {
+                "protocol": "http",
+                "request": {"method": "GET", "url": "http://llm.internal/stream"},
+                "response": {"status": 200,
+                             "headers": {"content-type": "text/event-stream"},
+                             "body": "data: a\n\ndata: b\n\ndata: c\n\n",
+                             "stream": {"chunks": [9, 9, 9]}},
+            }},
+            {"kind": "effect", "effect": "read", "exchange": {
+                "protocol": "pg",
+                "request": {"text": "SELECT sym FROM issuers"},
+                "response": {"command": "SELECT", "rowCount": 1,
+                             "rows": [{"sym": "ACME"}]},
+            }},
         ],
     });
     std::fs::write(&capture, serde_json::to_vec(&payload).expect("payload")).expect("write");
@@ -176,8 +190,14 @@ fn replay_serves_and_diverges_in_a_child_process() {
 #[ignore = "run by replay_serves_and_diverges_in_a_child_process"]
 async fn replay_child_serves_recorded_exchanges() {
     assert!(instrument::replaying(), "REPROIT_REPLAY must be set");
-    // Envelope pins: TZ and the seeded RNG stream.
+    // Envelope pins: TZ, the clock shim (offset to the capture moment), and
+    // the seeded RNG stream.
     assert_eq!(std::env::var("TZ").as_deref(), Ok("Europe/Berlin"));
+    let now = instrument::now_millis();
+    assert!(
+        (1753747200000..1753747200000 + 300_000).contains(&now),
+        "now_millis pinned to the capture moment, got {now}"
+    );
     let mut rng = instrument::replay_rng().expect("rng");
     let draw = rng.next_f64();
     assert!((0.0..1.0).contains(&draw));
@@ -205,6 +225,33 @@ async fn replay_child_serves_recorded_exchanges() {
         Value::Null
     );
 
+    // A recorded stream shape re-serves chunk for chunk through the tee API.
+    let request = client
+        .get("http://llm.internal/stream")
+        .build()
+        .expect("request");
+    let mut stream = http::send_stream(&client, request).await.expect("stream");
+    assert_eq!(stream.status, 200);
+    let mut chunks = Vec::new();
+    while let Some(chunk) = stream.chunk().await.expect("chunk") {
+        chunks.push(String::from_utf8_lossy(&chunk).into_owned());
+    }
+    assert_eq!(chunks, vec!["data: a\n\n", "data: b\n\n", "data: c\n\n"]);
+
+    // The pg connect stub boots with the database down: no server is dialed
+    // and the wrapped query serves the recorded exchange.
+    #[cfg(feature = "pg")]
+    {
+        let db = reproit_backend::pg::connect("host=127.0.0.1 port=9 dbname=absent")
+            .await
+            .expect("connect stub must not dial");
+        let outcome = db
+            .query("SELECT sym FROM issuers", &[])
+            .await
+            .expect("served");
+        assert_eq!(outcome.rows, vec![json!({"sym": "ACME"})]);
+    }
+
     // An unmatched call is a divergence: 599, never a guess.
     let request = client
         .get("http://pricing.internal/unknown-endpoint")
@@ -231,4 +278,82 @@ async fn replay_child_serves_recorded_exchanges() {
         .events()
         .iter()
         .any(|event| event.get("exchange").is_some()));
+}
+
+/// Capture side, streaming: request headers ride the exchange, SSE bodies
+/// record their observed chunk boundaries, the send_stream TEE records at
+/// end of body, and an abandoned stream records nothing.
+#[tokio::test]
+async fn capture_records_headers_and_stream_boundaries() {
+    let upstream = Router::new().route(
+        "/stream",
+        get(|| async {
+            (
+                [("content-type", "text/event-stream")],
+                "data: a\n\ndata: b\n\n",
+            )
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    tokio::spawn(async move {
+        axum::serve(listener, upstream).await.expect("serve");
+    });
+
+    let recorder = Recorder::standalone(begin());
+    let client = reqwest::Client::new();
+    instrument::scope(recorder.clone(), async {
+        // Buffered send still tees the network chunks for boundaries.
+        let request = client
+            .get(format!("http://127.0.0.1:{port}/stream"))
+            .header("x-fixture", "yes")
+            .build()
+            .expect("request");
+        let response = http::send(&client, request).await.expect("send");
+        assert_eq!(response.status, 200);
+
+        // The streaming API hands chunks to the app as they arrive and
+        // records the exchange at end of body.
+        let request = client
+            .get(format!("http://127.0.0.1:{port}/stream"))
+            .build()
+            .expect("request");
+        let mut stream = http::send_stream(&client, request).await.expect("stream");
+        let mut seen = Vec::new();
+        while let Some(chunk) = stream.chunk().await.expect("chunk") {
+            seen.extend_from_slice(&chunk);
+        }
+        assert_eq!(seen, b"data: a\n\ndata: b\n\n".to_vec());
+
+        // An abandoned stream (dropped before EOF) records nothing.
+        let request = client
+            .get(format!("http://127.0.0.1:{port}/stream"))
+            .build()
+            .expect("request");
+        let abandoned = http::send_stream(&client, request).await.expect("stream");
+        drop(abandoned);
+    })
+    .await;
+
+    let trace = recorder.into_trace().expect("trace");
+    let exchanges: Vec<&Value> = trace
+        .events()
+        .iter()
+        .filter_map(|event| event.get("exchange"))
+        .collect();
+    assert_eq!(exchanges.len(), 2, "the abandoned stream records nothing");
+    for exchange in &exchanges {
+        // Request headers are recorded (name-sorted, lowercased), and the
+        // SSE body carries its observed chunk boundaries.
+        assert_eq!(exchange["response"]["status"], 200);
+        let stream = exchange["response"]["stream"]["chunks"]
+            .as_array()
+            .expect("sse stream boundaries recorded");
+        assert!(!stream.is_empty());
+        let total: u64 = stream.iter().filter_map(Value::as_u64).sum();
+        assert_eq!(total, 18, "boundaries cover the whole body");
+    }
+    assert_eq!(exchanges[0]["request"]["headers"]["x-fixture"], "yes");
 }

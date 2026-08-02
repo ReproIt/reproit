@@ -539,9 +539,7 @@ impl Capture {
         batch
     }
 
-    /// Envelope attributes for one capture batch: capture wall-clock,
-    /// timezone (from TZ when set; Rust has no cheap IANA zone lookup),
-    /// runtime identity, and the replay seed.
+    /// Envelope attributes for one capture batch; see [`determinism_envelope`].
     fn determinism_envelope(&self, observed_at: Option<u64>) -> Value {
         let mut seed = self
             .shared
@@ -550,27 +548,7 @@ impl Capture {
         seed ^= seed << 13;
         seed ^= seed >> 7;
         seed ^= seed << 17;
-        let mut attributes = serde_json::Map::from_iter([
-            (
-                "observedAtMs".into(),
-                json!(observed_at.unwrap_or_else(now_millis)),
-            ),
-            ("runtime".into(), json!("rust")),
-            ("os".into(), json!(std::env::consts::OS)),
-            ("arch".into(), json!(std::env::consts::ARCH)),
-            ("replaySeed".into(), json!(format!("{seed:016x}"))),
-        ]);
-        if let Ok(tz) = std::env::var("TZ") {
-            if !tz.trim().is_empty() {
-                attributes.insert("tz".into(), json!(tz));
-            }
-        }
-        if let Ok(digest) = std::env::var("REPROIT_IMAGE_DIGEST") {
-            if valid_token(&digest) {
-                attributes.insert("imageDigest".into(), json!(digest));
-            }
-        }
-        Value::Object(attributes)
+        envelope_with_seed(observed_at, seed)
     }
 
     fn send(&self, client: &reqwest::blocking::Client, batch: &Value) -> bool {
@@ -620,6 +598,47 @@ fn capture_payload(operation: &CapturedOperation) -> Option<(Value, usize)> {
         events.remove(last_effect);
         dropped += 1;
     }
+}
+
+/// The determinism envelope: where and when the capture happened, timezone
+/// (from TZ when set; Rust has no cheap IANA zone lookup, a named gap),
+/// runtime identity, and a seed that makes REPLAY runs deterministic.
+/// Honesty note: the seed does not reproduce the randomness the app drew in
+/// production; it pins the replay's. Public so file-writing capture sinks
+/// (fixtures, tests) stamp the same envelope the upload path does.
+pub fn determinism_envelope(observed_at: Option<u64>) -> Value {
+    let mut seed = now_millis()
+        .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+        .wrapping_add(std::process::id() as u64)
+        | 1;
+    seed ^= seed << 13;
+    seed ^= seed >> 7;
+    seed ^= seed << 17;
+    envelope_with_seed(observed_at, seed)
+}
+
+fn envelope_with_seed(observed_at: Option<u64>, seed: u64) -> Value {
+    let mut attributes = serde_json::Map::from_iter([
+        (
+            "observedAtMs".into(),
+            json!(observed_at.unwrap_or_else(now_millis)),
+        ),
+        ("runtime".into(), json!("rust")),
+        ("os".into(), json!(std::env::consts::OS)),
+        ("arch".into(), json!(std::env::consts::ARCH)),
+        ("replaySeed".into(), json!(format!("{seed:016x}"))),
+    ]);
+    if let Ok(tz) = std::env::var("TZ") {
+        if !tz.trim().is_empty() {
+            attributes.insert("tz".into(), json!(tz));
+        }
+    }
+    if let Ok(digest) = std::env::var("REPROIT_IMAGE_DIGEST") {
+        if valid_token(&digest) {
+            attributes.insert("imageDigest".into(), json!(digest));
+        }
+    }
+    Value::Object(attributes)
 }
 
 fn lock<'a>(mutex: &'a Mutex<QueueState>) -> MutexGuard<'a, QueueState> {

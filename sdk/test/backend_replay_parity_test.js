@@ -190,6 +190,35 @@ function phpSide() {
   return output;
 }
 
+function rustSide() {
+  var repoRoot = path.join(root, '..');
+  var build = child_process.spawnSync(
+    'cargo',
+    [
+      'build',
+      '--quiet',
+      '--manifest-path',
+      path.join(repoRoot, 'Cargo.toml'),
+      '-p',
+      'reproit-backend',
+      '--features',
+      'instrument',
+      '--example',
+      'replay_parity_probe',
+    ],
+    { encoding: 'utf8' },
+  );
+  assert.strictEqual(build.status, 0, 'rust probe build failed: ' + (build.error || build.stderr));
+  var probe = path.join(repoRoot, 'target/debug/examples/replay_parity_probe');
+  var result = child_process.spawnSync(probe, [], {
+    input: JSON.stringify(CAPSULE),
+    encoding: 'utf8',
+  });
+  assert.strictEqual(result.status, 0, 'rust side failed: ' + (result.error || result.stderr));
+  var lines = result.stdout.trim().split('\n');
+  return JSON.parse(lines[lines.length - 1]);
+}
+
 // The .NET side replays the same capsule through sdk/reproit-backend-dotnet/ParityProbe.
 // Skipped (loudly) when no dotnet toolchain is present, since the signature-parity CI job
 // installs only Node; the dotnet CI job runs the same pins via the SDK's own suite.
@@ -401,3 +430,17 @@ assert.strictEqual(
   'the go REPROIT:DIVERGENCE marker line must match byte for byte',
 );
 console.log('PASS: go replay is byte-identical to the Node reference (serve, 599, marker)');
+
+var rust = rustSide();
+assert.deepStrictEqual(rust.serve, node.serve, 'rust served SSE exchange must match byte for byte');
+assert.strictEqual(
+  rust.divergedBody,
+  node.divergedBody,
+  'the rust served 599 divergence body must match byte for byte',
+);
+assert.strictEqual(
+  rust.marker,
+  node.marker,
+  'the rust REPROIT:DIVERGENCE marker line must match byte for byte',
+);
+console.log('PASS: rust replay is byte-identical to the Node reference (serve, 599, marker)');
