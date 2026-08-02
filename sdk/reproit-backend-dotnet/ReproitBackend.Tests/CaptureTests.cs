@@ -197,6 +197,74 @@ public class CaptureTests
     }
 
     [Fact]
+    public void AgentOracleMarkersRideTheTraceAndRejectUnknownIds()
+    {
+        var capture = NewCapture();
+        var trace = BackendTrace.Begin(capture.Context(), "POST /assist");
+        Assert.Throws<TraceException>(() => trace.Oracle("made-up-oracle"));
+        trace.Oracle(Capture.AgentGuardrailOracle,
+            new Dictionary<string, object?> { ["tool"] = "delete_order" });
+        trace.Finish(new Dictionary<string, object?> { ["error"] = "guardrail" },
+            500, false, true);
+        Assert.Equal(Capture.AgentGuardrailOracle, Capture.MarkedOracle(trace.Events()));
+    }
+
+    [Fact]
+    public void MarkedAgentOperationIsCapturedEvenWithoutA5xx()
+    {
+        var capture = NewCapture();
+        var trace = BackendTrace.Begin(capture.Context(), "POST /assist");
+        trace.Oracle(Capture.AgentLoopBoundOracle,
+            new Dictionary<string, object?> { ["iterations"] = 9L, ["bound"] = 4L });
+        trace.Finish(new Dictionary<string, object?> { ["note"] = "gave up" },
+            200, true, true);
+        capture.Record(trace);
+        Assert.Equal(1, capture.Stats().CapturedOperations);
+    }
+
+    [Fact]
+    public void MarkedFailureObservationCarriesTheAgentOracleId()
+    {
+        var capture = NewCapture("app-demo");
+        var trace = BackendTrace.Begin(capture.Context(), "POST /assist");
+        trace.Oracle(Capture.AgentGuardrailOracle,
+            new Dictionary<string, object?> { ["tool"] = "delete_order" });
+        trace.Finish(new Dictionary<string, object?> { ["error"] = "guardrail" },
+            500, false, true);
+        var batch = capture.BuildBatch(new List<Capture.CapturedOperation>
+        {
+            new()
+            {
+                Operation = "POST /assist",
+                Status = 500,
+                Events = trace.Events().ToList(),
+            },
+        });
+        var observation = Event(Events(batch)[^1]);
+        Assert.Equal("observation", observation["kind"]);
+        var failure = (Dictionary<string, object?>)observation["failure"]!;
+        Assert.Equal(Capture.AgentGuardrailOracle + ":POST /assist", failure["signature"]);
+        Assert.Equal("contract-violation", failure["observation"]);
+    }
+
+    [Fact]
+    public void CapturePayloadOracleIsTheMarkedIdWhenOneExists()
+    {
+        var capture = NewCapture();
+        var trace = BackendTrace.Begin(capture.Context(), "POST /assist");
+        trace.Oracle(Capture.AgentResponseOracle);
+        trace.Finish(null, 200, false, true);
+        var (payload, dropped) = Capture.CapturePayload(new Capture.CapturedOperation
+        {
+            Operation = "POST /assist",
+            Status = null,
+            Events = trace.Events().ToList(),
+        });
+        Assert.Equal(0, dropped);
+        Assert.Equal(Capture.AgentResponseOracle, payload!["oracle"]);
+    }
+
+    [Fact]
     public void QueueOverflowDropsTheOldestOperation()
     {
         var capture = NewCapture();

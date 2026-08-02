@@ -356,16 +356,40 @@ public sealed class BackendTrace
         Push("effect", fields);
     }
 
-    public void Finish(object? output, int status, bool success, bool effectsComplete)
+    // Mark an agent oracle on the trace: an authored assertion that this operation violated
+    // its own contract (response content/shape, guardrail, loop bound). The marker rides as
+    // an `emit` effect so the wire vocabulary is unchanged; capture mode always uploads a
+    // marked operation and its failure observation carries the marked id. Unknown ids are
+    // rejected so a typo cannot mint an oracle category.
+    public void Oracle(string id, object? detail = null)
+    {
+        if (!Capture.AgentOracles.Contains(id)) throw new TraceException("InvalidOperation");
+        Effect("emit", new EffectOptions
+        {
+            Resource = Capture.OracleMarkerResource,
+            Key = id,
+            Detail = detail == null
+                ? null
+                : new Dictionary<string, object?> { ["payload"] = detail },
+        });
+    }
+
+    public void Finish(object? output, int status, bool success, bool effectsComplete) =>
+        Finish(output, (long?)status, success, effectsComplete);
+
+    // A null status omits the key entirely, matching the Node reference's canonical drop of
+    // an undefined status (CI capture finishes test-triggered traces without an HTTP status).
+    public void Finish(object? output, long? status, bool success, bool effectsComplete)
     {
         if (Finished) throw new TraceException("AlreadyFinished");
-        Push("return", new Dictionary<string, object?>
+        var fields = new Dictionary<string, object?>
         {
             ["output"] = Reproit.Redact(output),
-            ["status"] = (long)status,
             ["success"] = success,
             ["effectsComplete"] = effectsComplete,
-        });
+        };
+        if (status != null) fields["status"] = status;
+        Push("return", fields);
         Finished = true;
     }
 
