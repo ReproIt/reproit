@@ -1,3 +1,3 @@
-module github.com/reproit/reproit-backend
+module github.com/ReproIt/reproit/sdk/reproit-backend-go
 
 go 1.26.3

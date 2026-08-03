@@ -1,7 +1,7 @@
-module github.com/reproit/reproit-backend/reproitci/testdata/fixture
+module github.com/ReproIt/reproit/sdk/reproit-backend-go/reproitci/testdata/fixture
 
 go 1.26.3
 
-require github.com/reproit/reproit-backend v0.0.0
+require github.com/ReproIt/reproit/sdk/reproit-backend-go v0.0.0
 
-replace github.com/reproit/reproit-backend => ../../..
+replace github.com/ReproIt/reproit/sdk/reproit-backend-go => ../../..

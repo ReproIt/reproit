@@ -13,16 +13,16 @@ pub(crate) use actions::*;
 /// The listed commands are the complete public product loop.
 const AFTER_HELP: &str = concat!(
     "Known failure:\n",
-    "  reproit capture       preserve a UI or command failure\n",
-    "  reproit occ_<id>      reproduce a production occurrence locally\n",
+    "  reproit occ_<id>            reproduce a production occurrence locally\n",
+    "  reproit internal capture    preserve a UI or command failure\n",
     "\nCapture or discover failures:\n",
-    "  reproit init          configure the current application\n",
-    "  reproit find          run staged surface and deep discovery\n",
+    "  reproit init             configure the current application\n",
+    "  reproit find             run staged surface and deep discovery\n",
     "\nProve and retain:\n",
-    "  reproit <id>          reproduce one exact failure\n",
-    "  reproit keep <id>     preserve it as a regression guard\n",
-    "  reproit check         prove saved failures remain fixed\n",
-    "  reproit list          show local guards\n",
+    "  reproit <id>             reproduce one exact failure\n",
+    "  reproit keep <id>        preserve it as a regression guard\n",
+    "  reproit check            prove saved failures remain fixed\n",
+    "  reproit internal list    show local guards\n",
     "\nUtilities: doctor and login.",
 );
 

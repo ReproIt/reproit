@@ -185,13 +185,10 @@ gap here, never silent.
    JSON scalars only; result columns outside bool/int/float/text/json kinds
    record as null; the `command` tag derives from the statement verb.
 
-## Status: preview, unreleased
+## Publication
 
-This crate is `0.0.0`, unpublished, and **outside the ReproIt 1.x compatibility
-promise**. There is no release: the version number is not a claim that one
-exists. Its contract may change before the backend pillar is promoted to the
-stable surface, which requires field evidence from at least two independent
-uses. See `docs/compatibility.md` in the main repository.
+This crate is `0.0.0` and is not published to crates.io: depend on it by git,
+as shown above. The version number is not a claim that a release exists.
 
 Capture mode is bounded by construction: a 64-item drop-oldest queue, 16
 operations per batch, a 48 KB payload cap, a 100 ms flush floor, and one worker

@@ -23,8 +23,10 @@ Every target in the manifest declares:
 - `ownedGates`: the native fixtures it owns.
 - `releaseGates`: where each owned gate's exact-commit evidence is retained.
   Every owned gate is release-gated.
-- `bounds`: the runtimes and frameworks it covers. Operating systems and
-  architectures are derived from the owned gates.
+- `bounds`: the platforms it reaches, plus the runtimes and frameworks it
+  covers. Platforms are declared per target, never derived from the gates: a
+  gate names where CI executes it, which says nothing about where a user's
+  application runs.
 - `fieldBenchmark`: the affected-versus-fixed application campaign record.
 - `cleanCorpus` and `adversarialCorpus`: the false-positive measurement behind
   the target's oracles.

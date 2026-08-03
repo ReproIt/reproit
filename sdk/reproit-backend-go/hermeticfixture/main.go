@@ -20,7 +20,7 @@ import (
 	"strconv"
 	"time"
 
-	reproit "github.com/reproit/reproit-backend"
+	reproit "github.com/ReproIt/reproit/sdk/reproit-backend-go"
 )
 
 const upstreamAddr = "127.0.0.1:19981"

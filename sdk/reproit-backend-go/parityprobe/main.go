@@ -16,7 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	reproit "github.com/reproit/reproit-backend"
+	reproit "github.com/ReproIt/reproit/sdk/reproit-backend-go"
 )
 
 func fail(context string, err error) {

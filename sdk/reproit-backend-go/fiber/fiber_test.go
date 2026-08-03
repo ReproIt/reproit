@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-	reproit "github.com/reproit/reproit-backend"
+	reproit "github.com/ReproIt/reproit/sdk/reproit-backend-go"
 )
 
 func TestPlanted500ShipsATaggedFindingBatchAndScanHeaderRoundTrips(t *testing.T) {

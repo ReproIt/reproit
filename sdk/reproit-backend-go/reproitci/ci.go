@@ -45,7 +45,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	reproit "github.com/reproit/reproit-backend"
+	reproit "github.com/ReproIt/reproit/sdk/reproit-backend-go"
 )
 
 const (

@@ -29,7 +29,7 @@ import dev.reproit.backend.Capture;
 import dev.reproit.backend.ReproitFilter;
 
 Capture capture = Capture.create(new Capture.Config()
-    .endpoint("https://cloud.example.com/v1/events") // ingest endpoint
+    .endpoint("https://cloud.example.com/v1/capture-batches") // ingest endpoint
     .apiKey("sk_live_...")                           // project API key (Authorization: Bearer)
     .appId("app-id")                                 // Cloud project app id
     .build("1.4.2"));                                // optional deployment identity
@@ -64,17 +64,16 @@ unusable. `capture.record(trace)` never blocks, never throws, and never surfaces
 
 Sampling: operations whose return reports `success == false` or HTTP 5xx are always captured;
 healthy operations are captured only under `healthySamplePerMille` (default 0, backend frames
-only, no finding). A 5xx capture is posted as an event-batch-v1 batch: every trace event as a
-`backend` frame plus one `finding` frame tagged with the first-class `backend-server-error`
-oracle id, whose `context.reproitCapture` object carries the full redacted start/effects/return
-sequence for deterministic local replay:
+only, no finding). A 5xx capture is posted as one universal capture-batch-v1 containing exactly that
+operation, carrying the full redacted start/effects/return sequence for deterministic local
+replay:
 
 ```sh
-# fetch the finding from /v1/errors/:app, save context.reproitCapture as capture.json, then:
-reproit internal debug replay-capture capture.json
+# pull the occurrence the capture became, and re-execute it locally:
+reproit occ_<id>
 ```
 
-Bounds, all fixed: queue depth 64 operations (drop-oldest on overflow), 16 operations per batch,
+Bounds, all fixed: queue depth 64 operations (drop-oldest on overflow), one operation per batch,
 48 KB capture payload (trailing effect events dropped first, `captureDroppedEffects` counts
 them), bounded flush interval (floor 100 ms), per-request timeout, and at most `retryLimit`
 (cap 5) retries; 4xx responses are never retried. Redaction runs in `begin`/`effect`/`finish`,

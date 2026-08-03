@@ -88,7 +88,7 @@ is supplied. `--changed` changes execution order only and never skips the rest o
 dependency exchange in process, and the verdict comes from the live response:
 reproduced, fixed, diverged (the code no longer makes the captured calls), or
 inconclusive. Diverged and inconclusive fail closed. This needs a version-2
-capture with recorded exchanges, currently produced by the Node backend SDK
+capture with recorded exchanges, produced by any of the eight backend SDKs
 with `instrument.install()`, and an app that listens on `$PORT`.
 
 `--exec` is optional when the project sets `backend.exec` in reproit.yaml;

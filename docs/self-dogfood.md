@@ -25,9 +25,8 @@ Every self-dogfood execution has two explicit versions:
 - **subject**: the checkout, binary, runner, SDK, service, or deployment being
   tested.
 
-The controller must never silently resolve to the subject binary. The schema in
-`reproit-lab/src/self-dogfood.mjs` rejects a case whose controller artifact
-digest equals either subject artifact digest.
+The controller must never silently resolve to the subject binary. A case whose
+controller artifact digest equals either subject artifact digest is rejected.
 
 When the defect is in the controller's own evaluation logic, the fixed
 candidate must pass both the Reproit replay and an independent authority: an
@@ -132,7 +131,7 @@ committed guard directory, selects required guards, and replays each explicitly
 under `--strict` with three runs.
 
 ```sh
-target/debug/reproit --json --yes check self-dogfood-cli-backend-root --runs 3
+target/debug/reproit --json --yes check self-dogfood-cli-backend-root --strict
 python3 validation/self-dogfood/run-required-guards.py target/debug/reproit
 ```
 
@@ -150,7 +149,6 @@ carries `capsule-id`, `meta.json`, `package.json`, `plan.json`,
 and every private capture input are machine-local and git-ignored: a guard must
 replay from a fresh checkout without them.
 
-`reproit-lab` owns multi-repository and native campaign orchestration.
 `reproit-proof` owns sanitized public evidence, never the executable source of
 truth.
 
@@ -168,14 +166,10 @@ and verifier digests, three affected reproductions, and three reached-observatio
 fixed controls in
 `validation/self-dogfood/evidence/ci-enforcement-qualification.json`.
 
-The original CLI and Cloud cases validate under `reproit-lab`'s strict case
-validator with three
-affected reproductions, three reached-observation fixed controls, and verified
-digests for every declared artifact:
+The original CLI and Cloud cases carry three affected reproductions, three
+reached-observation fixed controls, and verified digests for every declared
+artifact. Those digests are re-checked in this repository by:
 
 ```sh
-cd reproit-lab
-npm run dogfood -- validate self-dogfood/cases
-npm run dogfood:guard -- recheck cli-backend-root
-npm run dogfood:guard -- recheck cloud-migration-history
+python3 validation/self-dogfood/run-required-guards.py target/debug/reproit
 ```

@@ -13,7 +13,7 @@ import (
 	"os"
 	"time"
 
-	reproit "github.com/reproit/reproit-backend"
+	reproit "github.com/ReproIt/reproit/sdk/reproit-backend-go"
 )
 
 func main() {

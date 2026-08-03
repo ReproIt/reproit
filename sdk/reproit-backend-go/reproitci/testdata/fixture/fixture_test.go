@@ -10,8 +10,8 @@ import (
 	"os"
 	"testing"
 
-	reproit "github.com/reproit/reproit-backend"
-	"github.com/reproit/reproit-backend/reproitci"
+	reproit "github.com/ReproIt/reproit/sdk/reproit-backend-go"
+	"github.com/ReproIt/reproit/sdk/reproit-backend-go/reproitci"
 )
 
 const upstreamURL = "http://127.0.0.1:19995"

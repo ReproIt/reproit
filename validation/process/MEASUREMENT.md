@@ -553,7 +553,7 @@ What changed, each measured before and after:
 
 Gate: `validation/process/gate-completeness.sh` (`gcc:13`, glibc 2.36),
 run on linux/amd64 (Docker emulation, libc layer), linux/arm64 (seccomp
-layer), and on a REAL x86_64 kernel (strix, Fedora 7.1.4, via Docker
+layer), and on a REAL x86_64 kernel (Fedora 7.1.4, via Docker
 `gcc:13`), where the seccomp layer installs and the full row set passes,
 proving the amd64 SKIP is the emulator's limit and not the code's.
 

@@ -15,7 +15,7 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
-	reproit "github.com/reproit/reproit-backend"
+	reproit "github.com/ReproIt/reproit/sdk/reproit-backend-go"
 )
 
 const maxBodyBytes = 64 * 1024

@@ -9,7 +9,7 @@ Platforms:
   Apple M1 Ultra host.
 - Accelerator measurements: macOS host, Metal via PyTorch MPS, torch 2.7.1.
 - CUDA measurements: NVIDIA GB10 (Grace Blackwell, compute capability 12.1,
-  driver 580.142, aarch64) at `zgx-5a09`, torch 2.11.0+cu128. This machine is
+  driver 580.142, aarch64) on the CUDA host, torch 2.11.0+cu128. That machine is
   reachable over ssh and is listed in the operator's own validation inventory.
   An earlier revision of this file said no NVIDIA GPU was available and treated
   CUDA as unmeasurable. That was WRONG: it read "no NVIDIA GPU in this Mac" as
@@ -17,7 +17,7 @@ Platforms:
   Section 3 now carries real CUDA numbers, and they overturn the conclusion the
   gap had left standing.
 - Still genuinely unmeasured: NCCL collectives and multi-device training, because
-  zgx-5a09 has exactly ONE GPU. That is a hardware limit, not an assumption.
+  The CUDA host has exactly ONE GPU. That is a hardware limit, not an assumption.
 - Superseded text, kept so the correction is legible: nothing about CUDA, cuDNN
   autotuning, NCCL collectives, or multi-device training was measured here.
 

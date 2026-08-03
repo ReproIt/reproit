@@ -16,6 +16,18 @@ return, no effects after return, hashed idempotency identity, and recursive stru
 GraphQL callers may attach parser-produced `Selection` mappings; never infer selections from
 response content.
 
+## Installing
+
+The module path `github.com/ReproIt/reproit/sdk/reproit-backend-go` is not a published
+repository: the source lives in the main repository under
+`sdk/reproit-backend-go`. Vendor it or point at a checkout with a replace
+directive until it is published:
+
+```
+require github.com/ReproIt/reproit/sdk/reproit-backend-go v0.0.0
+replace github.com/ReproIt/reproit/sdk/reproit-backend-go => /path/to/reproit/sdk/reproit-backend-go
+```
+
 ## net/http middleware and Fiber v2 adapter
 
 The `net/http` middleware begins the trace from the decoded request (JSON body, decoded query
@@ -24,10 +36,10 @@ values, lowercased headers), finishes it when the response is complete, and atta
 carried on the request context:
 
 ```go
-import reproit "github.com/reproit/reproit-backend"
+import reproit "github.com/ReproIt/reproit/sdk/reproit-backend-go"
 
 config := reproit.NewCaptureConfig(
-    "https://cloud.example.com/v1/events", // ingest endpoint
+    "https://cloud.example.com/v1/capture-batches", // ingest endpoint
     "sk_live_...",                         // project API key (Authorization: Bearer)
     "app-id",                              // Cloud project app id
 )
@@ -46,12 +58,12 @@ mux.HandleFunc("POST /orders", func(w http.ResponseWriter, r *http.Request) {
 handler := reproit.Middleware(reproit.MiddlewareOptions{Capture: capture})(mux)
 ```
 
-Fiber v2 is a separate Go module (`github.com/reproit/reproit-backend/fiber`) so the core stays
+Fiber v2 is a separate Go module (`github.com/ReproIt/reproit/sdk/reproit-backend-go/fiber`) so the core stays
 dependency-free. It is the same adapter behind Fiber's buffered request/response model; handlers
 fetch the recorder with `reproitfiber.From(c)`:
 
 ```go
-import reproitfiber "github.com/reproit/reproit-backend/fiber"
+import reproitfiber "github.com/ReproIt/reproit/sdk/reproit-backend-go/fiber"
 
 app := fiber.New()
 app.Use(reproitfiber.New(reproitfiber.Options{Capture: capture}))
@@ -68,17 +80,16 @@ unusable. `capture.Record(trace)` never blocks, never panics, and never surfaces
 
 Sampling: operations whose return reports `success == false` or HTTP 5xx are always captured;
 healthy operations are captured only under `HealthySamplePerMille` (default 0, backend frames
-only, no finding). A 5xx capture is posted as an event-batch-v1 batch: every trace event as a
-`backend` frame plus one `finding` frame tagged with the first-class `backend-server-error`
-oracle id, whose `context.reproitCapture` object carries the full redacted start/effects/return
-sequence for deterministic local replay:
+only, no finding). A 5xx capture is posted as one universal capture-batch-v1 containing exactly that
+operation, carrying the full redacted start/effects/return sequence for deterministic local
+replay:
 
 ```sh
-# fetch the finding from /v1/errors/:app, save context.reproitCapture as capture.json, then:
-reproit internal debug replay-capture capture.json
+# pull the occurrence the capture became, and re-execute it locally:
+reproit occ_<id>
 ```
 
-Bounds, all fixed: queue depth 64 operations (drop-oldest on overflow), 16 operations per batch,
+Bounds, all fixed: queue depth 64 operations (drop-oldest on overflow), one operation per batch,
 48 KB capture payload (trailing effect events dropped first, `captureDroppedEffects` counts
 them), bounded flush interval (floor 100 ms), per-request timeout, and at most `RetryLimit`
 (cap 5) retries; 4xx responses are never retried. Redaction runs in `Begin`/`Effect`/`Finish`,
@@ -148,7 +159,7 @@ if err := trace.Oracle(reproit.AgentGuardrailOracle, map[string]any{
 
 ## CI capture mode (the flaky-CI wedge)
 
-`reproitci` (same module, `github.com/reproit/reproit-backend/reproitci`) binds a `testing.T`
+`reproitci` (same module, `github.com/ReproIt/reproit/sdk/reproit-backend-go/reproitci`) binds a `testing.T`
 test to a trigger identity that is the TEST, not an inbound HTTP request. The wire is the
 existing capture payload: the identity rides in the existing `operation` field as
 `test:<suite>#<test>`, the oracle is the existing `backend-authored-invariant` registry id (a

@@ -9,15 +9,19 @@
     ".": "./index.js",
     "./express": "./express.js",
     "./fastify": "./fastify.js",
-    "./ci": "./ci.js"
+    "./ci": "./ci.js",
+    "./instrument": "./instrument.js",
+    "./replay": "./replay.js"
   },
   "files": [
-    "index.js",
+    "README.md",
     "capture.js",
     "ci.js",
     "express.js",
     "fastify.js",
-    "README.md"
+    "index.js",
+    "instrument.js",
+    "replay.js"
   ],
   "scripts": {
     "test": "node --test test/trace.test.js test/capture.test.js test/ci.test.js",

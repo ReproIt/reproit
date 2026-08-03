@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "id": "doc-audit-truth-pass",
+  "changeType": "maintenance",
+  "detail": "A read-every-line documentation audit found the published docs describing a product that no longer exists, plus two real code defects. Code: the CLI after-help advertised reproit capture and reproit list, neither of which is a command (both are under internal), so a first-time user failed and then re-read the same wrong advice in --help; and the Node backend package shipped files/exports that omitted instrument.js and replay.js, so a published tarball would have carried no capsule layer and require(pkg/instrument) would throw. Go: the module declared github.com/reproit/reproit-backend, a repository that does not exist, so go get 404d; renamed to github.com/ReproIt/reproit/sdk/reproit-backend-go across go.mod, the fiber submodule, every import, both example fixtures and the README, all building and testing green. Docs: five backend READMEs documented an event-batch-v1 wire format with backend and finding frames posted to /v1/events, which the code stopped emitting (all eight build one universal capture-batch-v1 for /v1/capture-batches with a hard one-operation assertion), so a reader configured the wrong endpoint and waited for a shape that never arrives; six claimed 16 operations per batch against that same assertion. The Rust SDK carried the last surviving tier block. docs/environment.md pointed all 64 of its file references at a src/ tree that does not exist (the root is crates/reproit/src/), verified now to resolve. docs/compatibility.md still carried the last sentence of the deleted CI-derived platform model. docs/cli.md claimed hermetic replay was Node-only. docs/self-dogfood.md instructed readers to cd into the private reproit-lab repo and used a check --runs flag that does not exist. Personal hostnames were removed from four published validation docs. No behavior changed beyond the two defect fixes; compatibility gate, 19 compatibility tests, 60 self-dogfood tests, SDK inventory, behavior coverage, Node SDK 25 tests, and the Go module and fiber submodule and both fixtures all pass, and fmt is clean.",
+  "evidence": [
+    {
+      "path": "README.md",
+      "sha256": "sha256:e07f1793b99ae1f934e568233d2f13d577f43c45eab041ba31ebfd8a4f4f47bc"
+    },
+    {
+      "path": "crates/reproit/src/interface/cli/args.rs",
+      "sha256": "sha256:55522ad1666fac39ffb4563068bc0a5362446fbb7f6c25b6e98779ad4a74d070"
+    },
+    {
+      "path": "docs/cli.md",
+      "sha256": "sha256:40fafdb95c51544c49ae93e49bc437b84bccb7bb9b97272308c9e81243379d93"
+    },
+    {
+      "path": "docs/compatibility.md",
+      "sha256": "sha256:3971ab2d57b1ef3590482aeebe245d3f007498f0a6caeb0c41e7919a77bbb0ae"
+    },
+    {
+      "path": "docs/environment.md",
+      "sha256": "sha256:8f646cebba3bd10010a96fb9dba35ecf554b4d312424000da1718df607779ebe"
+    },
+    {
+      "path": "docs/self-dogfood.md",
+      "sha256": "sha256:8591dc03fa01eafad48e9b7b1d864caa05b958a4dd2f20d8a1f4b2203d092cc1"
+    },
+    {
+      "path": "examples/go-backend-fixture/go.mod",
+      "sha256": "sha256:c169515fef1bf85d8160a7f24a8d43bf299b6f66e07f5a9b6c1a1ca585ad498f"
+    },
+    {
+      "path": "examples/go-backend-fixture/main.go",
+      "sha256": "sha256:37bd31d9cc0dc459cb165cec572c71837e485db03a16bca2da1b4cf2ca672b3e"
+    },
+    {
+      "path": "examples/go-flaky-ci-fixture/go.mod",
+      "sha256": "sha256:ba35b621723c28fc9a9b69be91d04e08aaa98c9cc95592b79548a1186a59bcc9"
+    },
+    {
+      "path": "examples/go-flaky-ci-fixture/order_test.go",
+      "sha256": "sha256:6d9bc5accec4c1fbf38590b1c86eb359c90d1e933909a27bcd5985b7a277bb2d"
+    },
+    {
+      "path": "sdk/reproit-backend-go/README.md",
+      "sha256": "sha256:fcae14023b4ec63b3fbfc10d9b349b550a24fc67f8a509bb5157ff695d7bcc09"
+    },
+    {
+      "path": "sdk/reproit-backend-go/contractsample/main.go",
+      "sha256": "sha256:1289143734839d1d1371f5528f5113ca4604e785d6752efa97add167fad910cd"
+    },
+    {
+      "path": "sdk/reproit-backend-go/fiber/fiber.go",
+      "sha256": "sha256:a22a2d08660534824984abc09b966a2388d7c50f62e271b3b5874dea37c1a1bd"
+    },
+    {
+      "path": "sdk/reproit-backend-go/fiber/fiber_test.go",
+      "sha256": "sha256:14ebae4605105344f7fd596a76a923a8ae73004c0626e764b7cae8dbe7711c81"
+    }
+  ]
+}

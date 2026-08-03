@@ -11,7 +11,7 @@ the Linux transports in x86_64 Docker.
 
 Run `./validation/causal/run-windows-remote.sh <full-commit>` from macOS to
 fetch the exact commit in the native Windows checkout, execute the UIA gate, and
-return validated evidence through the `black` to `strix` to Windows guest route.
+return validated evidence from an interactive native Windows session.
 The Windows checkout must be clean. Direct local validation remains available
 through `./validation/causal/run-windows.ps1` inside an interactive Windows
 session.

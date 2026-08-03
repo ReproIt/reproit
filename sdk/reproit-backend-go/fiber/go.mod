@@ -1,10 +1,10 @@
-module github.com/reproit/reproit-backend/fiber
+module github.com/ReproIt/reproit/sdk/reproit-backend-go/fiber
 
 go 1.26.3
 
 require (
 	github.com/gofiber/fiber/v2 v2.52.6
-	github.com/reproit/reproit-backend v0.0.0
+	github.com/ReproIt/reproit/sdk/reproit-backend-go v0.0.0
 )
 
 require (
@@ -21,4 +21,4 @@ require (
 	golang.org/x/sys v0.28.0 // indirect
 )
 
-replace github.com/reproit/reproit-backend => ../
+replace github.com/ReproIt/reproit/sdk/reproit-backend-go => ../
