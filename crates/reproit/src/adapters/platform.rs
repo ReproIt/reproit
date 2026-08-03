@@ -92,8 +92,8 @@ impl Backend {
     ///                    runners/tauri.mjs
     ///   appium           runners/rn/runner.mjs (each actor = its own session)
     ///   desktop ax/uia/atspi  runners/macos-ax.swift, and the in-process Rust
-    ///                    runners backends/uia/mod.rs (`reproit internal __uia`) +
-    ///                    backends/atspi/mod.rs (`reproit internal __atspi`) (per-actor
+    ///                    runners backends/uia/mod.rs (`reproit __uia`) +
+    ///                    backends/atspi/mod.rs (`reproit __atspi`) (per-actor
     ///                    app instance, bound by pid; window re-activated per action)
     ///   tui              the actor loop in backends/tui/mod.rs
     /// The wire contract is pinned per runner source by tests/barrier_scenario.rs.

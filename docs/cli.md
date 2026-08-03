@@ -21,15 +21,15 @@ reproit --json doctor
 ## Capture a known failure
 
 ```sh
-reproit internal capture [OPTIONS] [-- COMMAND...]
+reproit capture [OPTIONS] [-- COMMAND...]
 ```
 
 Important forms:
 
 ```sh
-reproit internal capture --include-output -- cargo test failing_test
-reproit internal capture --attach --title "menu closes" --record-video
-reproit internal capture --bundle support.rpb
+reproit capture --include-output -- cargo test failing_test
+reproit capture --attach --title "menu closes" --record-video
+reproit capture --bundle support.rpb
 ```
 
 `--timeout-ms` bounds command execution. `--include-output` stores bounded stdout and stderr as
@@ -142,9 +142,9 @@ Infrastructure and different-failure results are reported separately in structur
 ## List current work
 
 ```sh
-reproit internal list
-reproit internal list --state candidates
-reproit internal list --state bugs [--query TEXT]
+reproit list
+reproit list --state candidates
+reproit list --state bugs [--query TEXT]
 ```
 
 The default lists local guards. Candidates include exact blockers. Bugs lists confirmed production

@@ -37,11 +37,7 @@ fn every_documented_ci_invocation_matches_the_current_parser() {
     assert_eq!(parsed, 3, "update the expected bounded invocation count");
 
     let command = Cli::command();
-    let fuzz = command
-        .find_subcommand("internal")
-        .expect("internal multiplex")
-        .find_subcommand("fuzz")
-        .expect("fuzz command");
+    let fuzz = command.find_subcommand("fuzz").expect("fuzz command");
     let known_flags = fuzz
         .get_arguments()
         .filter_map(clap::Arg::get_long)
@@ -65,8 +61,8 @@ fn every_documented_ci_invocation_matches_the_current_parser() {
 
 fn documented_fuzz_invocation(document: &str) -> Option<&str> {
     let start = document
-        .find("args=( internal fuzz")
-        .or_else(|| document.find("./target/release/reproit internal fuzz"))?;
+        .find("args=( fuzz")
+        .or_else(|| document.find("./target/release/reproit fuzz"))?;
     let tail = &document[start..];
     let end = tail.find("\n        if ").or_else(|| tail.find("\n\n"));
     Some(&tail[..end.unwrap_or(tail.len())])
@@ -97,38 +93,28 @@ fn changed_check_defaults_the_base_and_stays_suite_only() {
 
 #[test]
 fn reset_modes_parse_with_explicit_destructive_dependencies() {
-    let cli = Cli::parse_args(["reproit", "internal", "reset"]);
+    let cli = Cli::parse_args(["reproit", "reset"]);
     assert!(matches!(
         cli.command,
-        Cmd::Internal {
-            cmd: InternalCmd::Reset {
-                all: false,
-                init: false,
-                platform: None,
-            }
-        }
+        Cmd::Internal(InternalCmd::Reset {
+            all: false,
+            init: false,
+            platform: None,
+        })
     ));
 
-    let cli = Cli::parse_args([
-        "reproit",
-        "internal",
-        "reset",
-        "--all",
-        "--init",
-        "--platform",
-        "web",
-    ]);
+    let cli = Cli::parse_args(["reproit", "reset", "--all", "--init", "--platform", "web"]);
     assert!(matches!(
         cli.command,
-        Cmd::Internal { cmd: InternalCmd::Reset {
+        Cmd::Internal(InternalCmd::Reset {
             all: true,
             init: true,
             platform: Some(ref platform),
-        } } if platform == "web"
+        }) if platform == "web"
     ));
 
-    assert!(Cli::try_parse_from(["reproit", "internal", "reset", "--init"]).is_err());
-    assert!(Cli::try_parse_from(["reproit", "internal", "reset", "--platform", "web"]).is_err());
+    assert!(Cli::try_parse_from(["reproit", "reset", "--init"]).is_err());
+    assert!(Cli::try_parse_from(["reproit", "reset", "--platform", "web"]).is_err());
 }
 
 #[test]
@@ -157,21 +143,21 @@ fn parser_boundary_applies_direct_bug_id_rewriting() {
     let cli = Cli::parse_args(["reproit", "bkt_deadbeef0001", "--record-video"]);
     assert!(matches!(
         cli.command,
-        Cmd::Internal { cmd: InternalCmd::ReplayBucket {
+        Cmd::Internal(InternalCmd::ReplayBucket {
             ref issue,
             record_video: true,
             ..
-        } } if issue == "bkt_deadbeef0001"
+        }) if issue == "bkt_deadbeef0001"
     ));
 
     let cli = Cli::parse_args(["reproit", "cap_deadbeef00000000", "--watch"]);
     assert!(matches!(
         cli.command,
-        Cmd::Internal { cmd: InternalCmd::OriginalCapture {
+        Cmd::Internal(InternalCmd::OriginalCapture {
             ref capture,
             watch: true,
             ..
-        } } if capture == "cap_deadbeef00000000"
+        }) if capture == "cap_deadbeef00000000"
     ));
 }
 
@@ -232,38 +218,35 @@ fn removed_compatibility_commands_are_not_parseable() {
         assert!(Cli::try_parse_from(args).is_err());
     }
 
-    let cli = Cli::try_parse_from(["reproit", "internal", "verify", "fnd_deadbeef0001"]).unwrap();
+    let cli = Cli::try_parse_from(["reproit", "verify", "fnd_deadbeef0001"]).unwrap();
     assert!(matches!(
         cli.command,
-        Cmd::Internal { cmd: InternalCmd::Verify {
+        Cmd::Internal(InternalCmd::Verify {
             ids,
             junit: None,
             prune_retracted: false,
-        } } if ids == ["fnd_deadbeef0001"]
+        }) if ids == ["fnd_deadbeef0001"]
     ));
 
-    let cli = Cli::try_parse_from(["reproit", "internal", "verify", "--prune-retracted"]).unwrap();
+    let cli = Cli::try_parse_from(["reproit", "verify", "--prune-retracted"]).unwrap();
     assert!(matches!(
         cli.command,
-        Cmd::Internal {
-            cmd: InternalCmd::Verify {
-                prune_retracted: true,
-                ..
-            }
-        }
+        Cmd::Internal(InternalCmd::Verify {
+            prune_retracted: true,
+            ..
+        })
     ));
 
-    let cli = Cli::try_parse_from(["reproit", "internal", "journey", "checkout"]).unwrap();
+    let cli = Cli::try_parse_from(["reproit", "journey", "checkout"]).unwrap();
     assert!(matches!(
         cli.command,
-        Cmd::Internal { cmd: InternalCmd::Journey {
+        Cmd::Internal(InternalCmd::Journey {
             action: JourneyAction::Run(args)
-        } } if args == ["checkout"]
+        }) if args == ["checkout"]
     ));
 
     let cli = Cli::try_parse_from([
         "reproit",
-        "internal",
         "__cloud-internal",
         "__replay-dispatch",
         "--app",
@@ -277,11 +260,9 @@ fn removed_compatibility_commands_are_not_parseable() {
     .unwrap();
     assert!(matches!(
         cli.command,
-        Cmd::Internal {
-            cmd: InternalCmd::Cloud {
-                action: CloudAction::ReplayDispatch { .. }
-            }
-        }
+        Cmd::Internal(InternalCmd::Cloud {
+            action: CloudAction::ReplayDispatch { .. }
+        })
     ));
 }
 
@@ -302,7 +283,6 @@ fn hosted_login_needs_no_key_or_project_argument() {
 fn create_is_distinct_from_video_and_push_is_explicit() {
     let cli = Cli::try_parse_from([
         "reproit",
-        "internal",
         "create",
         "--attach",
         "--title",
@@ -312,60 +292,46 @@ fn create_is_distinct_from_video_and_push_is_explicit() {
     .unwrap();
     assert!(matches!(
         cli.command,
-        Cmd::Internal { cmd: InternalCmd::Create {
+        Cmd::Internal(InternalCmd::Create {
             cloud_tester: false,
             attach: true,
             title: Some(ref title),
             record_video: true,
             ..
-        } } if title == "menu bug"
+        }) if title == "menu bug"
     ));
 
-    let cli = Cli::try_parse_from(["reproit", "internal", "create", "--cloud-tester"]).unwrap();
+    let cli = Cli::try_parse_from(["reproit", "create", "--cloud-tester"]).unwrap();
     assert!(matches!(
         cli.command,
-        Cmd::Internal {
-            cmd: InternalCmd::Create {
-                cloud_tester: true,
-                attach: false,
-                ..
-            }
-        }
+        Cmd::Internal(InternalCmd::Create {
+            cloud_tester: true,
+            attach: false,
+            ..
+        })
     ));
-    assert!(Cli::try_parse_from([
-        "reproit",
-        "internal",
-        "create",
-        "--cloud-tester",
-        "--attach"
-    ])
-    .is_err());
-    assert!(
-        Cli::try_parse_from(["reproit", "internal", "create", "--cloud-tester", "--push"]).is_err()
-    );
+    assert!(Cli::try_parse_from(["reproit", "create", "--cloud-tester", "--attach"]).is_err());
+    assert!(Cli::try_parse_from(["reproit", "create", "--cloud-tester", "--push"]).is_err());
 
-    let cli =
-        Cli::try_parse_from(["reproit", "internal", "create", "--push", "--no-open"]).unwrap();
+    let cli = Cli::try_parse_from(["reproit", "create", "--push", "--no-open"]).unwrap();
     assert!(matches!(
         cli.command,
-        Cmd::Internal {
-            cmd: InternalCmd::Create {
-                push: true,
-                no_open: true,
-                ..
-            }
-        }
+        Cmd::Internal(InternalCmd::Create {
+            push: true,
+            no_open: true,
+            ..
+        })
     ));
 
-    let cli = Cli::try_parse_from(["reproit", "internal", "push", "cap_deadbeef00000000"]).unwrap();
+    let cli = Cli::try_parse_from(["reproit", "push", "cap_deadbeef00000000"]).unwrap();
     assert!(matches!(
         cli.command,
-        Cmd::Internal {
-            cmd: InternalCmd::Push { .. }
-        }
+        Cmd::Internal(InternalCmd::Push { .. })
     ));
 }
 
+/// The listed surface is the whole product loop and nothing else. Growing it
+/// is a deliberate act, so it fails here first.
 #[test]
 fn primary_help_contains_only_the_outcome_oriented_surface() {
     let visible = Cli::command()
@@ -375,15 +341,28 @@ fn primary_help_contains_only_the_outcome_oriented_surface() {
         .collect::<Vec<_>>();
     assert_eq!(
         visible,
-        ["init", "find", "check", "keep", "doctor", "login"]
+        ["init", "find", "check", "keep", "doctor", "login", "list", "capture"]
     );
+}
+
+/// `internal` was a hidden multiplex every doc, skill, and CI script had to
+/// type, which is the definition of not internal. It is gone: the commands it
+/// held are top-level and unlisted. Typing it must stay an error.
+#[test]
+fn the_internal_multiplex_is_gone() {
+    assert!(Cli::try_parse_from(["reproit", "internal", "list"]).is_err());
+    assert!(Cli::try_parse_from(["reproit", "internal"]).is_err());
+    let cli = Cli::try_parse_from(["reproit", "list"]).unwrap();
+    assert!(matches!(
+        cli.command,
+        Cmd::Internal(InternalCmd::List { .. })
+    ));
 }
 
 #[test]
 fn capture_routes_ui_and_command_sources_through_one_public_verb() {
     let ui = Cli::try_parse_from([
         "reproit",
-        "internal",
         "capture",
         "--attach",
         "--title",
@@ -393,18 +372,17 @@ fn capture_routes_ui_and_command_sources_through_one_public_verb() {
     .unwrap();
     assert!(matches!(
         ui.command,
-        Cmd::Internal { cmd: InternalCmd::CaptureCommand {
+        Cmd::Internal(InternalCmd::CaptureCommand {
             attach: true,
             title: Some(ref title),
             record_video: true,
             ref command,
             ..
-        } } if title == "menu bug" && command.is_empty()
+        }) if title == "menu bug" && command.is_empty()
     ));
 
     let command = Cli::try_parse_from([
         "reproit",
-        "internal",
         "capture",
         "--include-output",
         "--identity",
@@ -417,30 +395,24 @@ fn capture_routes_ui_and_command_sources_through_one_public_verb() {
     .unwrap();
     assert!(matches!(
         command.command,
-        Cmd::Internal { cmd: InternalCmd::CaptureCommand {
+        Cmd::Internal(InternalCmd::CaptureCommand {
             include_output: true,
             ref identity,
             command,
             ..
-        } } if command == ["sh", "-c", "exit 7"]
+        }) if command == ["sh", "-c", "exit 7"]
             && identity.as_deref() == Some("doctor:blank-backend-project-root")
     ));
 
-    let bundle = Cli::try_parse_from([
-        "reproit",
-        "internal",
-        "capture",
-        "--bundle",
-        "customer-case.rpb",
-    ])
-    .unwrap();
+    let bundle =
+        Cli::try_parse_from(["reproit", "capture", "--bundle", "customer-case.rpb"]).unwrap();
     assert!(matches!(
         bundle.command,
-        Cmd::Internal { cmd: InternalCmd::CaptureCommand {
+        Cmd::Internal(InternalCmd::CaptureCommand {
             bundle: Some(ref path),
             ref command,
             ..
-        } } if path == std::path::Path::new("customer-case.rpb") && command.is_empty()
+        }) if path == std::path::Path::new("customer-case.rpb") && command.is_empty()
     ));
 }
 
@@ -465,15 +437,12 @@ fn find_and_list_parse_as_the_primary_discovery_and_inventory_commands() {
         }) if target == "https://example.test"
     ));
 
-    let list =
-        Cli::try_parse_from(["reproit", "internal", "list", "--state", "candidates"]).unwrap();
+    let list = Cli::try_parse_from(["reproit", "list", "--state", "candidates"]).unwrap();
     assert!(matches!(
         list.command,
-        Cmd::Internal {
-            cmd: InternalCmd::List {
-                state: ListState::Candidates,
-                query: None,
-            }
-        }
+        Cmd::Internal(InternalCmd::List {
+            state: ListState::Candidates,
+            query: None,
+        })
     ));
 }

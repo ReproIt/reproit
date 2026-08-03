@@ -1,5 +1,5 @@
-# reproit internal journey template. Two examples: a single-actor flow and a multi-user
-# flow. Delete whichever you do not need. Save/validate with `reproit internal journey`,
+# reproit journey template. Two examples: a single-actor flow and a multi-user
+# flow. Delete whichever you do not need. Save/validate with `reproit journey`,
 # run with `reproit @name`.
 
 # --------------------------------------------------------------------------
@@ -29,7 +29,7 @@ actors:
   bob: { login: bob }
 
 # Optional: put both accounts in a known state first. Reset steps can template
-# account fields. Store creds with `reproit internal auth add`, reference as secret:.
+# account fields. Store creds with `reproit auth add`, reference as secret:.
 reset:
   - clear_posts: ${account.alice.userId}
   - clear_posts: ${account.bob.userId}

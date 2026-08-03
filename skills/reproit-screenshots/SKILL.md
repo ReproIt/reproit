@@ -3,19 +3,19 @@ name: reproit-screenshots
 description: >-
   Use when generating store or marketing screenshots with reproit: authoring a
   "tour" (a journey whose `do: shoot:<name>` steps name the shots) and running
-  `reproit internal screenshots` across locales and devices. Trigger on "app store
+  `reproit screenshots` across locales and devices. Trigger on "app store
   screenshots", "marketing screenshots", "screenshot every screen", "fastlane
   screenshots", "localized / RTL screenshots", or editing a screenshot tour.
 ---
 
 # Authoring reproit screenshot tours
 
-A **tour** is an ordinary reproit internal journey whose `do: shoot:<name>` steps name the screenshots to
+A **tour** is an ordinary reproit journey whose `do: shoot:<name>` steps name the screenshots to
 capture. The same file is two things at once:
 
-- `reproit internal journey <tour>` runs the steps to verify behavior; `shoot:` is **inert** (navigate-only,
+- `reproit journey <tour>` runs the steps to verify behavior; `shoot:` is **inert** (navigate-only,
   no pictures, no overhead).
-- `reproit internal screenshots <tour>` runs the same steps in **capture mode**: each `shoot:<name>` writes
+- `reproit screenshots <tour>` runs the same steps in **capture mode**: each `shoot:<name>` writes
   `<name>.png`, fanned across locales and devices.
 
 Because the state signature is locale-invariant, **one tour covers every locale** with no per-locale
@@ -34,7 +34,7 @@ mid-transition, with empty data, in one locale, is worse than none.
    compose it. reproit auto-settles between actions, so never add sleeps.
 3. **Seed real, attractive data.** Empty states and lorem ipsum kill store screenshots. Begin with
    `setup: login(demo)` and a `reset:` prelude that seeds realistic content (a few posts, a
-   populated list, a non-zero balance). Store demo creds with `reproit internal auth add`; reference accounts
+   populated list, a non-zero balance). Store demo creds with `reproit auth add`; reference accounts
    under `auth:`.
 4. **Name shots to their store slot / meaning.** The name becomes the filename AND the per-locale
    matching key for the verify gate. Use `home`, `search`, `detail`, `checkout`, not `screen1`. Keep
@@ -52,11 +52,11 @@ mid-transition, with empty data, in one locale, is worse than none.
 ## Run it
 
 ```sh
-reproit internal screenshots marketing \
+reproit screenshots marketing \
   --locale en,de,ar,ja \
   --device "iPhone 16 Pro Max,iPad Pro 13" \
   --out screenshots
-reproit internal journey marketing        # dry-run the navigation, no pictures
+reproit journey marketing        # dry-run the navigation, no pictures
 ```
 
 Config (`reproit.yaml`):
@@ -85,4 +85,4 @@ Shots land journey-led, collapsing axes that do not vary:
 - Forgetting RTL/long-locale coverage, where the layout actually breaks.
 - Writing per-locale tours: unnecessary, the signature is locale-invariant, one tour serves all.
 - Using `reproit check` and expecting pictures: that is verify mode (inert). Pictures only come from
-  `reproit internal screenshots`.
+  `reproit screenshots`.

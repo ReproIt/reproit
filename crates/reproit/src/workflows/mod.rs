@@ -105,9 +105,7 @@ where
     let ctx = cli.ctx();
     let updating = matches!(
         &cli.command,
-        Cmd::Internal {
-            cmd: InternalCmd::Update { .. } | InternalCmd::UpdateCheck
-        }
+        Cmd::Internal(InternalCmd::Update { .. } | InternalCmd::UpdateCheck)
     );
     if !updating {
         update::notice_and_schedule(VERSION, cli.quiet, cli.json);
@@ -225,7 +223,7 @@ where
                 }
             }
         }
-        Cmd::Internal { cmd } => internal_dispatch::run(&ctx, cli.config, cmd).await,
+        Cmd::Internal(cmd) => internal_dispatch::run(&ctx, cli.config, cmd).await,
     }
 }
 

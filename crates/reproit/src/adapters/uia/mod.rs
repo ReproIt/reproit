@@ -1,6 +1,6 @@
 //! Windows desktop runner (UI Automation backend), dispatched as `reproit
 //! __uia` by drive.rs. The Windows twin of the macOS `swift macos-ax.swift` and
-//! the Linux `reproit internal __atspi` runners: it drives ANY native Windows app
+//! the Linux `reproit __atspi` runners: it drives ANY native Windows app
 //! (WinUI, WPF, and Qt / Avalonia / wxWidgets builds, which all publish to UI
 //! Automation) through the UIA tree and prints the framework-agnostic marker
 //! protocol every backend emits.

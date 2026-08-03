@@ -59,7 +59,6 @@ fn run_init(dir: &std::path::Path, timeout: Duration) -> (String, String, Option
 
 fn run_list(dir: &std::path::Path) -> (String, String, Option<i32>) {
     let out = Command::new(reproit_bin())
-        .arg("internal")
         .arg("list")
         .current_dir(dir)
         .stdin(Stdio::null())

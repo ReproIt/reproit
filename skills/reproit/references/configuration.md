@@ -40,7 +40,7 @@ only that scope.
    framework abstractions, duplicate tests, or broad inferred policy.
 5. Run `reproit doctor` to validate configuration, runner capabilities, reset behavior, and local
    authority such as stored sessions.
-6. Run the narrowest applicable contract family. Use `reproit internal scan --only route-access` for browser
+6. Run the narrowest applicable contract family. Use `reproit scan --only route-access` for browser
    document access, for example.
 7. Report execution separately from coverage. List `SATISFIED`, `VIOLATION`, `ABSTAIN`, inactive
    suggestions, and unobservable declarations.
@@ -100,7 +100,7 @@ Every named principal needs `validate.text`, `validate.state`, or `validate.rout
 route or structural state over visible text. Run:
 
 ```sh
-reproit internal scan --only route-access
+reproit scan --only route-access
 ```
 
 Through ReproIt's MCP server, call `reproit_scan` with `{"only":"route-access"}`.

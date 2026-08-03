@@ -13,16 +13,16 @@ pub(crate) use actions::*;
 /// The listed commands are the complete public product loop.
 const AFTER_HELP: &str = concat!(
     "Known failure:\n",
-    "  reproit occ_<id>            reproduce a production occurrence locally\n",
-    "  reproit internal capture    preserve a UI or command failure\n",
+    "  reproit occ_<id>      reproduce a production occurrence locally\n",
+    "  reproit capture       preserve a UI or command failure\n",
     "\nCapture or discover failures:\n",
-    "  reproit init             configure the current application\n",
-    "  reproit find             run staged surface and deep discovery\n",
+    "  reproit init          configure the current application\n",
+    "  reproit find          run staged surface and deep discovery\n",
     "\nProve and retain:\n",
-    "  reproit <id>             reproduce one exact failure\n",
-    "  reproit keep <id>        preserve it as a regression guard\n",
-    "  reproit check            prove saved failures remain fixed\n",
-    "  reproit internal list    show local guards\n",
+    "  reproit <id>          reproduce one exact failure\n",
+    "  reproit keep <id>     preserve it as a regression guard\n",
+    "  reproit check         prove saved failures remain fixed\n",
+    "  reproit list          show local guards\n",
     "\nUtilities: doctor and login.",
 );
 
@@ -429,14 +429,13 @@ pub(crate) enum Cmd {
         #[arg(long)]
         key: Option<String>,
     },
-    /// Implementation surface: engines, cloud plumbing, runner hosts, and the
-    /// agent bridge. Invoked by reproit itself, scripts, and MCP dispatch;
-    /// not part of the vocabulary.
-    #[command(hide = true)]
-    Internal {
-        #[command(subcommand)]
-        cmd: crate::interface::cli::internal::InternalCmd,
-    },
+    /// The implementation surface, flattened in as top-level commands. Only
+    /// `capture` and `list` are visible; everything else carries `hide = true`
+    /// on its own variant. There is no `internal` word to type: a command is
+    /// either part of the vocabulary or it is unlisted, and nothing in between
+    /// needs a name.
+    #[command(flatten)]
+    Internal(crate::interface::cli::internal::InternalCmd),
 }
 
 impl Cli {

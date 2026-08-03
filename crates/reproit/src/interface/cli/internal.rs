@@ -1,10 +1,16 @@
-//! The implementation surface behind `reproit internal <sub>`.
+//! The unlisted half of the command surface.
 //!
-//! These are not vocabulary: engines, cloud plumbing, runner hosts, and the
-//! agent bridge, invoked by reproit itself, by our own scripts, and by MCP
-//! dispatch. A word appears in `reproit --help` only when a HUMAN needs it;
-//! everything else lives here, one hidden multiplex instead of a hidden verb
-//! per feature.
+//! These variants are flattened into `Cmd`, so every one of them is typed as
+//! `reproit <sub>` exactly like the listed vocabulary. What differs is only
+//! whether `reproit --help` names them: a command is listed when a human
+//! needs to discover it, and unlisted when it is a specialist tool or an
+//! engine. There is no `internal` word to type, because a namespace that
+//! appears in the documentation is not internal.
+//!
+//! The `__`-prefixed variants are the exception worth stating: they are not
+//! commands at all, but process entry points reproit spawns on itself (runner
+//! hosts, the direct-id routes, the update check). Their names are
+//! deliberately untypeable.
 
 use super::args::{
     AuthStrategyArg, CloudAction, DebugAction, FuzzArgs, JourneyAction, ListState, ReproAction,
@@ -28,6 +34,7 @@ pub(crate) enum InternalCmd {
     /// Record a program's reads of the outside world into a process capsule
     /// (the general-program sibling of a backend capture). Requires
     /// REPROIT_PROCESS_SHIM to name a built runners/process-shim library.
+    #[command(hide = true)]
     ProcessCapture {
         /// Where to write the capsule.
         #[arg(long = "out", value_name = "CAPSULE")]
@@ -58,6 +65,7 @@ pub(crate) enum InternalCmd {
     /// and re-executes only the tail. Linux and criu only; the anchor
     /// accelerates investigating a failure and is never used to verify a fix,
     /// because a criu image carries the old binary's memory.
+    #[command(hide = true)]
     ProcessAnchor {
         /// The process capsule to anchor. The anchor is written into it.
         #[arg(long = "capsule", value_name = "CAPSULE")]
@@ -75,6 +83,7 @@ pub(crate) enum InternalCmd {
     },
     /// Restore a capsule's anchor and judge the tail, without replaying the
     /// head. Refuses, loudly, any anchor it cannot restore faithfully.
+    #[command(hide = true)]
     ProcessRestore {
         /// The anchored process capsule.
         #[arg(long = "capsule", value_name = "CAPSULE")]
@@ -84,9 +93,11 @@ pub(crate) enum InternalCmd {
     /// write nothing. Works with no schema, no running service and no
     /// credentials, and reports each service of a monorepo separately. Where a
     /// schema is declared it also says where schema and source disagree.
+    #[command(hide = true)]
     Surface,
     /// Reset Reproit state for this project. The default removes only
     /// regenerable state; --all also removes saved evidence and configuration.
+    #[command(hide = true)]
     Reset {
         /// Remove all project-local Reproit state and reproit.yaml. This
         /// requires confirmation and never removes application source files.
@@ -100,6 +111,7 @@ pub(crate) enum InternalCmd {
         platform: Option<String>,
     },
     /// Check for or install the latest ReproIt CLI release.
+    #[command(hide = true)]
     Update {
         /// Report whether an update is available without installing it.
         #[arg(long)]
@@ -107,11 +119,13 @@ pub(crate) enum InternalCmd {
     },
     /// Advanced diagnostics. Normal scan/fuzz/check workflows maintain their
     /// internal app model automatically.
+    #[command(hide = true)]
     Debug {
         #[command(subcommand)]
         action: DebugAction,
     },
     /// Collect a signed, encrypted offline support bundle from bounded files.
+    #[command(hide = true)]
     Collect {
         /// Destination `.rpb` file. The command refuses to overwrite it.
         #[arg(long, short)]
@@ -193,7 +207,7 @@ pub(crate) enum InternalCmd {
         command: Vec<OsString>,
     },
     /// Internal direct occurrence route used by `reproit occ_...`.
-    #[command(name = "__occurrence")]
+    #[command(name = "__occurrence", hide = true)]
     Occurrence {
         reference: String,
         /// Download and validate the occurrence without executing it.
@@ -211,6 +225,7 @@ pub(crate) enum InternalCmd {
     /// Create a bug report by demonstrating the problem in the configured app.
     /// Repro It preserves the immutable original without claiming an unverified
     /// detector result.
+    #[command(hide = true)]
     Create {
         /// Wait for a marked SDK capture, clean-run it, and derive a minimized
         /// repro. Unlike the default human capture, this requires verification.
@@ -260,6 +275,7 @@ pub(crate) enum InternalCmd {
         kind: Option<String>,
     },
     /// Push a local human-created bug report to Repro It Cloud.
+    #[command(hide = true)]
     Push {
         /// Immutable local capture id (cap_...).
         capture: String,
@@ -271,6 +287,7 @@ pub(crate) enum InternalCmd {
     /// per-pixel tolerance, ignore regions, and `--update` to accept the
     /// current capture. What is compared is driven by the `visual` section
     /// in reproit.yaml.
+    #[command(hide = true)]
     Baseline {
         /// Accept the current capture as the new baseline.
         #[arg(long)]
@@ -278,12 +295,14 @@ pub(crate) enum InternalCmd {
     },
     /// Advanced operations on an existing repro: `simplify` (verify + adopt a
     /// shorter action sequence) and `why` (rank suspect code for the failure).
+    #[command(hide = true)]
     Repro {
         #[command(subcommand)]
         action: ReproAction,
     },
     /// Explain the immutable authority, evaluation, replay, minimization, and
     /// promotion decision for a finding or saved repro.
+    #[command(hide = true)]
     Proof {
         /// Finding id, repro id, or saved repro alias.
         reference: String,
@@ -291,6 +310,7 @@ pub(crate) enum InternalCmd {
     /// Replay every persisted backend finding against the live target and assert
     /// none still reproduces: a durable regression suite and batch proof-of-fix.
     /// Exits non-zero if any finding reproduces. Pass ids to verify only those.
+    #[command(hide = true)]
     Verify {
         /// Finding ids to verify (default: all persisted findings).
         ids: Vec<String>,
@@ -304,6 +324,7 @@ pub(crate) enum InternalCmd {
     /// Accept one backend finding so the CI gate stops blocking on it, with a
     /// stated reason and an optional expiry. Unlike `check --update-baseline`,
     /// this accepts ONLY the findings you name; everything else keeps blocking.
+    #[command(hide = true)]
     Accept {
         /// Finding ids to accept.
         ids: Vec<String>,
@@ -323,7 +344,7 @@ pub(crate) enum InternalCmd {
         list: bool,
     },
     /// Internal route for the direct `reproit bkt_...` form.
-    #[command(name = "__replay-bucket")]
+    #[command(name = "__replay-bucket", hide = true)]
     ReplayBucket {
         /// Production bucket/finding id (bkt_...).
         issue: String,
@@ -347,7 +368,7 @@ pub(crate) enum InternalCmd {
         key: Option<String>,
     },
     /// Internal route for the direct `reproit cap_...` form.
-    #[command(name = "__capture")]
+    #[command(name = "__capture", hide = true)]
     OriginalCapture {
         /// Immutable original capture id (cap_...).
         capture: String,
@@ -360,6 +381,7 @@ pub(crate) enum InternalCmd {
     },
     /// Update a production bug's lifecycle state. Example:
     /// `reproit triage bkt_... fixed --fixed-in-build 1.2.3`.
+    #[command(hide = true)]
     Triage {
         issue: String,
         status: String,
@@ -369,33 +391,41 @@ pub(crate) enum InternalCmd {
         assignee: Option<i64>,
     },
     /// Show a production bug's occurrence history and resolution state.
+    #[command(hide = true)]
     Timeline { issue: String },
     /// List recent production confirmation and regression transitions.
+    #[command(hide = true)]
     ResolutionEvents,
     /// Scan each reachable screen once for state-present oracle findings.
     /// Results retain an authoritative or specialist classification, but both
     /// are reported when their oracle predicate holds.
     /// `--record-video` saves quick audit clips; use
     /// `reproit <id> --record-video` for a fuzz repro.
+    #[command(hide = true)]
     Scan(ScanArgs),
     /// Find confirmed, replayable bugs through deeper interaction exploration.
     /// ReproIt learns and refreshes its internal app model automatically.
     /// Stable, objective detectors are on by default. Specialist detectors are
     /// opt-in with `--only`; `--soak` runs the leak cycle.
+    #[command(hide = true)]
     Fuzz(FuzzArgs),
     /// Serve reproit as an MCP server (stdio) for coding agents
+    #[command(hide = true)]
     Mcp,
     /// Show the platform support matrix: which UI frameworks map to which
     /// introspection backend and capability source
+    #[command(hide = true)]
     Platforms,
     /// Install the bundled coding-agent skills (the reproit playbook) into
     /// .claude/skills, so an agent drives reproit like an expert
+    #[command(hide = true)]
     Skills {
         #[command(subcommand)]
         action: SkillsAction,
     },
     /// Configure and verify one test login. `auth <account>` replays the
     /// contract directly; `--discover` regenerates it first.
+    #[command(hide = true)]
     Auth {
         account: String,
         #[arg(long, value_enum)]
@@ -427,7 +457,8 @@ pub(crate) enum InternalCmd {
     /// Run and manage scripted journeys (declarative YAML paths).
     #[command(
         after_help = "Run:     reproit journey <name>\nCreate:  reproit journey create \
-                      <name>\nList:    reproit journey list"
+                      <name>\nList:    reproit journey list",
+        hide = true
     )]
     Journey {
         #[command(subcommand)]
@@ -437,6 +468,7 @@ pub(crate) enum InternalCmd {
     /// locales and devices into a journey-led layout (or your own
     /// --path-template). Reuses the SHOOT capture machinery; one
     /// locale-invariant tour covers every locale.
+    #[command(hide = true)]
     Screenshots {
         /// Tour to drive (a journey file stem). Defaults to screenshots.tour.
         tour: Option<String>,
@@ -462,6 +494,7 @@ pub(crate) enum InternalCmd {
         path_template: Option<String>,
     },
     /// Import an offline `.rpb` support bundle or a flow from another tool.
+    #[command(hide = true)]
     Import {
         /// Bundle path, or source tool (`maestro`) when a second path follows.
         source: String,
@@ -475,23 +508,23 @@ pub(crate) enum InternalCmd {
         out: Option<PathBuf>,
     },
     /// Internal Cloud and CI plumbing. Human Cloud workflows are top-level.
-    #[command(name = "__cloud-internal")]
+    #[command(name = "__cloud-internal", hide = true)]
     Cloud {
         #[command(subcommand)]
         action: CloudAction,
     },
     /// (internal) PTY-driven terminal-UI runner; spawned by the tui backend
-    #[command(name = "__tui")]
+    #[command(name = "__tui", hide = true)]
     TuiRun,
     /// (internal) Windows UI Automation runner; spawned by the desktop-uia
     /// backend
-    #[command(name = "__uia")]
+    #[command(name = "__uia", hide = true)]
     UiaRun,
     /// (internal) Linux AT-SPI runner; spawned by the desktop-atspi backend
-    #[command(name = "__atspi")]
+    #[command(name = "__atspi", hide = true)]
     AtspiRun,
     /// (internal) Replay one explicit Vitest assertion as an authored contract.
-    #[command(name = "__vitest-contract")]
+    #[command(name = "__vitest-contract", hide = true)]
     VitestContract {
         #[arg(long)]
         cwd: PathBuf,
@@ -503,10 +536,11 @@ pub(crate) enum InternalCmd {
         pnpm_version: String,
     },
     /// Refresh the release cache without delaying the calling command.
-    #[command(name = "__update-check")]
+    #[command(name = "__update-check", hide = true)]
     UpdateCheck,
     /// Verify a signed offline support bundle (manifest, payload digest, and
     /// signature) without decrypting artifacts.
+    #[command(hide = true)]
     Inspect {
         /// The `.rpb` support bundle to verify.
         #[arg(value_name = "BUNDLE")]

@@ -73,7 +73,7 @@ try {
         try {
             $start = [System.Diagnostics.ProcessStartInfo]::new()
             $start.FileName = $runner
-            $start.Arguments = "internal __uia"
+            $start.Arguments = "__uia"
             $start.UseShellExecute = $false
             $start.CreateNoWindow = $true
             $start.RedirectStandardOutput = $true

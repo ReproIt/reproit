@@ -6,7 +6,7 @@
 //! This is the most deterministic backend: a PTY is fully headless (no display
 //! server), keystrokes go to the PTY (never the real keyboard), it runs at full
 //! speed with no settle-for-animation waits, and the same key sequence replays
-//! to the same screen. Spawned as `reproit internal __tui` by drive.rs.
+//! to the same screen. Spawned as `reproit __tui` by drive.rs.
 //!
 //! Env:
 //!   REPROIT_TUI_CMD       the terminal command to launch (run via `sh -c`)
@@ -92,7 +92,7 @@ fn emit(s: &str) {
 // scrapes it here. This is a genuine PORT: stderr is conflated with frames, the
 // file is not.
 
-/// Path to this `reproit internal __tui` process's invariant marker file (per-pid, so
+/// Path to this `reproit __tui` process's invariant marker file (per-pid, so
 /// concurrent runners never share one). Provisioned once; handed to each
 /// session.
 fn marker_file_path() -> &'static str {

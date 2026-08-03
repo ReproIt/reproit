@@ -95,7 +95,7 @@ jobs:
           # simulator to record the minimized repro, uploads it, and posts the PR
           # comment. --post-comment makes it POST (the GITHUB_* env from the
           # pull_request event supplies repo + PR + token); drop it to dry-run.
-          ./target/release/reproit internal fuzz \
+          ./target/release/reproit fuzz \
             --journey "${{ inputs.journey }}" \
             --runs "${{ inputs.runs }}" \
             --confirm-on-sim \

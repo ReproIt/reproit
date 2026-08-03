@@ -253,4 +253,4 @@ if [[ "$CASES_RUN" -ne "$EXPECTED_CASES" ]]; then
   echo "FAIL harness accounting: $CASES_RUN of $EXPECTED_CASES cases ran" >&2
   exit 1
 fi
-echo "real reproit internal scan backend contract gate passed ($CASES_RUN/$EXPECTED_CASES cases)"
+echo "real reproit scan backend contract gate passed ($CASES_RUN/$EXPECTED_CASES cases)"

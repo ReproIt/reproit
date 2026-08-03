@@ -67,7 +67,7 @@ concrete repairs.
   in place; the occurrence id reproduces it locally.
 - **CI**: a failing test spools its capsule as a job artifact; `reproit check <capsule>`
   re-executes that exact run on a laptop.
-- **A known failure you can point at**: `reproit internal capture` preserves it from
+- **A known failure you can point at**: `reproit capture` preserves it from
   an application, bounded command, or signed support bundle.
 - **Discovery**: `reproit find` can also search for failures you have not seen yet, and
   confirms and minimizes anything it reports.

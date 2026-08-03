@@ -42,7 +42,6 @@ mod unix {
             &[
                 "--json",
                 "--yes",
-                "internal",
                 "capture",
                 "--local-only",
                 "--include-output",

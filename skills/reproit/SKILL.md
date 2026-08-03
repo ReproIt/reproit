@@ -6,7 +6,7 @@ description: >-
   prove loop, plus interpretation of repros, oracles, and fault-localization
   output. Trigger on "set up reproit", "find bugs", "this UI is broken",
   "reproduce this crash", "fix the failing check", access-policy checks, or any
-  reproit internal repro id.
+  reproit repro id.
 ---
 
 # Configure and use reproit
@@ -18,7 +18,7 @@ the loop between its commands, not the finding itself.
 ## The loop
 
 The vocabulary a human types is six words: `init`, `find`, `check`, `keep`, `doctor`, `login`,
-plus the direct `reproit <id>` form. Engines and plumbing live under `reproit internal <sub>`;
+plus the direct `reproit <id>` form. Engines and plumbing live under `reproit <sub>`;
 prefer the vocabulary and reach for an internal subcommand only when you need that exact engine.
 
 0. **Set up**: `reproit init` detects the app and writes the smallest working config; `reproit
@@ -26,13 +26,13 @@ prefer the vocabulary and reach for an internal subcommand only when you need th
 1. **Find** (the everyday entry point): `reproit find [target]` runs the staged discovery, a fast
    surface pass followed by bounded deep exploration and exact confirmation, choosing the engine
    for you. The two engines below are the same machinery when you need one directly.
-2. **Scan** (the direct read-only engine): `reproit internal scan [target]`. One coverage crawl that
+2. **Scan** (the direct read-only engine): `reproit scan [target]`. One coverage crawl that
    visits every reachable screen once and reports the STATE-PRESENT bugs simply visible on each
    (overflow / broken content / a11y / choice-anomaly), one finding per (screen x issue). `target`
    is a URL (zero- config against a deployed app) or an alias/node to scope. Deterministic and
    exhaustive per screen, this is the first pass for auditing an app. Reproit maintains and
    refreshes its internal app model automatically; never ask the user to build or refresh a graph.
-3. **Fuzz** (the DEEP search): `reproit internal fuzz [target]`. Combinatorially permutes action sequences to
+3. **Fuzz** (the DEEP search): `reproit fuzz [target]`. Combinatorially permutes action sequences to
    provoke the SEQUENCE-dependent bugs (crash / jank / hang / leak) that only appear after the right
    actions in the right order. Each finding prints a content-hash id. All oracles run by default
    (see `references/oracles.md`).
@@ -40,7 +40,7 @@ prefer the vocabulary and reach for an internal subcommand only when you need th
    `3` stale. Never start fixing a finding you have not confirmed reproduces. If it is flaky (2),
    the bug is a race or a visual flicker, treat the flake itself as the bug, do not retry until
    green.
-5. **Localize**: `reproit internal repro why <id>` ranks suspect files by Ochiai fault localization. Open the
+5. **Localize**: `reproit repro why <id>` ranks suspect files by Ochiai fault localization. Open the
    top-ranked file first. See `references/why.md`.
 6. **Fix** the code.
 7. **Prove**: re-run `reproit <id>`. `0` means the fix holds. Re-run twice if it was originally
@@ -52,13 +52,13 @@ prefer the vocabulary and reach for an internal subcommand only when you need th
 
 For video evidence, use the explicit video option:
 
-- `reproit internal scan --record-video` saves quick audit clips for visible, boxable scan findings into
+- `reproit scan --record-video` saves quick audit clips for visible, boxable scan findings into
   `.reproit/recordings/scan/`.
 - `reproit <id> --record-video` runs one confirmed fuzz or kept repro and produces the shareable
   evidence video (paced action HUD plus a red box on the bug's effect).
 
-Human-authored reports use a separate workflow. `reproit internal create` opens an interactive demonstration
-session, and `reproit internal push cap_...` publishes the resulting immutable original after review. Agents
+Human-authored reports use a separate workflow. `reproit create` opens an interactive demonstration
+session, and `reproit push cap_...` publishes the resulting immutable original after review. Agents
 must not invoke `create` because it requires a person at an interactive terminal.
 
 ## Configuration authority
@@ -88,10 +88,14 @@ rules, output format, and browser route-access example.
 - Confirm with `check` before fixing and after fixing. No exceptions.
 - Screens are keyed **structurally** (roles + dev keys, text excluded), so the graph is
   locale-invariant. Do not assume a screen changed just because text did.
-- `reproit internal list` lists saved guards + last status. Recordings land under
+- `reproit list` lists saved guards + last status. Recordings land under
   `.reproit/recordings/` (make one with `reproit <id> --record-video`).
-- `reproit internal repro simplify <id> --to '[...]'` adopts a shorter action sequence that reproit verifies
-  still reproduces; `reproit internal repro why <id>` localizes.
+- When the failure is already known and you can point at it, do not go hunting: `reproit capture`
+  preserves it. `reproit capture -- <command>` wraps a failing command (add `--include-output` to
+  keep bounded stdout/stderr as local-only evidence); `reproit capture --attach` records a running
+  app. The result is a `cap_` id you can `keep` like any other finding.
+- `reproit repro simplify <id> --to '[...]'` adopts a shorter action sequence that reproit verifies
+  still reproduces; `reproit repro why <id>` localizes.
 
 ## Going deeper
 

@@ -456,7 +456,7 @@ function effectValue(event) {
   return Object.keys(detail).length === 0 ? null : structural(detail);
 }
 
-// The replayable capture object (`reproit internal debug replay-capture` input).
+// The replayable capture object (`reproit debug replay-capture` input).
 // Trailing effect events are dropped first when the payload exceeds the
 // context budget; a payload that stays oversized with only start/return
 // left is omitted entirely (null).

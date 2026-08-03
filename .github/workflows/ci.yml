@@ -17,7 +17,7 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal --component clippy,rustfmt
           rustup default stable
-      # The Linux desktop runner (`reproit internal __atspi`) links the official AT-SPI C
+      # The Linux desktop runner (`reproit __atspi`) links the official AT-SPI C
       # library. On this ubuntu runner the target_os="linux" module compiles, so
       # the dev package (which pulls libglib2.0-dev) must be present at link time;
       # the shipped binary dynamically links libatspi.so.0.
@@ -155,7 +155,7 @@ jobs:
             --base "$POLICY_BASE" \
             --head "$POLICY_HEAD"
 
-  # The Windows desktop runner (`reproit internal __uia`, cfg(windows)) only compiles on
+  # The Windows desktop runner (`reproit __uia`, cfg(windows)) only compiles on
   # a Windows host, so the ubuntu `rust` job above never touches uia.rs. Compile
   # it natively here so a Windows-only break is caught on every push, not first
   # at release time (windows-rs is pure Rust; aws-lc-sys builds fine here since

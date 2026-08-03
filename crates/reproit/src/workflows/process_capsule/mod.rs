@@ -416,7 +416,7 @@ pub struct AnchorRequest {
     pub position: u64,
 }
 
-/// `reproit internal process-capture --out <capsule> -- <command>`: run the
+/// `reproit process-capture --out <capsule> -- <command>`: run the
 /// command under the recording shim and assemble a capsule from what the
 /// boundary saw plus how the program died. With `--anchor-checkpoint`, the
 /// command must be the program's own resume invocation; the capsule then

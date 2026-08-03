@@ -10,7 +10,7 @@
     <UseWinUI>true</UseWinUI>
     <!-- Unpackaged + self-contained: bundle the Windows App SDK runtime and drop
          MSIX package identity so the app launches as a plain exe an out-of-process
-         UIA backend (reproit internal __uia) can start and bind by window title. -->
+         UIA backend (reproit __uia) can start and bind by window title. -->
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <EnableMsixTooling>false</EnableMsixTooling>

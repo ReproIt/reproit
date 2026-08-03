@@ -233,7 +233,7 @@ runs:
         # positionally, zero-config), evidence is published by --bucket, and
         # --post-comment POSTs the PR comment (github.token + the pull_request
         # event supply repo + PR + auth). A delivery failure never fails the run.
-        args=( internal fuzz "${{ inputs.app }}"
+        args=( fuzz "${{ inputs.app }}"
           --journey "${{ inputs.journey }}"
           --runs "${{ inputs.runs }}"
           --cloud "${{ inputs.cloud-url }}"

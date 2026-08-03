@@ -46,19 +46,18 @@ pub(crate) fn expand_direct_reference_arg(
         };
         if supported {
             args.remove(position);
-            args[index] = "internal".into();
             if mode == "simplify" {
-                args.insert(index + 1, "repro".into());
-                args.insert(index + 2, "simplify".into());
-                args.insert(index + 3, normalized_reference.into());
-            } else {
-                args.insert(index + 1, mode.into());
+                args[index] = "repro".into();
+                args.insert(index + 1, "simplify".into());
                 args.insert(index + 2, normalized_reference.into());
+            } else {
+                args[index] = mode.into();
+                args.insert(index + 1, normalized_reference.into());
             }
             return args;
         }
     }
-    // Production/cloud references route through the internal multiplex; local
+    // Production/cloud references route to their unlisted `__` handler; local
     // repros and aliases stay on the visible check path.
     let command = if first.starts_with("bkt_") {
         Some((Some("__replay-bucket"), None))
@@ -76,8 +75,7 @@ pub(crate) fn expand_direct_reference_arg(
             args[index] = alias.into();
         }
         if let Some(sub) = internal_sub {
-            args.insert(index, "internal".into());
-            args.insert(index + 1, sub.into());
+            args.insert(index, sub.into());
         } else {
             args.insert(index, "check".into());
             if let Some(flag) = repro_flag {
@@ -102,21 +100,15 @@ mod tests {
         };
         assert_eq!(
             expand(&["reproit", "cap_deadbeef00000000", "--watch"]),
-            [
-                "reproit",
-                "internal",
-                "__capture",
-                "cap_deadbeef00000000",
-                "--watch"
-            ]
+            ["reproit", "__capture", "cap_deadbeef00000000", "--watch"]
         );
         assert_eq!(
             expand(&["reproit", "bkt_deadbeef0001"]),
-            ["reproit", "internal", "__replay-bucket", "bkt_deadbeef0001"]
+            ["reproit", "__replay-bucket", "bkt_deadbeef0001"]
         );
         assert_eq!(
             expand(&["reproit", "occ_deadbeef0001"]),
-            ["reproit", "internal", "__occurrence", "occ_deadbeef0001"]
+            ["reproit", "__occurrence", "occ_deadbeef0001"]
         );
         assert_eq!(
             expand(&["reproit", "fnd_deadbeef0001"]),
@@ -138,13 +130,7 @@ mod tests {
         );
         assert_eq!(
             expand(&["reproit", "--json", "bkt_deadbeef0001"]),
-            [
-                "reproit",
-                "--json",
-                "internal",
-                "__replay-bucket",
-                "bkt_deadbeef0001"
-            ]
+            ["reproit", "--json", "__replay-bucket", "bkt_deadbeef0001"]
         );
         assert_eq!(expand(&["reproit", "scan"]), ["reproit", "scan"]);
         assert_eq!(expand(&["reproit", "@"]), ["reproit", "@"]);
@@ -160,7 +146,7 @@ mod tests {
         };
         assert_eq!(
             expand(&["reproit", "fnd_deadbeef0001", "--proof"]),
-            ["reproit", "internal", "proof", "fnd_deadbeef0001"]
+            ["reproit", "proof", "fnd_deadbeef0001"]
         );
         assert_eq!(
             expand(&[
@@ -172,7 +158,6 @@ mod tests {
             ]),
             [
                 "reproit",
-                "internal",
                 "repro",
                 "simplify",
                 "rep_deadbeef0001",

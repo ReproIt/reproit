@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "internal-multiplex-removal",
+  "changeType": "refactor",
+  "detail": "The `internal` multiplex is removed and its 39 subcommands are flattened to top level, with `capture` and `list` listed in --help and the other 37 carrying hide = true. The multiplex was introduced in d957df5 to cut the visible vocabulary to six words, and it did that, but it moved the cost rather than removing it: the hidden namespace had to be typed in 62 places across docs, the shipped agent skills, CI workflows and validation harnesses, which is the definition of not internal. Hiding is now a per-command property, which is what it always was semantically, so a command is either listed or unlisted and no word stands between the user and the verb. The `__`-prefixed process entry points (__tui, __uia, __atspi, __occurrence, __capture, __replay-bucket, __cloud-internal, __update-check, __vitest-contract) are top level and hidden; their untypeable names were always the real hiding mechanism. Behavior is unchanged for every command: only the spelling and the help listing moved. The MCP bridge still reaches the engine by spawning this binary with an argv it builds from strings, which is why a renamed subcommand could previously fail only at run time inside an agent session; that gap is closed here by a test that parses every advertised tool's argv with the real parser through the same direct-reference rewrite the process applies, so the bridge now breaks the build instead of a session. An in-process bridge was considered and deliberately not done: every workflow prints through Ctx::say and Ctx::emit straight to stdout, so capturing output in process means threading a writer through a Copy struct used across the whole crate, which is a larger and riskier change than the one it would enable. The entry-point spelling gate in validation/self-dogfood inverts with the rule rather than being deleted, because the class of miss it catches survived both flips: it immediately found two harnesses (validation/backends/run-tui.sh and run-windows-desktop.ps1) that the textual sweep could not see, since neither spells the word reproit next to the command. Recorded evidence files are left at their old spelling on purpose; rewriting a record would falsify it.",
+  "evidence": [
+    {
+      "path": "crates/reproit/src/interface/cli/args/tests.rs",
+      "sha256": "sha256:bf1a02ec88c8af122d613647a3575b95a69be27922391fc311a1238c3d626768"
+    },
+    {
+      "path": "crates/reproit/src/interface/mcp/tests.rs",
+      "sha256": "sha256:f251c76224ba08fcf2de4b2ebeb7ae584ae0747a3011b94879335eb47805406e"
+    },
+    {
+      "path": "validation/self-dogfood/test_check_internal_invocations.py",
+      "sha256": "sha256:d909bf9664841e796d57f2d6ddf5de1d5638e6cc42771104f0cf3e0d87d7aeca"
+    }
+  ]
+}

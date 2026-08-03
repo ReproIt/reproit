@@ -1,8 +1,8 @@
-//! Dispatch for the `reproit internal <sub>` implementation surface.
+//! Dispatch for the unlisted half of the command surface.
 //!
-//! Every arm here used to be a hidden top-level verb. The behavior and argv
-//! semantics are unchanged; only the spelling moved under one multiplex so
-//! the CLI vocabulary stays the six words a human needs.
+//! Each arm is a real top-level command that `reproit --help` does not name.
+//! Listing is a discoverability decision; it is not a dispatch boundary, so
+//! nothing here differs from a listed command except its visibility.
 
 #[cfg(all(target_os = "linux", feature = "linux-atspi"))]
 use crate::adapters::atspi;
@@ -567,7 +567,7 @@ pub(super) async fn run(
             }
             if let JourneyAction::Run(args) = &action {
                 let [name] = args.as_slice() else {
-                    anyhow::bail!("usage: reproit internal journey <name>");
+                    anyhow::bail!("usage: reproit journey <name>");
                 };
                 let loaded = config::load(config_path.as_deref())?;
                 let result = journey::run(
@@ -665,7 +665,7 @@ pub(super) async fn run(
                 {
                     anyhow::bail!(
                         "single-argument import expects a `.rpb` support bundle; \
-                         use `reproit internal import maestro FLOW` for a tool flow"
+                         use `reproit import maestro FLOW` for a tool flow"
                     );
                 }
                 bundle::import(ctx, bundle_path)?;
@@ -735,7 +735,7 @@ fn journey_cmd(config_path: Option<&Path>, action: JourneyAction, ctx: &Ctx) -> 
             if ctx.json {
                 ctx.emit(&serde_json::json!({ "journeys": journeys }));
             } else if journeys.is_empty() {
-                ctx.say("no journeys yet (author one with `reproit internal journey create`)");
+                ctx.say("no journeys yet (author one with `reproit journey create`)");
             } else {
                 for j in &journeys {
                     match &j.error {
@@ -768,11 +768,11 @@ fn journey_cmd(config_path: Option<&Path>, action: JourneyAction, ctx: &Ctx) -> 
                 ctx.emit(&serde_json::json!({
                     "saved": name,
                     "path": rel.to_string_lossy(),
-                    "next": format!("reproit internal journey {name}"),
+                    "next": format!("reproit journey {name}"),
                 }));
             } else {
                 ctx.say(format!("  saved {}", rel.display()));
-                ctx.say(format!("  run it: reproit internal journey {name}"));
+                ctx.say(format!("  run it: reproit journey {name}"));
             }
         }
     }

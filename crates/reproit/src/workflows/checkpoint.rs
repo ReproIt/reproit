@@ -293,7 +293,7 @@ fn write_replay_log(capsule: &Value, path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// `reproit internal process-anchor`: replay the capsule once, checkpoint the
+/// `reproit process-anchor`: replay the capsule once, checkpoint the
 /// replaying process when it reaches the trigger, and record the anchor in the
 /// capsule. The slow replay is paid once so later ones are fast.
 pub fn anchor(
@@ -454,7 +454,7 @@ fn wait_for_lines(path: &str, target: usize, timeout: Duration) -> bool {
     false
 }
 
-/// `reproit internal process-restore`: restore the capsule's anchor and let
+/// `reproit process-restore`: restore the capsule's anchor and let
 /// the tail run, then judge the same four way verdict a full replay judges.
 /// Refuses, loudly, anything it cannot restore faithfully.
 pub fn restore(ctx: &Ctx, capsule_path: &Path) -> Result<ExitCode> {

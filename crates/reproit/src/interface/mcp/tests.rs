@@ -372,3 +372,69 @@ fn simplify_and_why_use_the_repro_group() {
     let w = argv("reproit_why", json!({ "repro": "cart-1" }));
     assert!(w.windows(2).any(|x| x == ["repro", "why"]));
 }
+
+/// The bridge reaches the engine by spawning this same binary with an argv it
+/// builds from strings, so a renamed or removed subcommand cannot fail to
+/// compile: it fails at run time, inside an agent's session, as "unrecognized
+/// subcommand". This test closes that gap by parsing every advertised tool's
+/// argv with the real parser. It is the reason the argv path is safe to keep.
+#[test]
+fn every_advertised_tool_builds_an_argv_the_parser_accepts() {
+    use crate::interface::cli::args::Cli;
+    use clap::Parser as _;
+
+    // A superset of every argument key `build_argv` reads, so one object
+    // satisfies each tool's required set without a per-tool table to drift.
+    let args = json!({
+        "app": "demo",
+        "bucket": "bkt_deadbeef0001",
+        "reference": "occ_deadbeef0001",
+        "repro": "cart-1",
+        "id": "fnd_deadbeef0001",
+        "ids": ["fnd_deadbeef0001"],
+        "reason": "accepted for the pilot",
+        "actions": ["tap:key:testid:add"],
+        "name": "checkout",
+        "journey": { "steps": [] },
+        "as": "checkout-crash",
+        "state": "guards",
+        "status": "fixed",
+        "target": "web",
+        "platform": "web",
+        "only": "route-access",
+        "query": "checkout",
+        "kind": "operability",
+        // `changed` is deliberately absent: it is mutually exclusive with
+        // `repro`, and the point of the superset is one object every tool
+        // accepts, not every flag combination.
+        "fixed_in_build": "1.2.3",
+        "assignee": 1,
+        "exec": "node server.js",
+        "update": true,
+        "record_video": true,
+        "flicker": true,
+        "remove": false,
+    });
+
+    let mut checked = 0usize;
+    for name in tool_names() {
+        let argv = build_argv(None, &name, &args)
+            .unwrap_or_else(|(message, _)| panic!("{name}: build_argv failed: {message}"));
+        // The spawned process applies the direct-reference rewrite before clap
+        // sees argv (`reproit @alias` is a real dispatch form), so the test
+        // parses through the same entry point rather than a shorter one.
+        let full = std::iter::once("reproit".to_string())
+            .chain(argv.iter().cloned())
+            .map(std::ffi::OsString::from)
+            .collect::<Vec<_>>();
+        let full = crate::interface::cli::rewrite::expand_direct_reference_arg(full);
+        Cli::try_parse_from(full).unwrap_or_else(|error| {
+            panic!("{name} dispatches an argv the CLI cannot parse: {argv:?}\n{error}")
+        });
+        checked += 1;
+    }
+    assert!(
+        checked >= 20,
+        "expected the full tool surface, saw {checked}"
+    );
+}

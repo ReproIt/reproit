@@ -261,11 +261,18 @@ mod tests {
     // instead of leaving the skill pointing at a dead command.
     #[test]
     fn skill_core_commands_exist_and_are_documented() {
-        // The vocabulary a human types. Implementation subcommands live under
-        // `reproit internal <sub>` and are covered by the internal list below,
-        // so a skill teaching one still cannot drift from the parser.
-        const CORE: &[&str] = &["init", "find", "check", "keep", "doctor", "login"];
-        const CORE_INTERNAL: &[&str] = &[
+        // One flat namespace: the listed vocabulary plus the unlisted
+        // specialist commands. Both are typed the same way, so both are
+        // checked the same way.
+        const CORE: &[&str] = &[
+            "init",
+            "find",
+            "check",
+            "keep",
+            "doctor",
+            "login",
+            "capture",
+            "list",
             "scan",
             "fuzz",
             "create",
@@ -288,13 +295,6 @@ mod tests {
             .map(|command| command.get_name())
             .filter(|name| !name.starts_with("__"))
             .collect();
-        let internal_names: Vec<&str> = cmd
-            .find_subcommand("internal")
-            .expect("internal multiplex")
-            .get_subcommands()
-            .map(|command| command.get_name())
-            .filter(|name| !name.starts_with("__"))
-            .collect();
         for verb in CORE {
             assert!(
                 names.contains(verb),
@@ -304,17 +304,6 @@ mod tests {
             assert!(
                 text.contains(&format!("reproit {verb}")),
                 "`reproit {verb}` is a core verb but no skill references it"
-            );
-        }
-        for verb in CORE_INTERNAL {
-            assert!(
-                internal_names.contains(verb),
-                "skills reference `reproit internal {verb}` but it is not an internal \
-                 subcommand (renamed/removed?); update the skills or the list"
-            );
-            assert!(
-                text.contains(&format!("reproit internal {verb}")),
-                "`reproit internal {verb}` is taught by no skill"
             );
         }
     }

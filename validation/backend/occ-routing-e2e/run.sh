@@ -39,10 +39,10 @@ backend:
   exec: "node $FIXTURE/app.mjs"
 EOF
 
-(cd "$PROJECT" && reproit internal collect --output "$WORK/bundle.rpb" \
+(cd "$PROJECT" && reproit collect --output "$WORK/bundle.rpb" \
   --product demo --component quote --summary "quote 500s on gold tier" \
   --artifact "$WORK/capture.json" >/dev/null)
-(cd "$PROJECT" && reproit internal capture --bundle "$WORK/bundle.rpb" > "$WORK/import.txt")
+(cd "$PROJECT" && reproit capture --bundle "$WORK/bundle.rpb" > "$WORK/import.txt")
 OCC="$(grep -o 'occ_[0-9a-f]*' "$WORK/import.txt" | head -1)"
 test -n "$OCC"
 cp "$WORK/capture.json" "$PROJECT/.reproit/occurrences/$OCC/backend-capture.json"
