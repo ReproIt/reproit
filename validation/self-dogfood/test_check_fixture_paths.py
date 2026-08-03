@@ -101,6 +101,35 @@ def resolves(relative: str, reference: str) -> bool:
         directory = directory.parent
 
 
+def executable_lines(text: str) -> list[tuple[int, str]]:
+    """Lines that can actually run something.
+
+    Comments and docstrings DESCRIBE paths, including dead ones: this file's own
+    header explains the break it exists to prevent, and that prose is not a
+    reference. Prose about a dead path is how the rule gets explained, so it
+    must not be what trips the rule. Same discipline as
+    test_check_internal_invocations.py.
+    """
+    lines: list[tuple[int, str]] = []
+    fence = None
+    for number, raw in enumerate(text.splitlines(), start=1):
+        stripped = raw.strip()
+        if fence is not None:
+            if fence in stripped:
+                fence = None
+            continue
+        for quote in ('\u0022\u0022\u0022', "\u0027\u0027\u0027"):
+            if stripped.startswith(quote) and stripped.count(quote) == 1:
+                fence = quote
+                break
+        if fence is not None:
+            continue
+        if stripped.startswith(('#', '//', '*', '<!--')):
+            continue
+        lines.append((number, raw))
+    return lines
+
+
 def tracked_files() -> list[str]:
     listing = subprocess.run(
         ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
@@ -125,7 +154,7 @@ def unresolved_references() -> tuple[int, list[str]]:
         except (UnicodeDecodeError, OSError):
             continue
         scanned += 1
-        for number, line in enumerate(text.splitlines(), start=1):
+        for number, line in executable_lines(text):
             if any(foreign in line for foreign in FOREIGN):
                 continue
             for match in REFERENCE.finditer(line):
