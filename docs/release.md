@@ -17,10 +17,10 @@ The native evidence bundle covers all release-owned browser, mobile, desktop,
 terminal, webview, and backend gates. Permissioned macOS AX and Windows UIA
 evidence must come from their registered interactive environments.
 
-Release availability and compatibility maturity are separate. Native evidence
-proves an integration works at one commit. Stable compatibility additionally
-requires the independent affected-versus-fixed campaigns in
-[compatibility.md](compatibility.md).
+Release availability and field evidence are separate. Native evidence proves an
+integration works at one commit. The independent affected-versus-fixed
+campaigns recorded in [compatibility.md](compatibility.md) prove it finds real
+defects in real applications.
 
 Validate without publishing:
 

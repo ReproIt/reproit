@@ -13,7 +13,7 @@
 #       bucket: web-pr
 #       api-key: ${{ secrets.REPROIT_CLOUD_KEY }}
 #
-# CI CAPTURE MODE (`test-command`, preview, Node test runner only): runs your
+# CI CAPTURE MODE (`test-command`, Node test runner only): runs your
 # test command with the reproit SDK's CI capture mode enabled
 # (REPROIT_CI_CAPTURE=1). A failing test spools a replayable capsule; a red
 # job uploads the spool as a job artifact and prints the exact local repro
@@ -64,7 +64,7 @@ inputs:
     default: ""
   test-command:
     description: >-
-      CI capture mode (preview, Node test runner): the test command to run
+      CI capture mode (Node test runner): the test command to run
       with capture enabled. A red run uploads the capsule spool as a job
       artifact and prints the local repro command in the job summary.
     required: false

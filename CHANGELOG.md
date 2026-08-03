@@ -1,17 +1,15 @@
 # Changelog
 
 All notable user-facing changes are recorded here. ReproIt follows semantic
-versioning for the stable CLI surface, saved repro contract, wire protocol, and
+versioning for the CLI surface, saved repro contract, wire protocol, and
 versioned SDK source APIs documented in `docs/compatibility.md`.
 
 ## 1.0.0 - 2026-07-24
 
-1.0 is tiered. The web (Chromium) UI workflow is the stable surface under the
-1.x compatibility promise. The backend pillar and the non-Chromium UI adapters
-ship in this release as opt-in previews outside that promise; see
+Every surface in this release is covered by the 1.x compatibility promise; see
 `docs/compatibility.md`.
 
-### Added (stable)
+### Added: core workflow
 
 - One CLI workflow for web (Chromium) UI apps: scan, deep interaction fuzzing,
   confirmed finding replay, minimization, saved regression suites, and evidence
@@ -23,7 +21,7 @@ ship in this release as opt-in previews outside that promise; see
 - Independent Chromium application evidence against fixed public VERT and
   Slidev issues.
 
-### Added (preview, opt-in, outside the 1.x compatibility promise)
+### Added: backend and additional UI adapters
 
 - Non-Chromium UI adapters: Firefox, WebKit, mobile, desktop, terminal,
   Electron, and Tauri, each with open field-evidence gates (see
@@ -63,6 +61,5 @@ ship in this release as opt-in previews outside that promise; see
 - Existing 1.x `reproit.yaml` files, saved repros, event batches, and the command
   behavior named in `docs/compatibility.md` remain compatible throughout 1.x unless
   a security fix requires a narrowly documented exception.
-- The preview surfaces above (backend and non-Chromium UI adapters) are opt-in
-  and outside the 1.x compatibility promise: their contracts may change before
-  they are promoted. They are identified as preview where documented.
+- The backend and UI adapters above carry the same promise: their contracts are
+  covered throughout 1.x on the same terms as every other surface.

@@ -52,16 +52,16 @@ release. The web SDK also ships as JavaScript and an npm-compatible tarball.
 Native registry publication is separate from GitHub release availability and
 is not implied by a `1.0.0` package manifest.
 
-| Platform                    | 1.0 release | Compatibility | Guide                                              | Installation |
-| --------------------------- | ----------- | ------------- | -------------------------------------------------- | ------------ |
-| Web                         | Released    | Stable        | [Web SDK](reproit-web.README.md)                   | Checksummed JS and npm assets |
-| Electron and Tauri frontend | Released    | Preview       | [Web SDK](reproit-web.README.md)                   | Checksummed desktop-webview archive |
-| iOS, iPadOS, macOS          | Released    | Preview       | [Apple SDK](reproit-ios/README.md)                 | Checksummed Swift package archive |
-| Android Views and Compose   | Released    | Preview       | [Android SDK](reproit-android/README.md)           | Checksummed Gradle project archive |
-| React Native                | Released    | Preview       | [React Native SDK](reproit-react-native/README.md) | Checksummed npm-source archive |
-| Flutter                     | Released    | Preview       | [Flutter SDK](reproit_flutter/README.md)           | Checksummed Flutter package archive |
-| Windows WPF and WinUI 3     | Released    | Preview       | [Windows SDK](reproit-windows/README.md)           | Checksummed .NET project archive |
-| Linux GTK and Qt            | Released    | Preview       | [Linux SDK](reproit-linux/README.md)               | Checksummed Python package archive |
+| Platform                    | 1.0 release | Guide                                              | Installation |
+| --------------------------- | ----------- | -------------------------------------------------- | ------------ |
+| Web                         | Released    | [Web SDK](reproit-web.README.md)                   | Checksummed JS and npm assets |
+| Electron and Tauri frontend | Released    | [Web SDK](reproit-web.README.md)                   | Checksummed desktop-webview archive |
+| iOS, iPadOS, macOS          | Released    | [Apple SDK](reproit-ios/README.md)                 | Checksummed Swift package archive |
+| Android Views and Compose   | Released    | [Android SDK](reproit-android/README.md)           | Checksummed Gradle project archive |
+| React Native                | Released    | [React Native SDK](reproit-react-native/README.md) | Checksummed npm-source archive |
+| Flutter                     | Released    | [Flutter SDK](reproit_flutter/README.md)           | Checksummed Flutter package archive |
+| Windows WPF and WinUI 3     | Released    | [Windows SDK](reproit-windows/README.md)           | Checksummed .NET project archive |
+| Linux GTK and Qt            | Released    | [Linux SDK](reproit-linux/README.md)               | Checksummed Python package archive |
 
 The release job verifies every archive's package manifest and checksum. The web
 release job additionally installs its generated tarball into a clean Node

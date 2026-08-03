@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "id": "delete-target-tiering",
+  "changeType": "refactor",
+  "detail": "Founder directive: ReproIt is production grade throughout, so no surface may state or imply a quality tier, maturity, promotion state, or qualification level for a platform target. The ladder is deleted rather than renamed. Removed: the maturity field on all 21 targets, the productionToLocal qualification ladder, promotion blockers, the invented policy counts (stableMinIndependentApplications 2, three affected reproductions, three fixed controls, all introduced in 87b88ec with an empty commit body and no recorded rationale anywhere), the promotion standard and grandfathered set, STABILITY_PLAN.md, the promotion tables, and the tier split in SUPPORT.md. The remaining per-target container is renamed promotion to evidence because that is what it holds. ENFORCEMENT IS UNCHANGED OR STRICTER, which is the point: every native gate still runs, the clean and adversarial corpora still measure false positives, the field evidence records are untouched, and the rule that a target release-gates every fixture it owns is now unconditional rather than applying only to targets that had earned a label. The required-ci automation-mode check was dropped with the tier because macos-ax legitimately runs on a permissioned self-hosted Mac, which is infrastructure reality and not a quality statement. Net 2300 deletions against 500 insertions. check.py --check-generated passes, 26 compatibility and native evidence tests pass, 60 self-dogfood tests pass, cargo builds. Recorded because deleting a public compatibility surface is exactly the change that could quietly overstate support: here it removes hedges while leaving every gate that backs the claim in place.",
+  "evidence": [
+    {
+      "path": "CHANGELOG.md",
+      "sha256": "sha256:a911bdb63e653104d1a64f0083bdbab273c5f3e6960a667bd1432df492faadf4"
+    },
+    {
+      "path": "README.md",
+      "sha256": "sha256:e09e4f9b2708650b982d50bac99df157b76e56f3aa17279ba3eff4a87f2a79e7"
+    },
+    {
+      "path": "SUPPORT.md",
+      "sha256": "sha256:09a1643885dcfa4939f4a728d041cfc0d2ae52a8c00b0434fb70f3a41c701339"
+    },
+    {
+      "path": "action.README.md",
+      "sha256": "sha256:c1bd1612bf625fedeaa5b919742f63f41ba8f8f2f046a4c66efca04af48d06a8"
+    },
+    {
+      "path": "action.yml",
+      "sha256": "sha256:5741c43141cceeea8bba2fa9bd0156fe486066426253dae270c620875ec82906"
+    },
+    {
+      "path": "docs/cli.md",
+      "sha256": "sha256:56eba5917dd1e36348330d9e660f95a57f134c8ce23cffa441ba17aa82e8c178"
+    },
+    {
+      "path": "docs/compatibility.md",
+      "sha256": "sha256:577fa3c3dceb7c71b1e0d82c1e973c166260ddd4cb38e428f0ccb207b4c8eae2"
+    },
+    {
+      "path": "docs/oracles.md",
+      "sha256": "sha256:9b5031f35c5a93310c01fc8724494d167f6951c198235bec0c3e23ce82ed5473"
+    },
+    {
+      "path": "docs/product/production-to-local.md",
+      "sha256": "sha256:f872d7a32732bf4f7e631808eb9faf71b62973a5e2506c84dfc85d95898faaa8"
+    },
+    {
+      "path": "docs/release.md",
+      "sha256": "sha256:c181f80c6d06867df4aee2f1648281a065bb4791594d89d65b7313d67b2b36c6"
+    },
+    {
+      "path": "docs/surface-decisions.md",
+      "sha256": "sha256:2436ad5fb6108d3a733a0e978b4d71743afe634ba6c3304e539b77afe971ec64"
+    },
+    {
+      "path": "sdk/README.md",
+      "sha256": "sha256:f1872b518bfafd1f9bc5484b046a5da75673436015bba9a1aa94ebaee0a0d9bb"
+    }
+  ]
+}

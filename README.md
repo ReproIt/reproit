@@ -89,7 +89,7 @@ network denied. `sdk/INVENTORY.json` gates that list: an SDK in this repository 
 own suite on every push, and a failure fails the build.
 
 The UI targets below use the same capture, replay, and verdict machinery through their
-own runners. Per-target promotion state, bounds, and evidence live in
+own runners. Per-target gates, bounds, and evidence live in
 [compatibility](docs/compatibility.md).
 
 ## Where Reproit runs
@@ -143,7 +143,7 @@ own runners. Per-target promotion state, bounds, and evidence live in
 ## Documentation
 
 - [CLI reference](docs/cli.md)
-- [compatibility and promotion](docs/compatibility.md)
+- [compatibility](docs/compatibility.md)
 - [causal capsules](docs/causal-capsules.md)
 - [architecture](docs/architecture.md)
 - [oracle reference](docs/oracles.md)

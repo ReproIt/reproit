@@ -63,7 +63,6 @@ NON_SOURCE_PREFIXES = (
 NON_SOURCE_FILES = frozenset(
     {
         "validation/compatibility/STATUS.md",
-        "validation/compatibility/STABILITY_PLAN.md",
         "validation/compatibility/status.json",
     }
 )

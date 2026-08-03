@@ -358,7 +358,7 @@
         "validation/field/benchmark.json"
       ],
       "blockers": [
-        "11 of 21 atomic targets remain preview",
+        "not every atomic target has an executed independent-application campaign",
         "field campaigns are not independent production-to-local qualification"
       ]
     }

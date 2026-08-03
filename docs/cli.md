@@ -83,7 +83,7 @@ is supplied. `--changed` changes execution order only and never skips the rest o
 `--strict` makes quarantined failures block the exit code.
 
 `check <capture.json>` alone re-evaluates the captured backend events offline.
-`--exec` (preview) re-executes them instead: it boots the named command with
+`--exec` re-executes them instead: it boots the named command with
 `REPROIT_REPLAY` pointed at the capture, the SDK serves every recorded
 dependency exchange in process, and the verdict comes from the live response:
 reproduced, fixed, diverged (the code no longer makes the captured calls), or
@@ -105,7 +105,7 @@ capsule path and no flag. Replay runs in the capsule's recorded working
 directory, so relative paths resolve as they did when recorded; a recorded
 directory that no longer exists is inconclusive with that named cause.
 
-A CI TEST capsule (preview) is the same capture payload with a test as its
+A CI TEST capsule is the same capture payload with a test as its
 trigger: the Node backend SDK's `ci.suite(...)` integration for the `node:test`
 runner records each test's outbound exchanges and envelope when the test job
 sets `REPROIT_CI_CAPTURE=1`, and spools a capsule for every failing test (the

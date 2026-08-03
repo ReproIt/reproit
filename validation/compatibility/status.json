@@ -1,39 +1,25 @@
 {
   "schemaVersion": 3,
   "policy": {
-    "stableMinIndependentApplications": 2,
-    "affectedReproductionsPerApplication": 3,
-    "fixedControlsPerApplication": 3,
     "requireExactIdentity": true,
     "requireMinimizedTrigger": true,
     "requireNeighboringLegalBehavior": true,
-    "requireExactCommitNativeEvidence": true,
-    "newPromotionStandard": "schema-3",
-    "grandfatheredStableTargets": []
-  },
-  "counts": {
-    "stable": 18,
-    "preview": 3,
-    "experimental": 0
-  },
-  "productionToLocalCounts": {
-    "FixtureQualified": 3,
-    "IndependentQualified": 0,
-    "Unqualified": 18
+    "requireExactCommitNativeEvidence": true
   },
   "targets": [
     {
       "id": "backend-contract",
       "displayName": "Backend contracts",
       "family": "backend",
-      "maturity": "stable",
       "scope": "Bounded backend scan, fuzz, replay, proof, and runtime capture",
       "nativeGates": [
         "backend-contract"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "backend-contract": "linux-hosted"
+      },
       "fieldBenchmark": "validation/field/backend-contract.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -53,23 +39,21 @@
         "framework": [
           "Backend services"
         ]
-      },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
-      "promotionBlockers": []
+      }
     },
     {
       "id": "compose-android",
       "displayName": "Jetpack Compose Android",
       "family": "native-mobile",
-      "maturity": "stable",
       "scope": "Jetpack Compose on a reset Android emulator through Appium UiAutomator2",
       "nativeGates": [
         "compose-android"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "compose-android": "android"
+      },
       "fieldBenchmark": "validation/field/compose-android.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -89,23 +73,21 @@
         "framework": [
           "Jetpack Compose"
         ]
-      },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
-      "promotionBlockers": []
+      }
     },
     {
       "id": "electron-linux",
       "displayName": "Electron Linux",
       "family": "desktop-webview",
-      "maturity": "stable",
       "scope": "Packaged Electron applications on Linux workers",
       "nativeGates": [
         "electron"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "electron": "linux-hosted"
+      },
       "fieldBenchmark": "validation/field/electron-linux.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -126,23 +108,21 @@
         "framework": [
           "Electron"
         ]
-      },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
-      "promotionBlockers": []
+      }
     },
     {
       "id": "flutter-android",
       "displayName": "Flutter Android",
       "family": "flutter",
-      "maturity": "stable",
       "scope": "Flutter profile-mode builds on a reset Android emulator, driven through Appium UiAutomator2. A release APK is AOT compiled with no Dart VM service; a profile APK exposes the service, but its tree dumps carry nothing and evaluate is refused, so the observable is read from the platform accessibility hierarchy that attaching a UiAutomation makes Flutter generate. Every one of those facts was measured rather than assumed",
       "nativeGates": [
         "flutter-android"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "flutter-android": "android"
+      },
       "fieldBenchmark": "validation/field/flutter-android.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -162,23 +142,21 @@
         "framework": [
           "Flutter"
         ]
-      },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
-      "promotionBlockers": []
+      }
     },
     {
       "id": "flutter-ios",
       "displayName": "Flutter iOS",
       "family": "flutter",
-      "maturity": "stable",
       "scope": "Flutter on a disposable iOS simulator through flutter drive",
       "nativeGates": [
         "flutter-ios"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "flutter-ios": "flutter"
+      },
       "fieldBenchmark": "validation/field/flutter-ios.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -198,23 +176,21 @@
         "framework": [
           "Flutter"
         ]
-      },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
-      "promotionBlockers": []
+      }
     },
     {
       "id": "linux-gtk",
       "displayName": "Linux GTK",
       "family": "desktop",
-      "maturity": "stable",
       "scope": "x86_64 Linux container with AT-SPI on GTK",
       "nativeGates": [
         "linux-atspi-gtk"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "linux-atspi-gtk": "linux-containers"
+      },
       "fieldBenchmark": "validation/field/linux-gtk.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -235,23 +211,21 @@
           "GTK 3",
           "GTK 4"
         ]
-      },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
-      "promotionBlockers": []
+      }
     },
     {
       "id": "linux-qt-quick",
       "displayName": "Linux Qt Quick/QML",
       "family": "desktop",
-      "maturity": "stable",
       "scope": "x86_64 Linux container with AT-SPI on Qt Quick/QML",
       "nativeGates": [
         "linux-atspi-toolkits"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "linux-atspi-toolkits": "linux-containers"
+      },
       "fieldBenchmark": "validation/field/linux-qt-quick.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -272,23 +246,21 @@
         "framework": [
           "Qt Quick/QML"
         ]
-      },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
-      "promotionBlockers": []
+      }
     },
     {
       "id": "linux-qt-widgets",
       "displayName": "Linux Qt Widgets",
       "family": "desktop",
-      "maturity": "stable",
       "scope": "x86_64 Linux container with AT-SPI on Qt Widgets",
       "nativeGates": [
         "linux-atspi-toolkits"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "linux-atspi-toolkits": "linux-containers"
+      },
       "fieldBenchmark": "validation/field/linux-qt-widgets.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -308,23 +280,21 @@
         "framework": [
           "Qt Widgets"
         ]
-      },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
-      "promotionBlockers": []
+      }
     },
     {
       "id": "linux-wxwidgets",
       "displayName": "Linux wxWidgets",
       "family": "desktop",
-      "maturity": "stable",
       "scope": "x86_64 Linux container with AT-SPI on wxWidgets",
       "nativeGates": [
         "linux-atspi-toolkits"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "linux-atspi-toolkits": "linux-containers"
+      },
       "fieldBenchmark": "validation/field/linux-wxwidgets.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -344,23 +314,21 @@
         "framework": [
           "wxWidgets"
         ]
-      },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
-      "promotionBlockers": []
+      }
     },
     {
       "id": "macos-ax",
       "displayName": "macOS Accessibility",
       "family": "desktop",
-      "maturity": "preview",
       "scope": "Permissioned macOS accessibility on SwiftUI",
       "nativeGates": [
         "macos-ax"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "macos-ax": "macos"
+      },
       "fieldBenchmark": null,
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "missing",
         "adversarialCorpus": "missing",
         "packageInstall": "missing",
@@ -381,36 +349,21 @@
           "SwiftUI",
           "AppKit"
         ]
-      },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
-      "promotionBlockers": [
-        {
-          "code": "incomplete-evidence",
-          "detail": "no application campaign has been executed. 9 candidate defects across 5 independent applications are qualified with verified revisions, but none has three clean affected reproductions and three reached-observation fixed controls. An execution attempt on 2026-08-01 got no further than the first launch: see the environment-unreachable blocker below, which is now the input this one waits on"
-        },
-        {
-          "code": "incomplete-evidence",
-          "detail": "no per-target clean and adversarial corpus gate exists, so no false-positive rate is measured for this target"
-        },
-        {
-          "code": "environment-unreachable",
-          "detail": "the campaign cannot be executed on the only permissioned macOS host, and this is the same fault that stalls the required-CI runner rather than a second one. This host's syspolicyd has been pinned near 98 percent CPU since 6 July, and it performs Gatekeeper assessment, so any Mach-O file that has not been assessed at its current path stalls in _dyld_start at 0 percent CPU indefinitely. Ten bounded launches separate what runs from what does not: signing, ad-hoc re-signing, architecture, the Rosetta path, the directory, and the process that wrote the file all make no difference, and cp of a system binary that runs instantly in place also stalls at its new path, so the assessment is keyed on the file rather than on the code. It reaches builds too, not only launches: an xcodebuild of Platypus compiled and then stopped in a run-script phase with /bin/sh itself stuck in _dyld_start. No application can therefore be built or launched, so no reproduction run of any kind is possible. Nothing here disqualifies any of the 9 candidates: none was built, no accessibility tree was dumped, and no revision pair was tested for discrimination. Repairing syspolicyd needs root"
-        }
-      ]
+      }
     },
     {
       "id": "react-native-android",
       "displayName": "React Native Android",
       "family": "native-mobile",
-      "maturity": "stable",
       "scope": "React Native on a reset Android emulator through Appium UiAutomator2",
       "nativeGates": [
         "react-native-android"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "react-native-android": "android"
+      },
       "fieldBenchmark": "validation/field/react-native-android.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -430,23 +383,21 @@
         "framework": [
           "React Native"
         ]
-      },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
-      "promotionBlockers": []
+      }
     },
     {
       "id": "react-native-ios",
       "displayName": "React Native iOS",
       "family": "native-mobile",
-      "maturity": "preview",
       "scope": "React Native on a disposable iOS simulator through Appium XCUITest",
       "nativeGates": [
         "react-native-ios"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "react-native-ios": "swiftui"
+      },
       "fieldBenchmark": "validation/field/react-native-ios.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -466,28 +417,21 @@
         "framework": [
           "React Native"
         ]
-      },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
-      "promotionBlockers": [
-        {
-          "code": "incomplete-evidence",
-          "detail": "one of the two required application campaigns is complete, and the corpus is retained and passing. joplin, issue 15972, affected 7d90db0b and fixed 2fa45a5a, ran on disposable iPhone 16 Pro simulators on iOS 26.2: three affected reproductions all landing on react-native-layout:note-row-padding-outside-touch-target with the note row hit area measured at 370 by 20 and the tap at (201, 118) swallowed, three fixed controls all reaching the same observation with the hit area at 402 by 52 and the identical coordinate opening the note, neighbouring legal behaviour holding on both revisions, and the owned simulator deleted. The corpus is one clean and two adversarial subjects with zero false positives. The second application is what remains: BlueWallet is excluded outright because a pinned dependency repository returns 404, and streetwriters/notesnook is selected. Its defect is JavaScript, so the trigger and the observable proven on Android carry over unchanged: issue 7348, affected 14f727d6 and fixed 7c3fdab6, one note relinked from notebook Alpha to Beta in single-select mode, where the affected build leaves the note in both. Its iOS build is the missing input. The bootstrap recipe is now known and is the project's own, npm ci --ignore-scripts then npm run bootstrap -- --scope=mobile then npm run tx mobile:build, without which the bundle cannot resolve @notesnook/intl. It did not complete on this host: syspolicyd has been wedged near a full core since 6 July, a sampled /bin/sh script phase sat in _dyld_start having executed no instruction, and the bootstrap and the xcodebuild script phases both stall there repeatedly"
-        }
-      ]
+      }
     },
     {
       "id": "swiftui-ios",
       "displayName": "SwiftUI iOS",
       "family": "native-mobile",
-      "maturity": "stable",
       "scope": "SwiftUI on a disposable iOS simulator through Appium XCUITest",
       "nativeGates": [
         "swiftui-ios"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "swiftui-ios": "swiftui"
+      },
       "fieldBenchmark": "validation/field/swiftui-ios.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -507,23 +451,21 @@
         "framework": [
           "SwiftUI"
         ]
-      },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
-      "promotionBlockers": []
+      }
     },
     {
       "id": "tauri-linux",
       "displayName": "Tauri Linux",
       "family": "desktop-webview",
-      "maturity": "preview",
       "scope": "Tauri on Linux WebKitGTK workers",
       "nativeGates": [
         "tauri"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "tauri": "linux-containers"
+      },
       "fieldBenchmark": null,
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -543,28 +485,21 @@
         "framework": [
           "Tauri"
         ]
-      },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
-      "promotionBlockers": [
-        {
-          "code": "incomplete-evidence",
-          "detail": "one of the two required independent application campaigns is executed, with a clean and adversarial corpus behind its oracle. The second application is reachable but not executed: the worker now has a second observation channel, AT-SPI for native windows, which is fixture-proven and imports fourteen books through readest's real GTK chooser. Two inputs remain: the element readest marks when a row is selected, since neither className nor computed background-color changes, and a Next.js export that is not SIGKILLed by the 8 GB Docker VM"
-        }
-      ]
+      }
     },
     {
       "id": "tui",
       "displayName": "Terminal UI",
       "family": "tui",
-      "maturity": "stable",
       "scope": "Terminal applications on a real PTY with the VT parser",
       "nativeGates": [
         "tui-pty"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "tui-pty": "linux-hosted"
+      },
       "fieldBenchmark": "validation/field/tui.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -586,23 +521,21 @@
           "TypeScript",
           "Python terminal apps"
         ]
-      },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
-      "promotionBlockers": []
+      }
     },
     {
       "id": "web-chromium",
       "displayName": "Web Chromium",
       "family": "web",
-      "maturity": "stable",
       "scope": "Chromium web through Playwright CDP on Linux",
       "nativeGates": [
         "web-chromium"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "web-chromium": "linux-hosted"
+      },
       "fieldBenchmark": "validation/field/benchmark.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -622,23 +555,21 @@
         "framework": [
           "DOM applications"
         ]
-      },
-      "productionToLocal": "FixtureQualified",
-      "productionToLocalEvidence": "validation/field/evidence/production/web-chromium/record.json",
-      "promotionBlockers": []
+      }
     },
     {
       "id": "web-firefox",
       "displayName": "Web Firefox",
       "family": "web",
-      "maturity": "stable",
       "scope": "Firefox through Playwright on Linux",
       "nativeGates": [
         "web-engines"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "web-engines": "linux-hosted"
+      },
       "fieldBenchmark": "validation/field/web-firefox.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -658,23 +589,21 @@
         "framework": [
           "DOM applications"
         ]
-      },
-      "productionToLocal": "FixtureQualified",
-      "productionToLocalEvidence": "validation/field/evidence/production/web-firefox/record.json",
-      "promotionBlockers": []
+      }
     },
     {
       "id": "web-webkit",
       "displayName": "Web WebKit",
       "family": "web",
-      "maturity": "stable",
       "scope": "WebKit through Playwright on Linux",
       "nativeGates": [
         "web-engines"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "web-engines": "linux-hosted"
+      },
       "fieldBenchmark": "validation/field/web-webkit.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -694,23 +623,21 @@
         "framework": [
           "DOM applications"
         ]
-      },
-      "productionToLocal": "FixtureQualified",
-      "productionToLocalEvidence": "validation/field/evidence/production/web-webkit/record.json",
-      "promotionBlockers": []
+      }
     },
     {
       "id": "windows-avalonia",
       "displayName": "Windows Avalonia",
       "family": "desktop",
-      "maturity": "stable",
       "scope": "Native x86_64 Windows UI Automation on Avalonia",
       "nativeGates": [
         "windows-uia"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "windows-uia": "windows"
+      },
       "fieldBenchmark": "validation/field/windows-avalonia.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -730,23 +657,21 @@
         "framework": [
           "Avalonia"
         ]
-      },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
-      "promotionBlockers": []
+      }
     },
     {
       "id": "windows-winui",
       "displayName": "Windows WinUI 3",
       "family": "desktop",
-      "maturity": "stable",
       "scope": "Native x86_64 Windows UI Automation on WinUI 3",
       "nativeGates": [
         "windows-uia"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "windows-uia": "windows"
+      },
       "fieldBenchmark": "validation/field/windows-winui.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -767,23 +692,21 @@
         "framework": [
           "WinUI 3"
         ]
-      },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
-      "promotionBlockers": []
+      }
     },
     {
       "id": "windows-wpf",
       "displayName": "Windows WPF",
       "family": "desktop",
-      "maturity": "stable",
       "scope": "Native x86_64 Windows UI Automation on WPF",
       "nativeGates": [
         "windows-uia"
       ],
-      "promotionStandard": "schema-3",
+      "releaseGates": {
+        "windows-uia": "windows"
+      },
       "fieldBenchmark": "validation/field/windows-wpf.json",
-      "qualifications": {
+      "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
         "packageInstall": "ci-gate",
@@ -803,10 +726,7 @@
         "framework": [
           "WPF"
         ]
-      },
-      "productionToLocal": "Unqualified",
-      "productionToLocalEvidence": null,
-      "promotionBlockers": []
+      }
     }
   ]
 }

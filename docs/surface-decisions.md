@@ -48,34 +48,30 @@ tells you honestly what carrying it costs.
 | flutter | 6,657 | 16 | flutter-sdk, 242s | yes | **decide** |
 
 The four TUI SDKs are 6,077 lines and four separate ports of one small idea, for
-a target (Terminal UI) that is already Stable and served by the TUI runner. They
-are the clearest retirement candidate on this table: retiring three of the four
-and keeping one reference port would remove roughly 4,300 lines, two CI jobs,
-and three release artifacts.
+one target (Terminal UI) that the TUI runner already serves. They are the
+clearest retirement candidate on this table: retiring three of the four and
+keeping one reference port would remove roughly 4,300 lines, two CI jobs, and
+three release artifacts.
 
 ## UI targets
 
-Eleven of twenty one targets are Preview, each with two or three named
-blockers, all frozen behind the backend IndependentQualified qualification per
-`docs/compatibility.md`.
+Every target carries a CI job, a compatibility row, and its own native gates.
+The question on this page is which of them are worth carrying, not what rank
+they hold.
 
-| target | maturity | blockers | recommendation |
-| --- | --- | ---: | --- |
-| Backend contracts, Terminal UI, Web Chromium, Web Firefox, Web WebKit | Stable | 0 | keep, these are the product |
-| Electron Linux, Windows WPF, Windows Avalonia, Jetpack Compose Android, Flutter iOS | Stable | 0 | keep |
-| Linux GTK, Linux Qt Quick/QML, Linux Qt Widgets, Linux wxWidgets | Preview | 2 to 3 | **four Linux desktop toolkits is the widest Preview bet; recommend keeping one and retiring three** |
-| React Native Android, React Native iOS, SwiftUI iOS, Flutter Android | Preview | 2 to 3 | keep, they pair with released mobile SDKs |
-| macOS Accessibility, Tauri Linux, Windows WinUI 3 | Preview | 2 to 3 | **decide** |
-
-The freeze already stops these from consuming promotion effort. The open
-question is whether a frozen Preview target should still cost a CI job and a
-compatibility row, or be retired outright.
+| target | recommendation |
+| --- | --- |
+| Backend contracts, Terminal UI, Web Chromium, Web Firefox, Web WebKit | keep, these are the product |
+| Electron Linux, Windows WPF, Windows Avalonia, Jetpack Compose Android, Flutter iOS | keep |
+| Linux GTK, Linux Qt Quick/QML, Linux Qt Widgets, Linux wxWidgets | **four Linux desktop toolkits is the widest bet on this page; recommend keeping one and retiring three** |
+| React Native Android, React Native iOS, SwiftUI iOS, Flutter Android | keep, they pair with released mobile SDKs |
+| macOS Accessibility, Tauri Linux, Windows WinUI 3 | **decide** |
 
 ## Runners
 
 The four `operability-golden-*` jobs (appkit, wpf, qt, gtk) total 124 seconds
 and exist to pin per toolkit golden output. They are cheap and they are the
-evidence behind the Preview rows above; retiring a target should retire its
+evidence behind the desktop rows above; retiring a target should retire its
 golden job at the same time, or the evidence outlives the claim.
 
 The three Appium jobs (ios smoke 610s, swiftui smoke 530s, android smoke 144s)

@@ -17,7 +17,7 @@ cohort, inline clip, dashboard link.
 See `.github/workflows/reproit-example.yml` for the full job (checkout, start the app, then the
 action) that you copy into your own repo.
 
-**CI capture mode** (`test-command`, preview): the flaky-CI wedge. The action runs your test
+**CI capture mode** (`test-command`): the flaky-CI wedge. The action runs your test
 command with the reproit backend SDK's CI capture mode enabled (`REPROIT_CI_CAPTURE=1`). Every
 test wrapped with the SDK's `ci.suite(...)` integration (Node `node:test` runner only today)
 records its outbound dependency exchanges and determinism envelope; a FAILING test spools a

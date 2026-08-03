@@ -1,121 +1,86 @@
-# Compatibility and promotion
+# Compatibility
 
 `validation/support-manifest.json` is the canonical atomic compatibility
 contract. `validation/compatibility/check.py` validates it and generates the
 [current status](../validation/compatibility/STATUS.md). Documentation cannot
-promote a target.
+add a target.
+
+An atomic target is one exact combination of platform, toolkit, and observation
+channel, for example Chromium through Playwright CDP on Linux. Targets are
+atomic because families do not behave as a unit: browsers, operating systems,
+desktop toolkits, mobile frameworks, and webview hosts each carry their own
+native gates, their own bounds, and their own evidence.
 
 Capture and replay coverage is tracked separately in the
-[capability ledger](../validation/capabilities/README.md). A platform maturity
-claim cannot substitute for a missing collector, compiler requirement, replay
-provider, or independent production-to-local qualification.
+[capability ledger](../validation/capabilities/README.md). Listing a target
+cannot substitute for a missing collector, compiler requirement, or replay
+provider.
 
-The generated [all-target stability plan](../validation/compatibility/STABILITY_PLAN.md)
-turns every current blocker and native gate into a per-target worklist.
+## Per-target evidence
 
-## Maturity
+Every target in the manifest declares:
 
-- Stable targets are covered by the 1.x compatibility promise and have complete
-  native and independent-application evidence.
-- Preview targets ship for evaluation and pass their named integration gates,
-  but lack one or more field-promotion requirements.
-- Experimental targets are explicitly selected specialist surfaces.
+- `ownedGates`: the native fixtures it owns.
+- `releaseGates`: where each owned gate's exact-commit evidence is retained.
+  Every owned gate is release-gated.
+- `bounds`: the runtimes and frameworks it covers. Operating systems and
+  architectures are derived from the owned gates.
+- `fieldBenchmark`: the affected-versus-fixed application campaign record.
+- `cleanCorpus` and `adversarialCorpus`: the false-positive measurement behind
+  the target's oracles.
+- `packageInstall` and `manualReview`: the CI gate or retained artifact for
+  each.
 
-An atomic target becomes Stable only when it has:
+`policy` records the evidence rules that hold for every target: exact identity
+preservation, a verified minimized trigger, a passing neighboring-behavior
+control, and exact-commit native evidence.
 
-1. exact-commit evidence for every owned native gate;
-2. two independent real applications with pinned affected and fixed revisions;
-3. three clean exact affected reproductions per application;
-4. three clean fixed controls that reach the same observation point;
-5. a minimized trigger that preserves the identity;
-6. a passing neighboring-behavior control;
-7. no confirmed false positive in the clean and adversarial corpus;
-8. retained runtime, architecture, reset, cleanup, and artifact digests; and
-9. a confirmed manual review.
+## Supported targets
 
-Targets on the schema-3 promotion standard additionally require a clean
-corpus, an adversarial corpus, a clean installation of the distributed package,
-and a confirmed manual review. Every target in the manifest is on schema-3;
-the grandfathered schema-2 set (`policy.grandfatheredStableTargets`) is empty
-and can only shrink, so no target can rejoin it.
+<!-- generated:targets -->
 
-Families do not promote as a unit. Browsers, operating systems, desktop
-toolkits, mobile frameworks, and webview hosts qualify independently.
+Supported atomic targets: 21.
 
-## Production-to-local qualification
+| Target | Family | Native gates | OS | Architectures |
+|---|---|---|---|---|
+| Backend contracts | backend | backend-contract | linux | x86_64 |
+| Jetpack Compose Android | native-mobile | compose-android | android-emulator | x86_64 |
+| Electron Linux | desktop-webview | electron | linux | x86_64 |
+| Flutter Android | flutter | flutter-android | android-emulator | x86_64 |
+| Flutter iOS | flutter | flutter-ios | ios-simulator | arm64 |
+| Linux GTK | desktop | linux-atspi-gtk | linux-container | x86_64 |
+| Linux Qt Quick/QML | desktop | linux-atspi-toolkits | linux-container | x86_64 |
+| Linux Qt Widgets | desktop | linux-atspi-toolkits | linux-container | x86_64 |
+| Linux wxWidgets | desktop | linux-atspi-toolkits | linux-container | x86_64 |
+| macOS Accessibility | desktop | macos-ax | macos | arm64 |
+| React Native Android | native-mobile | react-native-android | android-emulator | x86_64 |
+| React Native iOS | native-mobile | react-native-ios | ios-simulator | arm64 |
+| SwiftUI iOS | native-mobile | swiftui-ios | ios-simulator | arm64 |
+| Tauri Linux | desktop-webview | tauri | linux | x86_64 |
+| Terminal UI | tui | tui-pty | linux | x86_64 |
+| Web Chromium | web | web-chromium | linux | x86_64 |
+| Web Firefox | web | web-engines | linux | x86_64 |
+| Web WebKit | web | web-engines | linux | x86_64 |
+| Windows Avalonia | desktop | windows-uia | windows-x86_64-interactive | x86_64 |
+| Windows WinUI 3 | desktop | windows-uia | windows-x86_64-interactive | x86_64 |
+| Windows WPF | desktop | windows-uia | windows-x86_64-interactive | x86_64 |
 
-`maturity` and `productionToLocal` are independent fields. Stable is an atomic
-compatibility claim. `productionToLocal` is the separate, stronger designation
-that a real production occurrence on that target reproduces locally, and it
-moves through Unqualified, FixtureQualified, and IndependentQualified.
-
-The manifest stores this state as an evidence binding, not a label. An
-Unqualified target has no evidence path. Every qualified target must cite a
-retained schema-2 production-chain record that matches the target and level,
-binds exact CLI, SDK, and application revisions, distinguishes fixture from
-independent origin, names the Cloud project and occurrence, identifies the
-trusted local provider, and verifies commands, assertions, reset, cleanup, and
-artifact hashes. The compatibility validator rejects a state change when any
-binding is absent or inconsistent.
-
-## Sequencing: backend first
-
-Promotion effort is sequenced deliberately: no UI target is promoted out of
-Preview until the backend pillar holds IndependentQualified
-production-to-local qualification. The production-to-local loop is the
-product's core claim, and finishing it on one pillar outranks widening the
-Stable set. Preview targets keep shipping and keep their evidence gates; the
-freeze is on promotion work, not on support. This ordering decision lives
-here, not in the manifest: the promotion requirements above are unchanged and
-no target's recorded state moves because of it.
-
-## Current promotion state
-
-<!-- generated:promotion-state -->
-
-Stable atomic targets: 18. Preview: 3. Experimental: 0.
-
-| Target | Maturity | Standard | OS | Architectures | Blockers |
-|---|---|---|---|---|---|
-| Backend contracts | Stable | schema-3 | linux | x86_64 | 0 |
-| Jetpack Compose Android | Stable | schema-3 | android-emulator | x86_64 | 0 |
-| Electron Linux | Stable | schema-3 | linux | x86_64 | 0 |
-| Flutter Android | Stable | schema-3 | android-emulator | x86_64 | 0 |
-| Flutter iOS | Stable | schema-3 | ios-simulator | arm64 | 0 |
-| Linux GTK | Stable | schema-3 | linux-container | x86_64 | 0 |
-| Linux Qt Quick/QML | Stable | schema-3 | linux-container | x86_64 | 0 |
-| Linux Qt Widgets | Stable | schema-3 | linux-container | x86_64 | 0 |
-| Linux wxWidgets | Stable | schema-3 | linux-container | x86_64 | 0 |
-| macOS Accessibility | Preview | schema-3 | macos | arm64 | 3 |
-| React Native Android | Stable | schema-3 | android-emulator | x86_64 | 0 |
-| React Native iOS | Preview | schema-3 | ios-simulator | arm64 | 1 |
-| SwiftUI iOS | Stable | schema-3 | ios-simulator | arm64 | 0 |
-| Tauri Linux | Preview | schema-3 | linux | x86_64 | 1 |
-| Terminal UI | Stable | schema-3 | linux | x86_64 | 0 |
-| Web Chromium | Stable | schema-3 | linux | x86_64 | 0 |
-| Web Firefox | Stable | schema-3 | linux | x86_64 | 0 |
-| Web WebKit | Stable | schema-3 | linux | x86_64 | 0 |
-| Windows Avalonia | Stable | schema-3 | windows-x86_64-interactive | x86_64 | 0 |
-| Windows WinUI 3 | Stable | schema-3 | windows-x86_64-interactive | x86_64 | 0 |
-| Windows WPF | Stable | schema-3 | windows-x86_64-interactive | x86_64 | 0 |
-
-Every blocker, with its typed code and exact detail, is listed in
+Every target's runtime and framework bounds, release evidence
+directories, and retained evidence slots are listed in
 [the generated status](../validation/compatibility/STATUS.md).
 
-<!-- /generated:promotion-state -->
+<!-- /generated:targets -->
 
+## 1.x surface
 
-## Stable 1.x surface
+1.x preserves documented flags, exit behavior, JSON field meaning, persisted
+formats, event protocol version 1, release archives, and the published SDK
+source APIs. Patch releases may add optional fields but do not remove fields,
+reinterpret results, or broaden a finding predicate.
 
-For Stable targets, 1.x preserves documented flags, exit behavior, JSON field
-meaning, persisted formats, event protocol version 1, release archives, and the
-published SDK source APIs. Patch releases may add optional fields but do not
-remove fields, reinterpret results, or broaden a finding predicate.
-
-Preview and Experimental adapters, specialist oracles, hidden diagnostics,
-advanced causal reduction, and unpublished registry coordinates remain outside
-that promise. They must fail closed and cannot silently create a regression
-guard.
+Hidden diagnostics, advanced causal reduction, and unpublished registry
+coordinates remain outside that promise. They must fail closed and cannot
+silently create a regression guard.
 
 ## Host requirements
 

@@ -1,12 +1,13 @@
-# Experimental backend structural validation
+# Backend structural validation
 
 The canonical proof model and concise backend oracle catalog live in
-[`docs/oracles.md`](../../docs/oracles.md#backend-oracles). This page covers the experimental event
-protocol, configuration, and validation gates.
+[`docs/oracles.md`](../../docs/oracles.md#backend-oracles). This page covers the event protocol,
+configuration, and validation gates.
 
-This implementation gate is separate from the public quick start because backend support remains
-experimental. It validates the language-independent event protocol, schema importers, function and
-effect graph, authoritative oracle boundary, frozen identities, and exact replay integration.
+This implementation gate is separate from the public quick start because it is the internal proof
+of the backend mechanism rather than the user-facing workflow. It validates the
+language-independent event protocol, schema importers, function and effect graph, authoritative
+oracle boundary, frozen identities, and exact replay integration.
 
 Backend adapters emit one JSON object per line. Verdict evaluation consumes the object after the
 `REPROIT:BACKEND` marker in the runner log so it remains attributed to the exact fuzz seed. A
