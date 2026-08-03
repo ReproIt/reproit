@@ -46,50 +46,18 @@ Eight languages (node, python, rust, go, java, dotnet, php, ruby) record a faili
 **together with its outbound exchanges**, and serve those exchanges back at replay. That is what
 makes a production failure re-executable with the database stopped and the network denied.
 
-The SDKs ship as **source in this repository**, not as published packages, so you add them by path
-or submodule rather than from a registry. Full working integrations live under `fixtures/` and are
-driven by CI on every push, so the snippets below cannot rot without a build going red.
+Mounting one is a single line, because each SDK ships a framework adapter: express and fastify for
+Node, ASGI for Python, `net/http` middleware for Go, a tower layer for axum and actix, a servlet
+filter for Java, `UseReproit` for ASP.NET Core, PSR-15 for PHP, and Rack for Ruby.
 
-**Node** (`fixtures/llm-agent-fixture/agent.mjs`):
-
-```js
-const instrument = require('<path-to>/sdk/reproit-backend-node/instrument.js');
-instrument.install();
+```python
+app.add_middleware(ReproitMiddleware, capture=capture)
 ```
 
-**Node, CI capsule mode** (`fixtures/flaky-ci-fixture/tests/checkout.test.mjs`). Wrap the suite
-and a failing test spools a capsule you can re-run on a laptop:
+Every language, with its install line and where to reach the trace, is in
+[Add ReproIt to a backend](../backend-sdk.md).
 
-```js
-const ci = require('<path-to>/sdk/reproit-backend-node/ci.js');
-const test = ci.suite('checkout');
-```
-
-**Rust** (`fixtures/rs-backend-fixture/src/main.rs`):
-
-```rust
-use reproit_backend::instrument::{self, http};
-use reproit_backend::{determinism_envelope, BackendTrace, Recorder, TraceContext};
-```
-
-**Go** (`fixtures/go-backend-fixture`). Add the SDK with a `replace` directive, then wrap the
-driver you already use:
-
-```go
-// go.mod
-require github.com/ReproIt/reproit/sdk/reproit-backend-go v0.0.0
-replace github.com/ReproIt/reproit/sdk/reproit-backend-go => ../../sdk/reproit-backend-go
-```
-
-```go
-import reproit "github.com/ReproIt/reproit/sdk/reproit-backend-go"
-
-sql.Register("app-pg", &reproit.SQLDriver{Base: pq.Driver{}})
-```
-
-Python, Java, .NET, PHP and Ruby follow the same shape: import the SDK, install the
-instrumentation once at boot, and keep using your own HTTP client and database driver. Each SDK
-ships an acceptance test pinning all four verdicts on a real failure. See
+Each SDK ships an acceptance test pinning all four verdicts on a real failure. See
 [what a repro is made of](../repros.md).
 
 ## Configuration examples

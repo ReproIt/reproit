@@ -121,6 +121,7 @@ Per-target gates, platforms, and evidence live in [compatibility](docs/compatibi
 
 - [CLI reference](docs/cli.md) — every command, and the exit-code contract
 - [ReproIt in CI](docs/ci.md) — the gate, and capturing a red build
+- [Add ReproIt to a backend](docs/backend-sdk.md) — install and one middleware, per language
 - [What a repro is made of](docs/repros.md) — the proof contract and platform coverage
 - [Oracle reference](docs/oracles.md) — what counts as a bug, and why
 - [Security and data handling](docs/security.md) — what leaves your machine

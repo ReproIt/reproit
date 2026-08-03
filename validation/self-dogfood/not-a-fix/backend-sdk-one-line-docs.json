@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "backend-sdk-one-line-docs",
+  "changeType": "maintenance",
+  "detail": "Adding ReproIt to a backend reads as hard and is not: every one of the eight backend SDKs ships a framework adapter, and mounting it is one line. What was missing was any document saying so. The READMEs are dev/test docs, and the fixtures teach the LOW-LEVEL path because they are gate harnesses that must emit capture files: the Go fixture hand-rolls reproit.Begin, WrapClient and writeCapture, roughly fifteen lines of ceremony, when a real service writes reproit.Middleware(...). docs/cloud/sdks.md made that worse by citing the fixtures as working integrations and showing raw instrument.install(), which taught the ceremony as if it were the integration. This adds docs/backend-sdk.md: install line plus the one middleware line per language, plus where each framework exposes the trace. Two survey errors are worth recording because they were the same error twice: I keyed an adapter survey on FILENAMES and reported 'none found' for Python, then for PHP and .NET, and all three were wrong (asgi.py, psr15.php with ReproitMiddleware implements MiddlewareInterface, AspNetCore.cs with UseReproit). Reading public APIs instead of listing files is the fix, and every snippet here was then verified against source: node subpath exports from package.json, MiddlewareOptions.Capture from middleware.go, ReproitFilter(TraceSink) from the servlet filter, the ReproitBackend namespace and 'reproit' request attribute from psr15.php, UseReproit(ReproitOptions) from AspNetCore.cs, ReproitLayer from the axum doc comment, and ReproitBackendRb::Middleware from rack.rb. One claim was caught and removed by that pass: there is no reproit_backend_py.wsgi module, the earlier find had matched vendored aiohttp files. Package names follow what the manifests already declare, and the page states plainly that publishing is pending so nothing reads as shipped when it is not.",
+  "evidence": [
+    {
+      "path": "docs/backend-sdk.md",
+      "sha256": "sha256:4ca19812b9ca3dd06030cfe516d3db4e32536023a8fe723e159985e4a38385d1"
+    },
+    {
+      "path": "docs/cloud/sdks.md",
+      "sha256": "sha256:e3fad9cbd49a93291ef8888496de2d3fbba1d5bc23c1356375a16e7dce3407b1"
+    }
+  ]
+}
