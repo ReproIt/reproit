@@ -140,33 +140,46 @@ can record an effect it considers significant:
 
 ## What it costs
 
-Measured, not estimated. Two benchmarks run on every push, so these numbers cannot quietly rot:
+Measured, not estimated. Four benchmarks run on every push, so these numbers cannot quietly rot:
 
-| | cost per request |
+| adapter | mounted, request not traced | mounted, request traced | baseline request |
+| --- | --- | --- | --- |
+| Node (express) | below the measurement floor | ~25 µs | ~60 µs |
+| Go (net/http) | below the measurement floor | ~25 µs | ~55 µs |
+| Python (ASGI) | ~1-7 µs, at the measurement floor | ~75 µs | ~180 µs |
+
+| trace primitive alone | cost per call |
 | --- | --- |
-| Adapter mounted, request not traced | below the measurement floor |
-| Adapter mounted, request traced | ~25 µs |
-| Trace primitive alone, inactive | 0.08 µs |
-| Trace primitive alone, active | 3.5 µs |
+| Inactive | 0.08 µs |
+| Active | 3.5 µs |
 
-The first row is the one that matters in production, because a request only carries trace context
-when something asked for it. It reads "below the measurement floor" rather than a number because
-that is the honest result: driving a real HTTP server, the difference between having the adapter
-mounted and not having it is smaller than the run-to-run noise of the method itself (about 2 µs).
-The primitive benchmark puts it at 80 nanoseconds, which is consistent with being invisible at
-HTTP scale.
+The untraced column is the one that matters in production, because a request only carries trace
+context when something asked for it. For Node and Go it reads "below the measurement floor"
+rather than a number because that is the honest result: driving a real HTTP server, the
+difference between having the adapter mounted and not having it is smaller than the run-to-run
+noise of the method itself (about 1-2 µs). The primitive benchmark puts it at 80 nanoseconds,
+which is consistent with being invisible at HTTP scale. Python's untraced cost lands at the floor
+rather than under it: across three runs it measured -21 µs, +1.4 µs and +6.5 µs, so it is single
+digits at most and the sign is not resolvable.
 
-The traced row is a real cost and it is per traced request: about 25 µs, against a ~60 µs baseline
-request on the same machine. Both are single-threaded on an Apple M1 Ultra with no I/O in the
-handler, so treat them as an order of magnitude rather than a promise about your hardware.
+The traced column is a real cost, per traced request, and Python's is about three times the other
+two. All figures are single-threaded on an Apple M1 Ultra with no I/O in the handler, so treat
+them as an order of magnitude rather than a promise about your hardware; Python's run-to-run
+spread is the widest of the three (a noisy run put its traced cost at 42 µs and its baseline at
+237 µs), which is the interpreter, not the adapter.
 
-`validation/backend/adapter-benchmark.mjs` measures the real express middleware over a real socket
-and reports the delta against an unmounted baseline; `validation/backend/benchmark.mjs` measures
-the primitive underneath. Both fail the build if the cost crosses its ceiling.
+Three benchmarks drive the real middleware over a real socket and report the delta against an
+unmounted baseline, by one method: alternating rounds, medians, and a second baseline per round
+whose gap from the first is the method's own noise floor.
+`validation/backend/adapter-benchmark.mjs` (express), `validation/backend/adapter-benchmark-go`
+(net/http) and `validation/backend/adapter-benchmark.py` (ASGI).
+`validation/backend/benchmark.mjs` measures the primitive underneath. All four fail the build if
+a cost crosses its ceiling.
 
 **Not yet measured, and worth knowing:** the per-dependency capture path (each outbound HTTP call
-and database query recorded onto a trace), and every language other than Node. The adapters share
-a design but not an implementation, so the Node number does not transfer to Go or Python.
+and database query recorded onto a trace), and the Rust, Java, .NET, PHP and Ruby adapters. The
+adapters share a design but not an implementation, so no number here transfers to one that has
+not been run.
 
 ## Next
 

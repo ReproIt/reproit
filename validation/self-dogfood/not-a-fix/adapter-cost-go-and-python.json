@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "adapter-cost-go-and-python",
+  "changeType": "tooling",
+  "detail": "The adapter cost table said 'Node only', and the gap was stated honestly rather than measured: 'the adapters share a design but not an implementation, so the Node number does not transfer to Go or Python'. This measures both, by the same method as adapter-benchmark.mjs so the numbers are comparable: a real server over a real socket with keep-alive on, four shapes per round (unmounted baseline, mounted but untraced, mounted and traced, and a SECOND baseline), alternating rounds, medians, and the gap between the two baselines reported as the method's own noise floor so a number smaller than the noise cannot be read as signal. Go lives in its own module under validation/backend/adapter-benchmark-go with a replace directive onto this checkout, so it always measures this tree; Python drives a bare ASGI app under uvicorn rather than FastAPI, because a router's per-request work is identical in all four shapes but large enough to shrink the delta the benchmark exists to show. Both run in the sdk-backend-reference job, which already has Go and uv. Measured on an Apple M1 Ultra at the CI defaults (3000 runs, 5 rounds): Go baseline 53-70us with a traced cost of 24-28us and an untraced cost below the noise floor, which puts it alongside Node; Python baseline 179-237us with a traced cost of 42-77us and an untraced cost of -21 to +6.5us, single digits at most and of unresolvable sign. Ceilings are sized for a shared runner rather than this laptop, and Python's are wider than the other two because the interpreter's own run-to-run variance is wider. docs/backend-sdk.md now carries a three-row table with the spread stated, and the remaining unmeasured set is named exactly (the per-dependency capture path, plus the Rust, Java, .NET, PHP and Ruby adapters) instead of the blanket 'every language other than Node'.",
+  "evidence": [
+    {
+      "path": "validation/backend/adapter-benchmark-go/main.go",
+      "sha256": "sha256:9d303190a52921237791267a780ab46d4364ee825f0f96ae85439ed7117a5b3c"
+    },
+    {
+      "path": "validation/backend/adapter-benchmark.py",
+      "sha256": "sha256:fb1c44eb812a8384902cdd113e404615816c26c8db459b293a04cd847386d798"
+    },
+    {
+      "path": "docs/backend-sdk.md",
+      "sha256": "sha256:d1e56077b99212d28660c1d952f204fce0c304981cd459c58a781563ef36b3a2"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "sha256:6acc5bd305e43082be935b41f3167369728004e2f885e3dd2d3a1c7f9ea624e5"
+    }
+  ]
+}

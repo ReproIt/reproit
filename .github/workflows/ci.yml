@@ -359,6 +359,12 @@ jobs:
         run: |
           go vet ./...
           go test ./...
+      # What the Go adapter costs a request, by the same method as the express
+      # one (real HTTP, interleaved rounds, a reported noise floor). Its own
+      # module so it can `replace` the SDK with this checkout.
+      - name: go adapter cost (reproit-backend-go)
+        working-directory: validation/backend/adapter-benchmark-go
+        run: go run .
       - name: python (reproit-backend-py)
         working-directory: sdk/reproit-backend-py
         run: |
@@ -371,6 +377,13 @@ jobs:
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           uv run --group e2e -m pytest tests/test_e2e.py
+      # What the ASGI adapter costs a request, same method again. It needs
+      # uvicorn, so it runs from the SDK directory under the e2e group.
+      - name: python adapter cost (reproit-backend-py)
+        working-directory: sdk/reproit-backend-py
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          uv run --group e2e python ../../validation/backend/adapter-benchmark.py
       # The instrument feature carries the whole hermetic capture and replay
       # path and was never compiled by the workspace jobs, which build default
       # features only. A feature that CI never builds is a feature nothing
