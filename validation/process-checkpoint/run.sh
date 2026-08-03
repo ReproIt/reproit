@@ -71,7 +71,7 @@ ANCHOR_AT="${ANCHOR_AT:-350}"
 echo "anchored-config-value" > "$CONFIG"
 
 # 1. Capture the long running failure.
-if ! "$BINARY" --json internal process-capture --out capsule.json -- \
+if ! "$BINARY" --json process-capture --out capsule.json -- \
     ./subject "$ITERATIONS" "$CONFIG" > capture.json 2> capture.err; then
   cat capture.err >&2
   fail "capture did not produce a capsule"
@@ -124,7 +124,7 @@ if [[ "${REPROIT_CHECKPOINT_SCOPE:-full}" == "replay-only" ]]; then
 fi
 
 # 3. Take an anchor of the replaying process.
-if ! "$BINARY" --json internal process-anchor --capsule capsule.json \
+if ! "$BINARY" --json process-anchor --capsule capsule.json \
     --exec "./subject $ITERATIONS $CONFIG" --image "$WORK/img" --after-lines "$ANCHOR_AT" \
     > anchor.json 2> anchor.err; then
   cat anchor.err >&2
@@ -145,7 +145,7 @@ pass "checkpointed the replaying process into an anchor"
 STDOUT_LOG="$WORK/img-stdout.log"
 LINES_AT_ANCHOR=$(wc -l < "$STDOUT_LOG")
 REST_START=$(date +%s%N)
-"$BINARY" --json internal process-restore --capsule capsule.json > restore.json 2> restore.err
+"$BINARY" --json process-restore --capsule capsule.json > restore.json 2> restore.err
 REST_STATUS=$?
 REST_MS=$(( ($(date +%s%N) - REST_START) / 1000000 ))
 # The restored task is DETACHED: process-restore returns once criu has handed
@@ -221,7 +221,7 @@ pass "an unobservable tail outcome fails closed instead of claiming a reproducti
 # 5. Fail closed: tamper the image, remove it, and tamper the capsule.
 cp capsule.json capsule-backup.json
 echo "tampered" >> "$WORK/img/inventory.img"
-"$BINARY" --json internal process-restore --capsule capsule.json > tampered.json 2> tampered.err
+"$BINARY" --json process-restore --capsule capsule.json > tampered.json 2> tampered.err
 TAMPER_STATUS=$?
 TAMPER_VERDICT=$(python3 -c "
 import json
@@ -233,7 +233,7 @@ except Exception:
   || fail "a tampered image was not refused (verdict=$TAMPER_VERDICT exit=$TAMPER_STATUS)"
 
 rm -rf "$WORK/img"
-"$BINARY" --json internal process-restore --capsule capsule.json > absent.json 2> absent.err
+"$BINARY" --json process-restore --capsule capsule.json > absent.json 2> absent.err
 ABSENT_STATUS=$?
 ABSENT_VERDICT=$(python3 -c "
 import json
@@ -252,7 +252,7 @@ capsule = json.load(open('capsule-backup.json'))
 capsule['entries'].append("open\t/etc/never-recorded\t-\t0\t0\t0")
 json.dump(capsule, open('capsule-tampered.json', 'w'))
 PY
-"$BINARY" --json internal process-restore --capsule capsule-tampered.json > mismatch.json 2> mismatch.err
+"$BINARY" --json process-restore --capsule capsule-tampered.json > mismatch.json 2> mismatch.err
 MISMATCH_STATUS=$?
 MISMATCH_VERDICT=$(python3 -c "
 import json

@@ -79,7 +79,7 @@ PY
 mkdir -p /tmp/reproit-subject
 printf '{ "strict": true }' > /tmp/reproit-subject/config.json
 start_upstream
-"$REPROIT" --yes internal process-capture --out "$WORK/capsule.json" -- "$WORK/subject" \
+"$REPROIT" --yes process-capture --out "$WORK/capsule.json" -- "$WORK/subject" \
   > "$WORK/capture.txt" 2>&1
 kill "$UPSTREAM_PID" 2>/dev/null; UPSTREAM_PID=""
 if ! grep -q "fatal signal" "$WORK/capture.txt"; then
@@ -143,7 +143,7 @@ data = open('/tmp/reproit-subject/input.txt').read().strip()
 print("read:" + data)
 sys.exit(3 if data == "boom" else 0)
 PY_SUBJECT
-"$REPROIT" --yes internal process-capture --out "$WORK/py-capsule.json" --   python3 "$WORK/script.py" > "$WORK/py-capture.txt" 2>&1
+"$REPROIT" --yes process-capture --out "$WORK/py-capsule.json" --   python3 "$WORK/script.py" > "$WORK/py-capture.txt" 2>&1
 PY_CAPTURED=$?
 rm -rf /tmp/reproit-subject
 if [[ "$PY_CAPTURED" -ne 0 ]]; then
@@ -196,7 +196,7 @@ data = File.read('/tmp/reproit-subject/input.txt').strip
 puts "read:" + data
 exit(data == "boom" ? 3 : 0)
 RB_SUBJECT
-  "$REPROIT" --yes internal process-capture --out "$WORK/rb-capsule.json" -- \
+  "$REPROIT" --yes process-capture --out "$WORK/rb-capsule.json" -- \
     ruby "$WORK/script.rb" > "$WORK/rb-capture.txt" 2>&1
   rm -rf /tmp/reproit-subject
   run_case "$WORK/rb-capsule.json" "ruby $WORK/script.rb" 1 \
@@ -240,7 +240,7 @@ printf 'INNER' > "$WORK/reldir/sub/data.txt"
 (
   cd "$WORK/reldir" || exit 1
   export REPROIT_SECCOMP=0
-  "$REPROIT" --yes internal process-capture --out "$WORK/rel-capsule.json" -- \
+  "$REPROIT" --yes process-capture --out "$WORK/rel-capsule.json" -- \
     "$WORK/relkey" > "$WORK/rel-capture.txt" 2>&1
 )
 ( cd "$WORK/reldir" && "$WORK/relkey" > "$WORK/rel.record" 2>/dev/null )
@@ -277,7 +277,7 @@ if [[ -x "$WORK/staticsub" ]]; then
   mkdir -p /tmp/reproit-subject
   printf '{ "strict": true }' > /tmp/reproit-subject/config.json
   rm -f "$WORK/static-direct.json"
-  "$REPROIT" --yes internal process-capture --out "$WORK/static-direct.json" -- \
+  "$REPROIT" --yes process-capture --out "$WORK/static-direct.json" -- \
     "$WORK/staticsub" > "$WORK/static-direct.txt" 2>&1
   if [[ -f "$WORK/static-direct.json" ]] \
     || ! grep -q "statically linked" "$WORK/static-direct.txt"; then
@@ -296,7 +296,7 @@ if [[ -x "$WORK/staticsub" ]]; then
   printf '#!/bin/sh\nexec %s\n' "$WORK/staticsub" > "$WORK/wrap.sh"
   chmod +x "$WORK/wrap.sh"
   rm -f "$WORK/static-wrapped.json"
-  "$REPROIT" --yes internal process-capture --out "$WORK/static-wrapped.json" -- \
+  "$REPROIT" --yes process-capture --out "$WORK/static-wrapped.json" -- \
     "$WORK/wrap.sh" > "$WORK/static-wrapped.txt" 2>&1
   rm -rf /tmp/reproit-subject
   if [[ -f "$WORK/static-wrapped.json" ]] \
@@ -343,7 +343,7 @@ for _ in range(3):
     sys.stdout.buffer.flush()
     time.sleep(0.25)
 FEEDER
-    python3 "$WORK/feeder.py" 2>/dev/null | "$REPROIT" --yes internal process-capture \
+    python3 "$WORK/feeder.py" 2>/dev/null | "$REPROIT" --yes process-capture \
       --out "$WORK/spread.json" -- "$WORK/engine" > "$WORK/spread.txt" 2>&1
     if ! grep -q "fatal signal" "$WORK/spread.txt"; then
       echo "FAIL capture: the spread session did not crash as planted" >&2
@@ -372,7 +372,7 @@ fi
 gcc -O1 -o "$WORK/twoasserts" "$ROOT/validation/process/twoasserts.c"
 mkdir -p /tmp/reproit-subject
 printf 'boom' > /tmp/reproit-subject/input.txt
-"$REPROIT" --yes internal process-capture --out "$WORK/assert.json" -- \
+"$REPROIT" --yes process-capture --out "$WORK/assert.json" -- \
   "$WORK/twoasserts" > "$WORK/assert.txt" 2>&1
 rm -rf /tmp/reproit-subject
 run_case "$WORK/assert.json" "$WORK/twoasserts" 1 \

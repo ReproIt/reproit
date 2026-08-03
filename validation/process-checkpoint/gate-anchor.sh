@@ -221,7 +221,7 @@ fi
 
 # 2 additive: a plain capture (no anchor) of the FULL run still works, so
 # the anchor section is additive and an anchor-less capsule stays valid.
-(cd "$HOME_DIR" && "$REPROIT" --yes internal process-capture \
+(cd "$HOME_DIR" && "$REPROIT" --yes process-capture \
   --out "$OUT/plain.json" -- "$BUILD/trainer" data.txt "$STEPS" ckpt.txt) \
   > "$OUT/plain-cap.txt" 2>&1
 grep -q "assertion failed" "$OUT/plain-cap.txt" \
@@ -237,7 +237,7 @@ check_case "$OUT/plain.json" "$BUILD/trainer data.txt $STEPS ckpt.txt" 1 \
 
 # 3 anchored capture: the trainer's own resume invocation, the checkpoint
 # bound by digest, the position, and the statement stored in the artifact.
-(cd "$HOME_DIR" && "$REPROIT" --yes internal process-capture \
+(cd "$HOME_DIR" && "$REPROIT" --yes process-capture \
   --out "$OUT/anchored.json" \
   --anchor-checkpoint ckpt.txt --anchor-position "$ANCHOR_STEP" \
   -- "$BUILD/trainer" data.txt "$STEPS" ckpt.txt resume) \

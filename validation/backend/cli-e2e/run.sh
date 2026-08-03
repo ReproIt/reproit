@@ -28,7 +28,7 @@ run_case() {
   done
   set +e
   OUTPUT="$(cargo run --quiet --manifest-path "$ROOT/Cargo.toml" -p reproit -- \
-    --config "$FIXTURE/reproit.yaml" --json internal scan --budget 4 2>&1)"
+    --config "$FIXTURE/reproit.yaml" --json scan --budget 4 2>&1)"
   STATUS="$?"
   set -e
   kill "$SERVER_PID" 2>/dev/null || true
@@ -59,7 +59,7 @@ run_headless_case() {
   done
   set +e
   OUTPUT="$(cd "$FIXTURE" && cargo run --quiet --manifest-path "$ROOT/Cargo.toml" \
-    -p reproit -- --json internal scan headless-openapi.yaml \
+    -p reproit -- --json scan headless-openapi.yaml \
     --service http://127.0.0.1:19877 2>&1)"
   STATUS="$?"
   set -e
@@ -80,7 +80,7 @@ run_headless_case() {
     printf '%s\n' "$REPLAY" | jq -e '.reproduced == true' >/dev/null
   else
     CONFIGURED="$(cd "$FIXTURE" && cargo run --quiet --manifest-path "$ROOT/Cargo.toml" \
-      -p reproit -- --config backend-only.yaml --json internal scan \
+      -p reproit -- --config backend-only.yaml --json scan \
       --service http://127.0.0.1:19877 2>&1)"
     printf '%s\n' "$CONFIGURED" | \
       jq -e '.complete == true and .findings == [] and .exercised == 1' >/dev/null
@@ -108,7 +108,7 @@ run_server_error_case() {
   done
   set +e
   OUTPUT="$(cd "$FIXTURE" && cargo run --quiet --manifest-path "$ROOT/Cargo.toml" \
-    -p reproit -- --json internal scan headless-openapi.yaml \
+    -p reproit -- --json scan headless-openapi.yaml \
     --service http://127.0.0.1:19877 2>&1)"
   STATUS="$?"
   set -e
@@ -144,7 +144,7 @@ run_finance_case() {
   done
   set +e
   OUTPUT="$(cd "$FIXTURE" && cargo run --quiet --manifest-path "$ROOT/Cargo.toml" \
-    -p reproit -- --config finance-backend.yaml --json internal scan 2>&1)"
+    -p reproit -- --config finance-backend.yaml --json scan 2>&1)"
   STATUS="$?"
   set -e
   kill "$SERVER_PID" 2>/dev/null || true
@@ -171,7 +171,7 @@ run_stateful_fuzz_case() {
   done
   set +e
   OUTPUT="$(cd "$FIXTURE" && cargo run --quiet --manifest-path "$ROOT/Cargo.toml" \
-    -p reproit -- --json internal fuzz stateful-openapi.yaml --runs 1 \
+    -p reproit -- --json fuzz stateful-openapi.yaml --runs 1 \
     --service http://127.0.0.1:19877 \
     --reset http://127.0.0.1:19877/__reproit/reset 2>&1)"
   STATUS="$?"
@@ -220,7 +220,7 @@ run_proof_case() {
   done
   set +e
   OUTPUT="$(cargo run --quiet --manifest-path "$ROOT/Cargo.toml" -p reproit -- \
-    --config "$FIXTURE/proof-backend.yaml" --json internal scan --budget 3 2>>"$LOG")"
+    --config "$FIXTURE/proof-backend.yaml" --json scan --budget 3 2>>"$LOG")"
   STATUS="$?"
   set -e
   kill "$SERVER_PID" 2>/dev/null || true

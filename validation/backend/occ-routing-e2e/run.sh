@@ -119,7 +119,7 @@ fi
   --exec "node $FIXTURE/app.mjs" >/dev/null)
 run_case 1 "verify replays the hermetic guard and blocks on reproduction" \
   "still reproduces on GET /quote (hermetic re-execution)" \
-  -- internal verify
+  -- verify
 
 # 5. A drifted guard lands in verify's diverged bucket: quarantined (exit 0,
 #    never blocks) and never counted as held.
@@ -136,12 +136,12 @@ EOF
 run_case 0 "a drifted guard diverges in verify without blocking" \
   "DIVERGED" \
   "never proof" \
-  -- internal verify
+  -- verify
 
 # 6. The JSON surface is additive: counts.diverged and the per-entry mode
 #    exist for machine consumers (the MCP bridge reads exactly this).
 status=0
-(cd "$PROJECT" && reproit --json internal verify >"$WORK/verify.json" 2>/dev/null) || status="$?"
+(cd "$PROJECT" && reproit --json verify >"$WORK/verify.json" 2>/dev/null) || status="$?"
 if [[ "$status" -ne 0 ]]; then
   echo "FAIL json verify: expected exit 0, got $status" >&2
   cat "$WORK/verify.json" >&2

@@ -82,7 +82,7 @@ boot_server SERVER_ERROR=1
 # Capture the status instead of toggling errexit: this scan exits non-zero on
 # purpose, and a leaked `set +e` would silence every later failure.
 SCAN_STATUS=0
-cli "$WORK/a" --json internal scan > "$WORK/scan.json" 2>&1 || SCAN_STATUS="$?"
+cli "$WORK/a" --json scan > "$WORK/scan.json" 2>&1 || SCAN_STATUS="$?"
 test "$SCAN_STATUS" -eq 1 || { echo "expected scan exit 1, got $SCAN_STATUS" >&2; cat "$WORK/scan.json" >&2; exit 1; }
 
 FID="$(python3 - "$WORK/scan.json" << 'EOF'
@@ -167,7 +167,7 @@ backend:
   schemas: [openapi.yaml]
   target: http://127.0.0.1:$PORT
 YAML
-cli "$WORK/s" --json internal scan > "$WORK/schema-scan.json" 2>&1 || true
+cli "$WORK/s" --json scan > "$WORK/schema-scan.json" 2>&1 || true
 SCHEMA_ARTIFACT="$(ls "$WORK"/s/.reproit/findings/*/backend-schema.json 2>/dev/null | head -1)"
 if [[ -z "$SCHEMA_ARTIFACT" ]]; then
   echo "expected a backend-schema.json finding for the duplicate parameter" >&2

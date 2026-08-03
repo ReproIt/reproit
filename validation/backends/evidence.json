@@ -485,7 +485,7 @@
       "resetStrategy": "fresh loopback service and empty Reproit state per case",
       "cleanupStrategy": "owned service process and Reproit state removed by EXIT trap",
       "requiredOutput": [
-        "real reproit internal scan backend contract gate passed"
+        "real reproit scan backend contract gate passed"
       ],
       "automation": {
         "mode": "required-ci",

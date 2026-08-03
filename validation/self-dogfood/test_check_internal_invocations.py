@@ -45,14 +45,29 @@ HARNESS_GLOBS = (
     "examples/**/*.sh",
 )
 
-# `reproit`, or a path ending in it, followed by the next word.
-INVOCATION = re.compile(r"\breproit(?:\.exe)?\b[\"']?\s+internal\s+(\S+)")
+# The dead multiplex, in ARGUMENT POSITION.
+#
+# Two narrower rules were tried and both shipped a red CI in the same session,
+# which is why this one carries no list of commands. Anchoring on
+# `reproit internal` missed `cargo run -p reproit -- --json internal scan`,
+# where the word sits after flags. Adding an alternation of command names then
+# missed `"$REPROIT" --yes internal process-capture`, because that command was
+# not in the list somebody had to remember to update.
+#
+# What separates an invocation from prose is not the command that FOLLOWS
+# `internal` but the token that PRECEDES it: on a command line that is the
+# binary, a flag, or a quote, while in prose ("no internal app model") it is an
+# article or a verb. So the rule reads backwards and needs no vocabulary.
+INVOCATION = re.compile(
+    r"""(?:reproit(?:\.exe)?["']?|--[\w.-]*|-{2}|["'=])\s+internal\s+([a-z_][\w.-]*)"""
+)
 
-# The same command passed as a standalone argument string, which is how the
-# Windows harness spells it: the binary is a variable, so the command never
-# sits next to the word `reproit`. A quoted argument carrying the multiplex is
-# the dead spelling; a bare `"__uia"` is the live one.
+# Belt and braces: the line must also mention the CLI somehow, so a stray
+# `-- internal foo` in unrelated prose cannot trip the gate.
+INVOKES_CLI = re.compile(r"reproit(?:\.exe)?\b|REPROIT_BINARY|\$REPROIT\b|\$BINARY\b|Arguments")
+
 ARGUMENT = re.compile(r"[\"']internal\s+(__[a-z][a-z0-9-]*)[\"']")
+
 
 SKIP_DIRS = ("/target/", "/.claude/", "/node_modules/")
 
@@ -84,15 +99,9 @@ def executable_lines(text: str) -> list[tuple[int, str]]:
 def bad_invocations(text: str) -> list[tuple[int, str]]:
     found = []
     for number, line in executable_lines(text):
-        for match in INVOCATION.finditer(line):
-            word = match.group(1).strip("\"'")
-            if not word.startswith("__"):
-                continue
-            # `internal` is gone: the command must follow `reproit` directly.
-            before = line[: match.start(1)].rstrip().rstrip("\"'")
-            if not before.endswith("internal"):
-                continue
-            found.append((number, word))
+        if INVOKES_CLI.search(line):
+            for match in INVOCATION.finditer(line):
+                found.append((number, match.group(1).strip("\"'")))
         for match in ARGUMENT.finditer(line):
             if (number, match.group(1)) in found:
                 continue
@@ -130,6 +139,30 @@ class InternalInvocationTests(unittest.TestCase):
     def test_the_top_level_spelling_passes(self) -> None:
         text = '"$ROOT/target/debug/reproit" __tui | tee "$LOG"\n'
         self.assertEqual(bad_invocations(text), [])
+        self.assertEqual(bad_invocations("cargo run -p reproit -- --json scan\n"), [])
+
+    def test_a_command_the_rule_never_listed_is_still_caught(self) -> None:
+        # `process-capture` was missing from an earlier alternation, so a real
+        # harness line shipped and turned linux-containers red. No list, no gap.
+        text = '"$REPROIT" --yes internal process-capture --out "$WORK/c.json"\n'
+        self.assertEqual(bad_invocations(text), [(1, "process-capture")])
+
+    def test_prose_about_the_internal_model_is_not_an_invocation(self) -> None:
+        self.assertEqual(
+            bad_invocations('    anyhow::bail!("no internal app model; run `reproit scan`")\n'),
+            [],
+        )
+
+    def test_the_multiplex_is_caught_after_flags(self) -> None:
+        # The exact line that broke the linux-hosted backend-contract gate: the
+        # word sits after `--json`, not after the binary, so a binary-adjacent
+        # pattern reported this file clean.
+        text = 'cargo run -p reproit -- --json internal scan headless-openapi.yaml\n'
+        self.assertEqual(bad_invocations(text), [(1, "scan")])
+        self.assertEqual(
+            bad_invocations('(cd "$P" && reproit --json internal verify)\n'),
+            [(1, "verify")],
+        )
 
     def test_a_quoted_binary_path_still_matches(self) -> None:
         # `reproit"` then the command: the closing quote must not hide it. A sed

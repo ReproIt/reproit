@@ -177,7 +177,7 @@ subject_rows() { # subject_rows <name> <build-dir> <crash-marker>
   echo "PASS $name premise: back-to-back bytes are safe, the bug is the schedule"
 
   # 2 capture: presses spread 0.25 s apart crash as planted.
-  (cd "$HOME_DIR" && feed_spread | "$REPROIT" --yes internal process-capture \
+  (cd "$HOME_DIR" && feed_spread | "$REPROIT" --yes process-capture \
     --out "$OUT/$name.json" -- "$engine") > "$OUT/$name-cap.txt" 2>&1
   if ! grep -q "$crash" "$OUT/$name-cap.txt"; then
     echo "FAIL $name capture: the spread session did not crash as planted" >&2
