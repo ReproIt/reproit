@@ -783,3 +783,64 @@ prevents: a first-run user bouncing off a dead-end error.
 doctor.rs crossed the 1000-line reviewability cap during the sweep and was split at
 the backend/app boundary (workflows/doctor/backend.rs), the same split check.rs
 uses; the multi-schema narrowing ratchet now covers both files.
+
+## Fixture B re-measure: the last web misclassification (2026-08-02)
+
+Phase 1 recorded the bare-package.json misclassification as fixed, and it was. A neighbouring
+case was not: a backend-only repo whose one browser-shaped marker is the page it SERVES.
+Reproduced before changing anything, on the Phase 4 binary, with a raw `http.createServer`
+server, a minimal package.json, and an `index.html` in the root. Verbatim reproit.yaml:
+
+```
+app:
+  platform: web
+  webRunnerDir: "/Users/.../Library/Application Support/reproit/web"
+  url: "http://localhost:3000"      # your dev/staging URL
+...
+journeys:
+  dir: integration_test
+  driver: web
+```
+
+Confident, plausible, and wrong: a Playwright config with journeys and devices for a service
+with no UI to drive, and a guessed URL. (The `webRunnerDir` is the managed provisioned path
+now, so the Phase 0 "sibling checkout that does not exist" half of the report is genuinely
+fixed; the platform half was not.)
+
+Two changes close it:
+
+1. `node:http` joins the recognised list. It is stdlib, so it is invisible in package.json,
+   which is exactly why it was unrecognisable while the error text advertised Go's `net/http`.
+   Detection is the node analogue of the Go rule: a conventional entry point
+   (`server.js`, `index.js`, `app.js`, their `.mjs` and `src/` variants) calling
+   `http.createServer`. A package.json declaring a UI framework still wins, so a Next-style
+   custom SSR server does not get adopted as a backend.
+2. In `project_scaffold::detect`, a recognised backend framework is now checked BEFORE any web
+   marker. A service that serves its own index.html is still a service.
+
+After, both fixtures exit 0 with a backend scaffold. Verbatim (raw node + index.html):
+
+```
+  detected node:http (from package.json) but no routes could be derived from its source (1 files read, 0 unconfident matches skipped).
+  detected node:http (from package.json): hand-write openapi.yaml for the routes you serve, then `reproit init openapi.yaml`
+  A running service's schema URL also works: reproit init http://localhost:<port>/<schema-path>
+  ...
+  reproit initialized with an EMPTY draft schema (0 routes derived).
+```
+
+The routes are honestly zero: this fixture hand-rolls its routing (`if (req.url === '/health')`),
+which no reader parses, and init says so rather than inventing a surface. What changed is that
+the repo is now named and scaffolded as what it is. One cosmetic wart, pre-existing and not
+introduced here: the framework is named twice, once by the no-routes line and once by the shared
+schema guide it calls.
+
+### Covered by CI
+
+- `init_smoke::a_node_service_serving_its_own_page_is_not_a_web_ui_project`: the fixture
+  above, asserting no `platform: web`, no `webRunnerDir`, no `journeys`, and that
+  `node:http` is named.
+- `project_scaffold::tests::a_raw_node_service_that_serves_html_is_still_a_backend`, the
+  bounded unit reproduction this fix is declared against: it fails on the parent (detection
+  answers `Web`) and passes on the fix.
+- Two `backend_detect` cases: a raw server names the file it was read from, and a React repo
+  with its own server.js stays a frontend.

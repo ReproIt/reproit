@@ -215,9 +215,50 @@ fn raw_node_server_with_bare_package_json_degrades_to_backend_not_web() {
     assert!(!config.contains("platform: web"), "{config}");
     assert!(!config.contains("../reproit/runners/web"), "{config}");
     let combined = format!("{stdout}\n{stderr}");
+    // node:http is stdlib, so it is invisible in package.json; the entry point
+    // is the evidence, and naming it is what keeps this repo off the web path.
     assert!(
-        combined.contains("assuming a backend service"),
-        "the degrade path must state its assumption:\n{combined}"
+        combined.contains("node:http"),
+        "the raw node server must be named:\n{combined}"
+    );
+    assert!(
+        combined.contains("no routes could be derived"),
+        "a hand-rolled router states no routes, and init must say so:\n{combined}"
+    );
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_node_service_serving_its_own_page_is_not_a_web_ui_project() {
+    // The plausible-but-wrong class this file exists for: the repo is a
+    // backend, its only browser-shaped evidence is the page it serves, and the
+    // web scaffold it used to get was confident and useless (a Playwright
+    // runner, a guessed url, and journeys for a service with no UI to drive).
+    let dir = temp_dir("raw-node-html");
+    fs::write(
+        dir.join("package.json"),
+        "{ \"name\": \"raw\", \"scripts\": { \"start\": \"node server.js\" } }\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("server.js"),
+        "const http = require('http');\nhttp.createServer((req, res) => \
+         res.end('ok')).listen(process.env.PORT || 3000);\n",
+    )
+    .unwrap();
+    fs::write(dir.join("index.html"), "<!doctype html><html></html>\n").unwrap();
+
+    let (stdout, stderr, code) = run_init(&dir, Duration::from_secs(60));
+    assert_eq!(code, Some(0), "stdout:\n{stdout}\nstderr:\n{stderr}");
+    assert_backend_scaffold(&dir, &stdout, &stderr);
+    let config = fs::read_to_string(dir.join("reproit.yaml")).unwrap();
+    assert!(!config.contains("platform: web"), "{config}");
+    assert!(!config.contains("webRunnerDir"), "{config}");
+    assert!(!config.contains("journeys:"), "{config}");
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(
+        combined.contains("node:http"),
+        "the raw node server must be named, not guessed past:\n{combined}"
     );
     let _ = fs::remove_dir_all(&dir);
 }

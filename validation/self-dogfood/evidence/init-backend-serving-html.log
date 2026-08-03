@@ -1,0 +1,25 @@
+# Affected-side run of the bounded reproduction for init-backend-serving-html.
+# Parent commit d57118a with only the test file overlaid, so the fix is absent
+# and the test is present: detection answers Web for a backend-only repo.
+#
+# $ cargo test -p reproit --lib a_raw_node_service_that_serves_html_is_still_a_backend
+
+running 1 test
+test adapters::project_scaffold::tests::a_raw_node_service_that_serves_html_is_still_a_backend ... FAILED
+
+failures:
+
+---- adapters::project_scaffold::tests::a_raw_node_service_that_serves_html_is_still_a_backend stdout ----
+
+thread 'adapters::project_scaffold::tests::a_raw_node_service_that_serves_html_is_still_a_backend' panicked at crates/reproit/src/adapters/project_scaffold/tests.rs:172:5:
+assertion `left == right` failed: a service is not a browser app
+  left: Some(Web)
+ right: None
+
+failures:
+    adapters::project_scaffold::tests::a_raw_node_service_that_serves_html_is_still_a_backend
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1011 filtered out
+
+error: test failed, to rerun pass `-p reproit --lib`
+exit 101

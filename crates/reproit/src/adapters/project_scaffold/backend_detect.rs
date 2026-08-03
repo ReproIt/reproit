@@ -68,9 +68,21 @@ fn rust_framework(name: &'static str) -> BackendFramework {
 fn node_framework(name: &'static str) -> BackendFramework {
     let snippet = match name {
         "fastify" => "fastify.register(require('reproit-backend-node/fastify'), { capture })",
+        // There is no drop-in adapter for a raw node server: the express
+        // middleware is `(req, res, next)`-shaped, so a createServer handler
+        // calls it directly. Naming the real shape beats naming a mount that
+        // does not exist.
+        "node:http" => {
+            "require('reproit-backend-node/express')({ capture }), called from your \
+             createServer handler"
+        }
         _ => NODE_EXPRESS_SNIPPET,
     };
     let hint = match name {
+        "node:http" => {
+            "hand-write openapi.yaml for the routes you serve, then `reproit init \
+                      openapi.yaml`"
+        }
         "fastify" => {
             "register @fastify/swagger (serves /documentation/json), then `reproit init \
                       http://localhost:3000/documentation/json`"
@@ -244,7 +256,7 @@ pub fn detect_backend_framework(dir: &Path) -> Option<BackendFramework> {
     if let Some(name) = detect_cargo_framework(dir) {
         return Some(rust_framework(name));
     }
-    if let Some(found) = manifest(dir, "package.json").and_then(|pkg| node_backend(&pkg)) {
+    if let Some(found) = node_project(dir) {
         return Some(found);
     }
     if let Some(found) = python_backend(dir) {
@@ -428,6 +440,71 @@ fn declares_dependency(cargo: &str, name: &str) -> bool {
     })
 }
 
+/// Conventional entry points for a Node service. Bounded and named rather than
+/// walked: detection reads manifests, and a tree walk here would duplicate the
+/// route reader's job at a fraction of its care.
+const NODE_ENTRY_FILES: [&str; 8] = [
+    "server.js",
+    "server.mjs",
+    "index.js",
+    "index.mjs",
+    "app.js",
+    "src/server.js",
+    "src/index.js",
+    "src/app.js",
+];
+
+/// The Node framework of a project directory, package.json or not.
+///
+/// `http.createServer` is the node analogue of Go's `http.ListenAndServe`: it
+/// is stdlib, so it is invisible in package.json, and it is the most common
+/// server in the wild that no framework name covers. Leaving it unrecognised
+/// is what let a backend-only repo fall through to the web scaffold.
+fn node_project(dir: &Path) -> Option<BackendFramework> {
+    if let Some(found) = manifest(dir, "package.json").and_then(|pkg| node_backend(&pkg)) {
+        return Some(found);
+    }
+    // A frontend repo may ship a custom SSR server; its package.json says so,
+    // and `node_backend` already bailed on it, so do not re-adopt it here.
+    let frontend = manifest(dir, "package.json").is_some_and(|pkg| declares_frontend(&pkg));
+    if frontend {
+        return None;
+    }
+    let entry = NODE_ENTRY_FILES.into_iter().find(|name| {
+        manifest(dir, name).is_some_and(|source| {
+            source.contains("http.createServer") || source.contains("https.createServer")
+        })
+    })?;
+    let mut found = node_framework("node:http");
+    // Name the file the evidence actually came from: with no package.json
+    // there is no manifest to point at, and pointing at one anyway is a lie
+    // the user cannot check.
+    found.manifest = if dir.join("package.json").is_file() {
+        "package.json"
+    } else {
+        entry
+    };
+    Some(found)
+}
+
+/// Whether a package.json declares a UI framework. Shared by the framework bail
+/// and the raw-server fallback so both read the same evidence.
+fn declares_frontend(pkg: &str) -> bool {
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(pkg) else {
+        return false;
+    };
+    ["react", "vue", "svelte", "next", "@angular/core"]
+        .iter()
+        .any(|name| {
+            ["dependencies", "devDependencies"].iter().any(|section| {
+                parsed
+                    .get(section)
+                    .and_then(serde_json::Value::as_object)
+                    .is_some_and(|deps| deps.contains_key(*name))
+            })
+        })
+}
+
 fn node_backend(pkg: &str) -> Option<BackendFramework> {
     let parsed: serde_json::Value = serde_json::from_str(pkg).ok()?;
     let has_dep = |name: &str| {
@@ -449,8 +526,7 @@ fn node_backend(pkg: &str) -> Option<BackendFramework> {
     if has_dep("@nestjs/core") || has_dep("@nestjs/common") {
         return Some(node_framework("nestjs"));
     }
-    let frontend = ["react", "vue", "svelte", "next", "@angular/core"];
-    if frontend.iter().any(|name| has_dep(name)) {
+    if declares_frontend(pkg) {
         return None;
     }
     for name in ["express", "fastify", "koa", "@hapi/hapi", "hapi"] {
@@ -673,6 +749,25 @@ mod tests {
                 ],
                 "net/http",
             ),
+            (
+                &[
+                    ("package.json", r#"{"name":"svc"}"#),
+                    (
+                        "server.js",
+                        "const http = require('http');\n\
+                         http.createServer((req, res) => res.end('ok')).listen(3000);\n",
+                    ),
+                ],
+                "node:http",
+            ),
+            (
+                &[(
+                    "src/index.js",
+                    "import http from 'node:http';\n\
+                     http.createServer((req, res) => res.end('ok')).listen(3000);\n",
+                )],
+                "node:http",
+            ),
         ];
         for (files, expected) in cases {
             let dir = project(files);
@@ -705,6 +800,38 @@ mod tests {
             assert!(detect_backend_framework(&dir).is_none(), "files {files:?}");
             std::fs::remove_dir_all(dir).unwrap();
         }
+    }
+
+    #[test]
+    fn a_frontend_repo_with_its_own_server_stays_a_frontend() {
+        // Next-style SSR: a custom server.js standing up node:http next to a
+        // React dependency. The UI declaration is the stronger evidence, and
+        // adopting the file as a backend would hijack the web init.
+        let dir = project(&[
+            ("package.json", r#"{"dependencies":{"react":"^19"}}"#),
+            (
+                "server.js",
+                "const http = require('http');\n\
+                 http.createServer(handler).listen(3000);\n",
+            ),
+        ]);
+        assert!(detect_backend_framework(&dir).is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_raw_node_server_names_the_file_it_was_read_from() {
+        // With no package.json there is no manifest to point at, so the
+        // evidence line names the source file the user can go look at.
+        let dir = project(&[(
+            "server.js",
+            "const http = require('http');\n\
+             http.createServer((req, res) => res.end('ok')).listen(3000);\n",
+        )]);
+        let found = detect_backend_framework(&dir).expect("a raw node server is a backend");
+        assert_eq!(found.name, "node:http");
+        assert_eq!(found.manifest, "server.js");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

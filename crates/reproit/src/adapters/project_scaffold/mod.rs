@@ -202,32 +202,27 @@ pub fn init(dir: &Path, platform: Option<&str>, force: bool) -> Result<()> {
 
 fn detect(dir: &Path) -> Option<Platform> {
     if detect_backend_schema(dir).is_some() {
-        Some(Platform::Backend)
-    } else if dir.join("pubspec.yaml").exists() {
-        Some(Platform::Flutter)
-    } else if dir.join("package.json").exists() {
-        let pkg = std::fs::read_to_string(dir.join("package.json")).unwrap_or_default();
-        if pkg.contains("\"react-native\"") {
-            Some(Platform::Rn)
-        } else if backend_detect::detect_backend_framework(dir).is_some() {
-            // A Node server without a frontend framework is a backend project
-            // with no schema yet: fall through to the degrade path instead of
-            // silently writing a web config that would drive a browser at it.
-            None
-        } else if web_markers(dir, &pkg) {
-            Some(Platform::Web)
-        } else {
-            // A bare package.json is not evidence of a browser app. Guessing
-            // web here wrote a confident Playwright config pointed at a URL
-            // nothing serves; unknown degrades to the backend draft with the
-            // assumption stated instead.
-            None
-        }
-    } else if dir.join("index.html").exists() {
-        Some(Platform::Web)
-    } else {
-        None
+        return Some(Platform::Backend);
     }
+    if dir.join("pubspec.yaml").exists() {
+        return Some(Platform::Flutter);
+    }
+    let pkg = std::fs::read_to_string(dir.join("package.json")).unwrap_or_default();
+    if pkg.contains("\"react-native\"") {
+        return Some(Platform::Rn);
+    }
+    // A recognised backend framework wins over every web marker, and is
+    // checked BEFORE them. A service that serves its own index.html is still a
+    // service, and reading that one file as "browser app" is how a raw
+    // node:http repo got a Playwright config aimed at a guessed URL. Detection
+    // returning None here is not a failure: it degrades to the backend draft
+    // with the assumption stated.
+    if backend_detect::detect_backend_framework(dir).is_some() {
+        return None;
+    }
+    // A bare package.json is not evidence of a browser app either. Guessing
+    // web wrote a confident Playwright config pointed at a URL nothing serves.
+    web_markers(dir, &pkg).then_some(Platform::Web)
 }
 
 /// Frontend evidence beyond the mere existence of package.json: a UI

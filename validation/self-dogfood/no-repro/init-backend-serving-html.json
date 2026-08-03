@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "init-backend-serving-html",
+  "detail": "Bare `reproit init` classified a backend-only repository as a web UI project whenever its one browser-shaped marker was the page the service itself serves. A raw node:http server with a minimal package.json and an index.html in the root got app.platform: web, a Playwright runner, journeys and devices blocks, and url: http://localhost:3000 as a guess: confident, plausible, and the wrong workflow entirely. Two causes, both closed here. node:http was not in the recognised framework list, because it is stdlib and therefore invisible in package.json, which is exactly why the old error text advertised Go's net/http while node's http module went unread. And project_scaffold::detect consulted web markers before backend detection, so index.html decided the platform before anything asked whether the repo was a service. The defect is in pure detection with no process, network, or filesystem dependency beyond a temporary fixture directory, so a bounded unit test over the exact repository shape is the stable reproduction authority: it fails on the parent with `left: Some(Web), right: None` and passes on the fix. The gate compiles this test from scratch in a worktree, so the dogfood-policy job needs the Rust toolchain and the CLI's Linux system libraries; without them the build fails and the gate misreports it as a fixed-side test failure. Re-measured against rebuilt fixtures in validation/field/init-ground-truth.md.",
+  "test": "crates/reproit/src/adapters/project_scaffold/tests.rs",
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "reproit",
+    "--lib",
+    "a_raw_node_service_that_serves_html_is_still_a_backend"
+  ],
+  "timeoutSeconds": 300,
+  "affectedExitCode": 101,
+  "affectedEvidence": [
+    {
+      "path": "validation/self-dogfood/evidence/init-backend-serving-html.log",
+      "sha256": "sha256:a8c57cdad01a5b457f1d7a2f515f4fe3ddf1beaa041b4fa2ee5c3cc2b9dadd49"
+    }
+  ]
+}

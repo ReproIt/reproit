@@ -151,6 +151,37 @@ fn unrecognised_and_bare_package_json_repos_degrade_instead_of_guessing_web() {
 }
 
 #[test]
+fn a_raw_node_service_that_serves_html_is_still_a_backend() {
+    // The plausible-but-wrong class: a backend-only repo whose one web marker
+    // is the page it serves. Reading that as a browser app wrote a Playwright
+    // config, a guessed url, and a provisioned web runner for a service.
+    let project = temporary_project("raw-node-with-html");
+    std::fs::write(
+        project.join("package.json"),
+        "{\"name\":\"svc\",\"scripts\":{\"start\":\"node server.js\"}}",
+    )
+    .unwrap();
+    std::fs::write(
+        project.join("server.js"),
+        "const http = require('http');\n\
+         http.createServer((req, res) => res.end('ok')).listen(3000);\n",
+    )
+    .unwrap();
+    std::fs::write(project.join("index.html"), "<!doctype html><html></html>").unwrap();
+
+    assert_eq!(detect(&project), None, "a service is not a browser app");
+    let guide = detection_assumption(&project);
+    assert!(guide.contains("node:http"), "{guide}");
+    assert!(guide.contains("package.json"), "{guide}");
+    init(&project, None, false).unwrap();
+    let config = std::fs::read_to_string(project.join("reproit.yaml")).unwrap();
+    assert!(!config.contains("platform: web"), "{config}");
+    assert!(!config.contains("webRunnerDir"), "{config}");
+    assert!(config.contains("backend:\n  enabled: true"), "{config}");
+    std::fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
 fn backend_url_init_snapshots_the_schema_and_records_the_origin_target() {
     let project = temporary_project("backend-url");
     init_backend_url(

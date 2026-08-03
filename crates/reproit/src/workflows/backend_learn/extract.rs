@@ -128,7 +128,7 @@ pub(super) enum Family {
 pub(super) fn family_for(framework: &str) -> Option<Family> {
     Some(match framework {
         "axum" | "actix-web" | "rocket" | "warp" => Family::Rust,
-        "express" | "fastify" | "koa" | "hapi" | "nestjs" => Family::Node,
+        "express" | "fastify" | "koa" | "hapi" | "nestjs" | "node:http" => Family::Node,
         "fastapi" | "flask" | "django" => Family::Python,
         "gin" | "echo" | "fiber" | "chi" | "gorilla/mux" | "net/http" => Family::Go,
         "rails" | "sinatra" => Family::Ruby,
