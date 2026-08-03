@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "adapter-cost-measured-and-gated",
+  "changeType": "tooling",
+  "detail": "Asked what the middleware costs, the honest answer was 'partially measured, and not where it matters'. validation/backend/benchmark.mjs existed and measured beginBackendTrace, the primitive, on Node only, against a local reference implementation rather than a shipped adapter, and NOTHING RAN IT: no caller in .github/ or the validation configs, so its ceilings could not gate a build. Same vacuous-green shape this project keeps paying for. This adds adapter-benchmark.mjs, which drives the real express middleware over a real socket in three shapes (unmounted baseline, mounted-but-untraced, mounted-and-traced) and reports the delta, so the number answers the question people actually ask. Both benchmarks are now wired into the rust job. The measurement method needed a correction that is worth recording: a single pass per shape reported the inactive adapter at MINUS 6 microseconds, which is not a result but drift, because the inactive path costs tens of nanoseconds while the machine wanders by microseconds between rounds. It now interleaves rounds, takes medians, and measures a SECOND baseline per round whose gap from the first is the method's own noise floor, reported alongside the result so a number smaller than the noise cannot be read as signal. Three local runs: noise floor 1.8-2.9us, active cost 22-26us, inactive cost straddling zero and therefore not resolvable at HTTP scale, consistent with the primitive's 80ns. Ceilings are sized for a shared CI runner rather than this laptop (120us noise, 120us inactive, 400us active) because a gate that flakes gets ignored and an ignored gate measures nothing. Documented in docs/backend-sdk.md with the hardware named and two gaps stated plainly: the per-dependency capture path is unmeasured, and so is every language except Node.",
+  "evidence": [
+    {
+      "path": "validation/backend/adapter-benchmark.mjs",
+      "sha256": "sha256:fa74baacceb433ac1119d195df92d2f4814d2726242896235d69f1d7fd8f98b7"
+    },
+    {
+      "path": "docs/backend-sdk.md",
+      "sha256": "sha256:75e277df395aa68c03e33aa04a4ea27ae00c35cf66a55d56ba718d448ef64c6e"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "sha256:7e60aa1a1027818b6ea8891ab6d3baa187ba8914f7bb1e4a627452feaf8ae2a4"
+    }
+  ]
+}

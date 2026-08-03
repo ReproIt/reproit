@@ -138,6 +138,36 @@ can record an effect it considers significant:
 | PHP | `$request->getAttribute('reproit')` |
 | Ruby | `env["reproit.trace"]` |
 
+## What it costs
+
+Measured, not estimated. Two benchmarks run on every push, so these numbers cannot quietly rot:
+
+| | cost per request |
+| --- | --- |
+| Adapter mounted, request not traced | below the measurement floor |
+| Adapter mounted, request traced | ~25 µs |
+| Trace primitive alone, inactive | 0.08 µs |
+| Trace primitive alone, active | 3.5 µs |
+
+The first row is the one that matters in production, because a request only carries trace context
+when something asked for it. It reads "below the measurement floor" rather than a number because
+that is the honest result: driving a real HTTP server, the difference between having the adapter
+mounted and not having it is smaller than the run-to-run noise of the method itself (about 2 µs).
+The primitive benchmark puts it at 80 nanoseconds, which is consistent with being invisible at
+HTTP scale.
+
+The traced row is a real cost and it is per traced request: about 25 µs, against a ~60 µs baseline
+request on the same machine. Both are single-threaded on an Apple M1 Ultra with no I/O in the
+handler, so treat them as an order of magnitude rather than a promise about your hardware.
+
+`validation/backend/adapter-benchmark.mjs` measures the real express middleware over a real socket
+and reports the delta against an unmounted baseline; `validation/backend/benchmark.mjs` measures
+the primitive underneath. Both fail the build if the cost crosses its ceiling.
+
+**Not yet measured, and worth knowing:** the per-dependency capture path (each outbound HTTP call
+and database query recorded onto a trace), and every language other than Node. The adapters share
+a design but not an implementation, so the Node number does not transfer to Go or Python.
+
 ## Next
 
 A captured failure replays with `reproit check <capture.json> --exec "<your boot command>"`, with

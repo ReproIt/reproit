@@ -79,6 +79,11 @@ jobs:
           python3 -m unittest discover \
             -s validation/self-dogfood -p 'test_*.py'
           node --test validation/self-dogfood/test_*.mjs
+          # What the SDK costs a request. The first measures the trace
+          # primitive, the second measures the express adapter over real HTTP,
+          # which is the number people actually ask about.
+          node validation/backend/benchmark.mjs
+          node validation/backend/adapter-benchmark.mjs
           python3 validation/capabilities/check.py
           python3 -m unittest discover \
             -s validation/capabilities -p 'test_*.py'
