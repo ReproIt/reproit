@@ -29,6 +29,8 @@ pub(super) struct SourceRead {
     pub(super) routes: Vec<(String, &'static str, Option<String>)>,
     /// handler -> the request body fields it accepts.
     pub(super) bodies: BTreeMap<String, BTreeMap<String, FieldFact>>,
+    /// handler -> the query parameters it reads.
+    pub(super) queries: BTreeMap<String, BTreeMap<String, FieldFact>>,
     /// handler -> the response statuses and bodies its code states.
     pub(super) responses: BTreeMap<String, ResponseFact>,
     /// Serializer types the responses resolve named bodies against.

@@ -844,3 +844,84 @@ schema guide it calls.
   answers `Web`) and passes on the fix.
 - Two `backend_detect` cases: a raw server names the file it was read from, and a React repo
   with its own server.js stays a frontend.
+
+## Fixture A re-measure: the `q` query parameter and body fields (2026-08-02)
+
+Phase 2 recorded the reason `/search?q=` derived as a bare path: "no reader parses query
+parameter NAMES yet, so there is nothing honest to synthesize". The Node reader now reads
+`req.query` by exactly the two shapes it already read `req.body` by (`const { q } = req.query`
+and `req.query.q`), so the name exists and the draft can state it.
+
+Fixture A rebuilt (express, real `express.json()`, the same planted 500 on POST /items
+without `name`). Bare `reproit init`, verbatim from openapi.yaml:
+
+```
+  "/search":
+    get:
+      operationId: get_search
+      x-reproit-provenance: inferred
+      parameters:
+        # inferred from the handler's source: read from the request query string in the handler
+        - name: "q"
+          in: query
+          required: false
+          x-reproit-provenance: inferred
+          schema:
+            type: string
+```
+
+The POST's body fields land the same way, now with their own provenance mark:
+
+```
+      requestBody:
+        x-reproit-provenance: inferred
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                "name": {}
+                "price": {}
+```
+
+What is and is not claimed:
+
+- `required: false` on the query parameter. A handler reading `req.query.q` states the NAME,
+  not a demand, and the destructure states no requiredness for body fields either.
+- `type: string` is not a claim about how the handler parses the value; it is what a query
+  parameter IS on the wire, the same reason a path parameter carries it. This was measured,
+  not assumed: with an empty schema the parameter imports as `Any`, the generator duly
+  synthesized objects and nulls for it, `request.rs` could not put those in a query string,
+  and the WHOLE operation went unexercised: `never sent (1): GET get_search: query parameter
+  is not scalar`, with fuzz dropping from 12 exercised operations to 9. Naming the parameter
+  would have cost coverage rather than buying it. With `type: string` the count is back to 12
+  and `/search` is evaluated again.
+- Path parameters and the requestBody now carry `x-reproit-provenance: inferred` explicitly,
+  matching the responses blocks. Nothing writes `observed` for a source read.
+
+End to end on the same fixture, bare `reproit find`, verbatim tail:
+
+```
+backend fuzz: 12 operation(s) exercised, 1 confirmed finding(s), 0 candidate(s), 0 execution error(s)
+  coverage: 3/4 declared operation(s) evaluated
+    no success to evaluate (1):
+      POST post_items: 3 attempt(s), last 500 - ... TypeError: Cannot read properties of null (reading &#39;trim&#39;) ...
+  fnd_58a99e95dfdd  post_items: contract-valid request returned HTTP 500
+```
+
+Exit 1, the planted bug still confirmed first-class, and `q` is now a named knob the
+generator drives. Scope was held to Node deliberately: the `queries` map is on the shared
+`Derived` shape, but only `node_ast` fills it, and no other family was touched.
+
+Deliberately NOT done: init does not yet synthesize a query VALUE for its own probe, so
+`/search` is still probed bare and its observed 200 records a null `q`. That is a prober
+change, not a reader one, and this pass is the reader.
+
+### Covered by CI
+
+- `node_body::a_query_parameter_is_named_by_the_same_two_shapes_as_a_body_field` and
+  `a_handler_that_reads_both_states_both`.
+- `node_ast::an_inline_handler_states_its_query_parameters_and_its_body_fields`.
+- `emit::a_query_parameter_read_from_source_becomes_a_named_input`, which asserts the
+  draft_yaml round-trip still holds AND that a non-scalar query value fails the imported
+  input domain, encoding the coverage regression above so it cannot come back.

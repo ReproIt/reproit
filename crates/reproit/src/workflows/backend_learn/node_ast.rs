@@ -16,7 +16,6 @@ use std::path::{Path, PathBuf};
 use tree_sitter::Node;
 
 const METHODS: [&str; 7] = ["get", "post", "put", "patch", "delete", "head", "options"];
-const MAX_FIELDS: usize = 512;
 
 /// A route as first read: the router it hangs off, its local path, the method,
 /// the handler, and the schema the registration wraps it in.
@@ -46,6 +45,10 @@ fn grammar_for(path: &Path) -> tree_sitter::Language {
 pub(super) fn read(root: &Path) -> SourceRead {
     let mut source = SourceRead::default();
     let mut shapes: BTreeMap<String, BTreeMap<String, FieldFact>> = BTreeMap::new();
+    // Query parameters are read only from an inline handler, whose synthesized
+    // name already carries its method and path, so one flat map across the
+    // walk cannot collide the way a bare function name can.
+    let mut queries: BTreeMap<String, BTreeMap<String, FieldFact>> = BTreeMap::new();
     let mut ambiguous: BTreeSet<String> = BTreeSet::new();
     let mut modules = Vec::new();
 
@@ -71,6 +74,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
                 let mut state = WalkState {
                     routes: &mut found,
                     shapes: &mut shapes,
+                    queries: &mut queries,
                     ambiguous: &mut ambiguous,
                     mounts: &mut mounts,
                     imports: &mut imports,
@@ -119,6 +123,9 @@ pub(super) fn read(root: &Path) -> SourceRead {
                         .or_else(|| schema.as_ref().and_then(|name| shapes.get(name)));
                     if let Some(fields) = fields {
                         source.bodies.insert(handler.clone(), fields.clone());
+                    }
+                    if let Some(fields) = queries.get(handler) {
+                        source.queries.insert(handler.clone(), fields.clone());
                     }
                 }
             }
@@ -198,6 +205,7 @@ fn reads_as_server(text: &str) -> bool {
 struct WalkState<'a> {
     routes: &'a mut Vec<RawRoute>,
     shapes: &'a mut BTreeMap<String, BTreeMap<String, FieldFact>>,
+    queries: &'a mut BTreeMap<String, BTreeMap<String, FieldFact>>,
     ambiguous: &'a mut BTreeSet<String>,
     mounts: &'a mut BTreeMap<String, String>,
     imports: &'a mut BTreeMap<String, String>,
@@ -272,19 +280,26 @@ fn walk(node: Node, text: &str, server: bool, state: &mut WalkState<'_>) {
                             .skip(1)
                             .find_map(|node| wrapped_argument(*node, text));
                         // No named handler and no schema: a plain inline
-                        // handler still states its body field names in its own
-                        // source (`const { name } = req.body`), which is what
-                        // the probe planner synthesizes an honest request from.
+                        // handler still states its field names in its own
+                        // source (`const { name } = req.body`, `req.query.q`),
+                        // which is what the probe planner synthesizes an honest
+                        // request from and what names the query parameter in
+                        // the draft.
                         let handler = handler.or_else(|| {
                             args.iter().skip(1).rev().find_map(|argument| {
-                                let fields = super::node_body::inline_fields(*argument, text)?;
+                                let read = super::node_body::inline_request(*argument, text)?;
                                 let name = format!("{method} {path} inline handler");
-                                super::field_facts::record(
-                                    state.shapes,
-                                    state.ambiguous,
-                                    name.clone(),
-                                    fields,
-                                );
+                                if !read.body.is_empty() {
+                                    super::field_facts::record(
+                                        state.shapes,
+                                        state.ambiguous,
+                                        name.clone(),
+                                        read.body,
+                                    );
+                                }
+                                if !read.query.is_empty() {
+                                    state.queries.insert(name.clone(), read.query);
+                                }
                                 Some(name)
                             })
                         });
@@ -315,7 +330,7 @@ fn walk(node: Node, text: &str, server: bool, state: &mut WalkState<'_>) {
             if let Some(specifier) = require_specifier(value, text) {
                 state.imports.insert(name.clone(), specifier);
             }
-            if let Some(fields) = zod_object(value, text) {
+            if let Some(fields) = super::node_body::zod_object(value, text) {
                 match state.shapes.get(&name) {
                     Some(existing) if *existing != fields => {
                         state.ambiguous.insert(name);
@@ -512,75 +527,6 @@ fn grammar_text<'a>(node: Node, source: &'a str) -> &'a str {
     super::grammar::text(node, source)
 }
 
-/// The fields of a `z.object({ ... })`, or None if this is not one.
-fn zod_object(node: Node, text: &str) -> Option<BTreeMap<String, FieldFact>> {
-    let raw = node.utf8_text(text.as_bytes()).ok()?;
-    if !raw.contains("z.object") && !raw.contains("z\n") {
-        return None;
-    }
-    let arguments = node.child_by_field_name("arguments")?;
-    let mut cursor = arguments.walk();
-    let object = arguments
-        .children(&mut cursor)
-        .find(|child| child.kind() == "object")?;
-    let mut fields = BTreeMap::new();
-    let mut pairs = object.walk();
-    for pair in object.children(&mut pairs).take(MAX_FIELDS) {
-        if pair.kind() != "pair" {
-            continue;
-        }
-        let Some(name) = pair
-            .child_by_field_name("key")
-            .and_then(|node| node.utf8_text(text.as_bytes()).ok())
-            .map(|name| name.trim_matches(['"', '\'', '`']).to_string())
-        else {
-            continue;
-        };
-        let chain = pair
-            .child_by_field_name("value")
-            .and_then(|node| node.utf8_text(text.as_bytes()).ok())
-            .unwrap_or_default();
-        fields.insert(name, zod_fact(chain));
-    }
-    (!fields.is_empty()).then_some(fields)
-}
-
-fn zod_fact(chain: &str) -> FieldFact {
-    let allowed = chain
-        .split_once(".enum(")
-        .and_then(|(_, rest)| rest.split_once(']'))
-        .and_then(|(inner, _)| literal_values(inner.trim_start_matches('[')));
-    let bound = |key: &str| -> Option<f64> {
-        let compact: String = chain.chars().filter(|c| !c.is_whitespace()).collect();
-        let value = compact.split(key).nth(1)?;
-        let literal: String = value
-            .chars()
-            .take_while(|c| c.is_ascii_digit() || *c == '-' || *c == '.')
-            .collect();
-        literal.parse().ok()
-    };
-    let low = bound(".min(");
-    let high = bound(".max(");
-    let range = (low.is_some() || high.is_some()).then_some((low, high));
-    FieldFact {
-        // `.default(x)` and `.catch(x)` make the INPUT optional just as surely
-        // as `.optional()`: omitting the field yields the fallback rather than
-        // a rejection, so calling it required states a rejection that does not
-        // happen. Same shape as Rust's `#[serde(default)]`.
-        required: !chain.contains(".optional()")
-            && !chain.contains(".nullish()")
-            && !chain.contains(".default(")
-            && !chain.contains(".catch("),
-        evidence: match (&allowed, &range) {
-            (Some(_), _) => Some("a zod enum".to_string()),
-            (_, Some(_)) => Some("a zod min/max".to_string()),
-            _ => None,
-        },
-        allowed,
-        range,
-    }
-}
-
 /// `validate(BlockSchema)` -> `BlockSchema`.
 fn wrapped_argument(node: Node, text: &str) -> Option<String> {
     if node.kind() != "call_expression" {
@@ -623,11 +569,6 @@ fn string_value(node: Node, text: &str) -> Option<String> {
         .then(|| node.utf8_text(text.as_bytes()).ok())
         .flatten()
         .map(|raw| raw.trim_matches(['"', '\'', '`']).to_string())
-}
-
-fn literal_values(inner: &str) -> Option<Vec<String>> {
-    // JS strings add the backtick; a bare number in an enum list is not idiomatic.
-    super::field_facts::literal_values(inner, &['"', '\'', '`'], false)
 }
 
 /// fastify's `route({ method: 'PUT', url: '/users/:id', handler: h })`, where
@@ -706,6 +647,47 @@ mod tests {
         );
         assert_eq!(fields["rating"].range, Some((Some(-1.0), Some(1.0))));
         assert!(!fields["note"].required);
+    }
+
+    #[test]
+    fn an_inline_handler_states_its_query_parameters_and_its_body_fields() {
+        let source = read_source(
+            "inline-request",
+            &[(
+                "server.js",
+                "const express = require('express');\nconst app = express();\n\
+                 app.get('/search', (req, res) => {\n\
+                 \x20 const { q } = req.query;\n\
+                 \x20 res.json(search(q));\n\
+                 });\n\
+                 app.post('/items', (req, res) => {\n\
+                 \x20 const { name, price } = req.body;\n\
+                 \x20 res.json({ name: name.trim(), price });\n\
+                 });\n",
+            )],
+        );
+        let search = "get /search inline handler";
+        let create = "post /items inline handler";
+        assert_eq!(
+            source
+                .queries
+                .get(search)
+                .map(|fields| fields.keys().cloned().collect::<Vec<_>>()),
+            Some(vec!["q".to_string()]),
+            "the query parameter the handler branches on must be named"
+        );
+        assert!(
+            !source.bodies.contains_key(search),
+            "a GET that reads no body must not be given one"
+        );
+        assert_eq!(
+            source
+                .bodies
+                .get(create)
+                .map(|fields| fields.keys().cloned().collect::<Vec<_>>()),
+            Some(vec!["name".to_string(), "price".to_string()])
+        );
+        assert!(!source.queries.contains_key(create));
     }
 
     #[test]

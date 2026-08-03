@@ -94,17 +94,7 @@ fn render(
                 "      x-reproit-provenance: {}\n",
                 Provenance::Inferred.as_str()
             ));
-            let params = path_params(path);
-            if !params.is_empty() {
-                out.push_str("      parameters:\n");
-                for name in params {
-                    out.push_str(&format!(
-                        "        - name: {}\n          in: path\n          required: true\n\
-                         \x20         schema:\n            type: string\n",
-                        quote(name)
-                    ));
-                }
-            }
+            push_parameters(&mut out, derived, method, path);
             if matches!(*method, "post" | "put" | "patch") {
                 push_request_body(&mut out, derived, method, path);
             }
@@ -266,6 +256,58 @@ fn push_wire_shape(
     }
 }
 
+/// The parameters block: the path template's own parameters, plus the query
+/// parameters the handler's source names.
+///
+/// A query parameter is emitted with `required: false`: the name is what the
+/// source states, a demand is not, and the draft's discipline is that a claim
+/// it cannot support is worse than silence. An unnamed parameter, though, is
+/// worse than both: it is a knob no generated request and no oracle can reach,
+/// which is why `/search?q=` used to derive as a bare path.
+///
+/// The `string` type is not a claim about how the handler parses the value; it
+/// is what a query parameter IS on the wire, the same reason a path parameter
+/// carries it. An empty schema instead means "any JSON", and the generator
+/// duly produced objects and nulls for it, which no query string can carry:
+/// the request failed to build and the whole operation went unexercised, so
+/// naming the parameter would have cost coverage rather than buying it.
+fn push_parameters(out: &mut String, derived: &Derived, method: &str, path: &str) {
+    let path_params = path_params(path);
+    let query = derived
+        .handlers
+        .get(&(method.to_uppercase(), path.to_string()))
+        .and_then(|handler| derived.queries.get(handler))
+        .filter(|fields| !fields.is_empty());
+    if path_params.is_empty() && query.is_none() {
+        return;
+    }
+    out.push_str("      parameters:\n");
+    for name in path_params {
+        out.push_str(&format!(
+            "        - name: {}\n          in: path\n          required: true\n\
+             \x20         x-reproit-provenance: {}\n          schema:\n            type: string\n",
+            quote(name),
+            Provenance::Inferred.as_str()
+        ));
+    }
+    let Some(query) = query else {
+        return;
+    };
+    for (name, fact) in query.iter().take(SHAPE_MAX_PROPERTIES) {
+        out.push_str(&format!(
+            "        # inferred from the handler's source: {}\n",
+            fact.evidence.as_deref().unwrap_or("named in the handler")
+        ));
+        out.push_str(&format!(
+            "        - name: {}\n          in: query\n          required: {}\n\
+             \x20         x-reproit-provenance: {}\n          schema:\n            type: string\n",
+            quote(name),
+            fact.required,
+            Provenance::Inferred.as_str()
+        ));
+    }
+}
+
 /// The request body for a mutating route: a bare object unless the source
 /// reader parsed field names for this handler, in which case each parsed
 /// field is stated (untyped: a name read from source carries no type claim)
@@ -276,10 +318,11 @@ fn push_request_body(out: &mut String, derived: &Derived, method: &str, path: &s
         .get(&(method.to_uppercase(), path.to_string()))
         .and_then(|handler| derived.bodies.get(handler))
         .filter(|fields| !fields.is_empty());
-    out.push_str(
-        "      requestBody:\n        content:\n          application/json:\n\
-         \x20           schema:\n              type: object\n",
-    );
+    out.push_str(&format!(
+        "      requestBody:\n        x-reproit-provenance: {}\n        content:\n          \
+         application/json:\n            schema:\n              type: object\n",
+        Provenance::Inferred.as_str()
+    ));
     let Some(fields) = fields else {
         return;
     };
@@ -538,6 +581,76 @@ mod tests {
         assert_eq!(yaml.matches("responses:").count(), 1, "{yaml}");
         assert_eq!(yaml.matches("\"200\":").count(), 1, "{yaml}");
         serde_yaml::from_str::<serde_json::Value>(&yaml).expect("valid yaml");
+    }
+
+    #[test]
+    fn a_query_parameter_read_from_source_becomes_a_named_input() {
+        // The gap this closes: `/search?q=` derived as a bare path, so nothing
+        // downstream could name `q`, let alone omit it. The name must survive
+        // the round-trip into an input domain without claiming a type.
+        let mut derived = Derived::default();
+        derived
+            .routes
+            .insert("/search".into(), BTreeSet::from(["get"]));
+        derived.handlers.insert(
+            ("GET".into(), "/search".into()),
+            "get /search inline handler".into(),
+        );
+        derived.queries.insert(
+            "get /search inline handler".into(),
+            BTreeMap::from([(
+                "q".to_string(),
+                crate::workflows::backend_learn::field_facts::FieldFact {
+                    evidence: Some("read from the request query string in the handler".into()),
+                    ..Default::default()
+                },
+            )]),
+        );
+        let yaml = draft_yaml(
+            "fixture",
+            "express",
+            &derived,
+            &ProbePlan::default(),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        assert!(yaml.contains("in: query"), "{yaml}");
+        assert!(yaml.contains("- name: \"q\""), "{yaml}");
+        assert!(yaml.contains("required: false"), "{yaml}");
+        assert!(
+            yaml.contains("read from the request query string in the handler"),
+            "the evidence travels with the claim: {yaml}"
+        );
+        assert!(
+            !yaml.contains(
+                "in: query\n          required: false\n          \
+                            x-reproit-provenance: observed"
+            ),
+            "a source read is inferred, never observed: {yaml}"
+        );
+
+        let document: serde_json::Value = serde_yaml::from_str(&yaml).unwrap();
+        let operations = crate::domain::backend::import_service_schema(&document);
+        assert_eq!(operations.len(), 1);
+        let input = operations[0].input.as_ref().expect("q is an input");
+        assert!(
+            input
+                .mismatch(&serde_json::json!({"query": {"q": "shoes"}}), "$input")
+                .is_none(),
+            "the named query parameter must satisfy the derived input: {input:?}"
+        );
+        // A query string carries text. Leaving the type open let the generator
+        // synthesize objects and nulls, which no query string can carry, so
+        // the request failed to build and the operation went unexercised.
+        assert!(
+            input
+                .mismatch(
+                    &serde_json::json!({"query": {"q": {"not": "scalar"}}}),
+                    "$input"
+                )
+                .is_some(),
+            "a non-scalar query value must not satisfy it: {input:?}"
+        );
     }
 
     #[test]

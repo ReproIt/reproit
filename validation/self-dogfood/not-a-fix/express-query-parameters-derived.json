@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "express-query-parameters-derived",
+  "changeType": "feature",
+  "detail": "Phase 0 recorded that init misses the `q` query parameter on /search, and Phase 2 recorded WHY it was still missing: 'no reader parses query parameter NAMES yet, so there is nothing honest to synthesize'. That is a gap in what derivation covers, not a defect in what it does, so this is declared as a feature rather than a fix. The Node reader now reads `req.query` by exactly the two shapes it already read `req.body` by (`const { q } = req.query` and `req.query.q`), the emitter states the names as `in: query` parameters, and path parameters plus the requestBody carry an explicit x-reproit-provenance: inferred mark alongside the responses blocks that already had one. Scope is deliberately one language: the `queries` map sits on the shared Derived shape but only node_ast fills it. Required-ness is not claimed, because a handler reading req.query.q states the NAME and not a demand. The `string` type IS claimed, and that decision was measured rather than assumed: with an empty schema the parameter imports as Any, the generator synthesized objects and nulls for it, request.rs could not put those in a query string, and the WHOLE operation went unexercised (fuzz fell from 12 exercised operations to 9, reporting 'never sent: query parameter is not scalar'). A query parameter is text on the wire, which is the same reason a path parameter carries string; with the type stated, coverage returns to 12 and the planted 500 is still confirmed first-class. node_ast.rs crossed the 1000-line reviewability gate on the way, so the zod reader moved into node_body.rs, which now owns what a Node request is shaped like whether the source says so declaratively or in the handler's own destructures.",
+  "evidence": [
+    {
+      "path": "validation/field/init-ground-truth.md",
+      "sha256": "sha256:d82034c75681a4c59ca3a0b80d35e20191561541edf5b33ba9afbc3100deba3f"
+    }
+  ]
+}
