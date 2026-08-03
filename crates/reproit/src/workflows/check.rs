@@ -362,6 +362,7 @@ async fn run_plan_runs(
 /// instead of one of them hand-rolling the string.
 fn plan_check_result(runs: &[execution::PlanRun]) -> repro::CheckResult {
     repro::CheckResult {
+        reason: None,
         outcome: aggregate_plan_runs(runs),
         green: runs
             .iter()
@@ -684,11 +685,20 @@ async fn execute_case(
         repro::Outcome::Pass
     };
     let (updated, promoted) = mark_checked(&loaded.root, meta, outcome)?;
+    // A stale run names WHY it could not judge the case. Without the cause a
+    // stale reads like a soft pass, which is the mistake the exit contract
+    // exists to prevent.
+    let cause = result
+        .reason
+        .as_deref()
+        .map(|reason| format!("  ({reason})"))
+        .unwrap_or_default();
     ctx.say(format!(
-        "  {} {} ({}){}",
+        "  {} {} ({}){}{}",
         outcome.as_str().to_uppercase(),
         label,
         result.rate(),
+        cause,
         if promoted {
             "  promoted -> required"
         } else {
@@ -699,12 +709,15 @@ async fn execute_case(
         name: format!("{verb} {label}"),
         passed: outcome == repro::Outcome::Pass,
         time_s: 0.0,
-        message: format!(
-            "{} ({}); evidence: {}",
-            outcome.as_str(),
-            result.rate(),
-            run_dir.display()
-        ),
+        message: match result.reason.as_deref() {
+            Some(reason) => format!("{}: {reason}", outcome.as_str()),
+            None => format!(
+                "{} ({}); evidence: {}",
+                outcome.as_str(),
+                result.rate(),
+                run_dir.display()
+            ),
+        },
     };
     let json = serde_json::json!({
         "id": public_json_id(meta),
@@ -712,6 +725,7 @@ async fn execute_case(
         "alias": meta.alias,
         "locale": locale,
         "outcome": outcome.as_str(),
+        "reason": result.reason,
         "rate": result.rate(),
         "green": result.green,
         "total": result.total,
@@ -940,6 +954,7 @@ mod tests {
     #[test]
     fn verification_summary_distinguishes_exact_and_clean_runs() {
         let reproduced = repro::CheckResult {
+            reason: None,
             outcome: repro::Outcome::Fail,
             green: 0,
             total: 3,
@@ -954,6 +969,7 @@ mod tests {
             })
         );
         let fixed = repro::CheckResult {
+            reason: None,
             outcome: repro::Outcome::Pass,
             green: 3,
             total: 3,

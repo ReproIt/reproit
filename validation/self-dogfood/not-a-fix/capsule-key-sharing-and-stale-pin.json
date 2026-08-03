@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "capsule-key-sharing-and-stale-pin",
+  "changeType": "feature",
+  "detail": "Two related defects in the capsule evidence path, found while checking whether the docs were true. First, the capsule key was random and per-machine with no way to supply another, so a capsule-backed guard could not replay anywhere but the machine that recorded it: the ciphertext can travel and the key could not, which quietly contradicted the README's claim that a repro replays from a copy of the checkout on another machine. REPROIT_CAPSULE_KEY (64 hex characters) is now the team-held key, read and never written, and it disables automatic rotation while set because re-keying a shared store would lock out every other holder. A set-but-malformed value is an error rather than a silent fall back to the local key, since encrypting under a key the operator did not name leaves a store that is only half openable and gives no sign of it. Second, a guard that pins a capsule id could report PASS while that capsule was absent: guard b1ab0f0eb617 in this repository pins cap_3287a46499f747e2, which is not on disk, and passed for days because its replay path never loads one. The required-capsule path now returns a STALE verdict naming the capsule instead of raising an I/O error, and CheckResult carries the cause so a stale run states why it could not judge the case rather than reading like a soft pass. The scope of that check was narrowed after testing it against the real guard: applied at the guard funnel it turned EVERY capsule-pinned guard stale on every fresh clone, because the capsule store is gitignored, which would have been a regression dressed as a fix. It now fires only where the capsule is genuinely required. Retention, its environment tuning, and the key lifecycle moved into domain/capsule/retention.rs: this keeps mod.rs under the 1000-line ratchet and SHRINKS the architecture test's no-std::env exemption from the whole capsule module to one small file whose entire purpose is the environment-tuned surface. Unrelated and pre-existing: guard self-dogfood-contract-null-optional reports stale in this checkout for an environmental reason, with no cause attached, so it does not come from this code path.",
+  "evidence": [
+    {
+      "path": "crates/reproit/src/domain/capsule/retention.rs",
+      "sha256": "sha256:61ee8121a212fdf01acbbecf5fc040bd5557cfd6ed60cb1118ce80b226a74a66"
+    },
+    {
+      "path": "crates/reproit/src/domain/capsule/crypto.rs",
+      "sha256": "sha256:693e46d5ade7f8ff2199237e5d1fc75151bf9ae5ea8a9de41e6769f20ec777a5"
+    },
+    {
+      "path": "crates/reproit/src/workflows/repro.rs",
+      "sha256": "sha256:102cfa9a455de3e68a6fd97c190e1be95ea2c6446f64facb57721465e2b5f551"
+    },
+    {
+      "path": "docs/repros.md",
+      "sha256": "sha256:9e610abddc21974560a036b90278895f53a3b9335ceb6b934eccadcb64804cd0"
+    }
+  ]
+}

@@ -658,6 +658,22 @@ pub(super) async fn check_repro(
     let mut expected_finding_identity = None;
     let mut excluded_defines = std::collections::BTreeSet::new();
     if let Some(capsule_id) = capsule_id {
+        // The capsule store is machine-local and gitignored, so a pinned
+        // capsule is routinely absent: a fresh clone, a reset, or a guard
+        // recorded on another machine all produce this. That is a case this
+        // checkout cannot judge, which is exactly what STALE means, so it is
+        // reported as a verdict rather than raised as an error. It must not
+        // become a pass: a run that cannot reach its own evidence has proved
+        // nothing. Set REPROIT_CAPSULE_KEY and share the store to replay it
+        // here, or re-record the guard where the capsule exists.
+        if !capsule::Capsule::exists(&loaded.root, &capsule_id) {
+            return Ok((
+                repro::CheckResult::stale(format!(
+                    "pinned capsule `{capsule_id}` is not in this checkout"
+                )),
+                loaded.root.join(&loaded.config.evidence.out_dir),
+            ));
+        }
         let capsule = capsule::Capsule::load(&loaded.root, &capsule_id)?;
         let missing = capsule.missing_required_replay_capabilities();
         if !missing.is_empty() {

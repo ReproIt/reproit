@@ -37,9 +37,15 @@ clean result.
 
 Confirmed causal replay can additionally retain already-redacted JSON request and response
 structure. Credential/identity keys and secret headers are replaced before persistence, non-JSON
-bodies retain length only, and the complete capsule is AES-256-GCM encrypted locally. See
-[causal-capsules.md](causal-capsules.md). Referenced findings and kept repros pin their encrypted
-capsule. Only abandoned candidate capsules are automatically bounded by age and count.
+bodies retain length only, and the complete capsule is AES-256-GCM encrypted at rest. See
+[repros.md](repros.md). Referenced findings and kept repros pin their encrypted capsule. Only
+abandoned candidate capsules are automatically bounded by age and count.
+
+The capsule key defaults to a random per-machine file (`.reproit/capsule.key`, mode 0600,
+gitignored) and rotates every 90 days. To share a capsule across a team or with CI, set
+`REPROIT_CAPSULE_KEY` to a 64-character hexadecimal key: reproit reads it, never writes it, and
+stops rotating while it is set. Anyone holding that key can read every capsule it protects, so
+distribute it like any other shared secret.
 
 So a crash report can say "a 312-character name with mixed Arabic and Latin script broke the
 checkout screen" without anyone ever seeing the name.

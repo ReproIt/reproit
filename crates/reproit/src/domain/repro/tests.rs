@@ -642,3 +642,24 @@ fn check_result_reports_rate() {
     assert_eq!(r.outcome, Outcome::Flaky);
     assert_eq!(r.rate(), "2/3");
 }
+
+/// A case the checkout cannot judge is stale WITH a cause, never a pass. Zero
+/// green over zero runs would render as "0/0" and classify as clean if it were
+/// ever built from verdicts, which is the vacuous green this contract refuses.
+#[test]
+fn a_stale_result_names_its_cause_and_is_not_a_pass() {
+    let result = CheckResult::stale("pinned capsule `cap_deadbeef0001` is not in this checkout");
+    assert_eq!(result.outcome, Outcome::Stale);
+    assert_ne!(result.outcome, Outcome::Pass);
+    assert_eq!(
+        result.reason.as_deref(),
+        Some("pinned capsule `cap_deadbeef0001` is not in this checkout")
+    );
+    assert_eq!(result.outcome.exit_code(), 3);
+    // An ordinary result carries no cause, so `reason` marks exactly the runs
+    // that could not be judged.
+    assert_eq!(
+        CheckResult::from_verdicts(&[RunVerdict::Green]).reason,
+        None
+    );
+}

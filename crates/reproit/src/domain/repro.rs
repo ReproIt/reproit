@@ -856,6 +856,9 @@ pub struct CheckResult {
     pub outcome: Outcome,
     pub green: usize,
     pub total: usize,
+    /// Why this run could not judge the case. Set only on `Stale`, where the
+    /// difference between "could not run" and "ran clean" is the whole point.
+    pub reason: Option<String>,
 }
 
 impl CheckResult {
@@ -864,6 +867,18 @@ impl CheckResult {
             outcome: classify(verdicts),
             green: verdicts.iter().filter(|v| **v == RunVerdict::Green).count(),
             total: verdicts.len(),
+            reason: None,
+        }
+    }
+
+    /// A case this checkout cannot judge, with the cause named. Never a pass:
+    /// zero green over zero runs is not evidence of anything.
+    pub fn stale(reason: impl Into<String>) -> Self {
+        CheckResult {
+            outcome: Outcome::Stale,
+            green: 0,
+            total: 0,
+            reason: Some(reason.into()),
         }
     }
 

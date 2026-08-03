@@ -135,9 +135,10 @@ substitutes into generated files (see the last section).
 
 | Variable | Reference | Meaning |
 | --- | --- | --- |
-| `REPROIT_CAPSULE_MAX_UNREFERENCED` | `crates/reproit/src/domain/capsule/mod.rs` | Max unreferenced capsules kept before pruning. |
-| `REPROIT_CAPSULE_RETENTION_DAYS` | `crates/reproit/src/domain/capsule/mod.rs` | Age bound for unreferenced capsules. |
-| `REPROIT_CAPSULE_KEY_ROTATION_DAYS` | `crates/reproit/src/domain/capsule/mod.rs` | Capsule key rotation interval. |
+| `REPROIT_CAPSULE_KEY` | `crates/reproit/src/domain/capsule/retention.rs` | Team-held capsule key, 64 hex characters. Makes a shared capsule store replayable on another machine or in CI; read, never written, and it disables automatic rotation. |
+| `REPROIT_CAPSULE_MAX_UNREFERENCED` | `crates/reproit/src/domain/capsule/retention.rs` | Max unreferenced capsules kept before pruning. |
+| `REPROIT_CAPSULE_RETENTION_DAYS` | `crates/reproit/src/domain/capsule/retention.rs` | Age bound for unreferenced capsules. |
+| `REPROIT_CAPSULE_KEY_ROTATION_DAYS` | `crates/reproit/src/domain/capsule/retention.rs` | Capsule key rotation interval. |
 
 ## Build, test, and development only
 

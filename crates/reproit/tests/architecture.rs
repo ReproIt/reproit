@@ -132,10 +132,12 @@ fn inner_layers_do_not_depend_on_outer_layers() {
 /// themselves.
 #[test]
 fn domain_code_stays_deterministic() {
-    // The documented exception: capsule retention reads its tuning from the
-    // environment and ages capsules by wall clock. Shrink this list; never
-    // grow it without the same explicit rationale in the file itself.
-    const ALLOWED: &[&str] = &["src/domain/capsule/mod.rs"];
+    // The documented exception: capsule retention reads its tuning and the
+    // shared key from the environment, and ages capsules by wall clock. It is
+    // now one small file rather than the whole capsule module, which is the
+    // direction this list moves. Shrink it; never grow it without the same
+    // explicit rationale in the file itself.
+    const ALLOWED: &[&str] = &["src/domain/capsule/retention.rs"];
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut pending = vec![manifest.join("src/domain")];
     while let Some(directory) = pending.pop() {

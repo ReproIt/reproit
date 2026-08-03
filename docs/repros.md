@@ -81,6 +81,24 @@ The local key rotates automatically after 90 days. Rotation stages every new cip
 retains rollback copies until the atomic key swap succeeds. `REPROIT_CAPSULE_KEY_ROTATION_DAYS`
 changes the interval; `0` rotates on the next write.
 
+### Sharing a capsule: `REPROIT_CAPSULE_KEY`
+
+The local key is random and per-machine. That is right for a candidate capsule nobody else will
+open, and wrong for a guard your team shares, because the ciphertext can travel and the key cannot.
+
+`REPROIT_CAPSULE_KEY` (64 hexadecimal characters) is a team-held key. Set it wherever the capsule
+store is shared, including CI, and the same capsule opens on any machine that holds it. Reproit
+reads that key and never writes it: no copy is left in the checkout, and automatic rotation is
+disabled while it is set, because re-keying the store would lock out everyone else holding it. A
+value that is set but malformed is an error rather than a quiet fall back to the local key, since
+encrypting under a key you did not name leaves a store that is only half openable.
+
+The capsule store and the local key are both gitignored, so a capsule is normally absent from a
+fresh clone. That is why a capsule-backed guard whose pinned capsule is missing reports **stale**
+with the capsule id named, never a pass: a run that cannot reach its own evidence has proved
+nothing, and stale is exactly the verdict for a case this checkout cannot judge. Guards that
+replay from a committed plan do not need the capsule and are unaffected.
+
 Referenced findings and kept repros pin their capsule indefinitely. Abandoned candidate capsules are
 pruned after 30 days or beyond 200 retained candidates. `REPROIT_CAPSULE_RETENTION_DAYS` and
 `REPROIT_CAPSULE_MAX_UNREFERENCED` override those local limits.
