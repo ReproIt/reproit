@@ -12,8 +12,7 @@ Reproit supports 21 atomic targets.
 - Native gates: backend-contract
 - Release evidence directories: backend-contract in linux-hosted
 - Field benchmark: validation/field/backend-contract.json
-- Operating systems: linux
-- Architectures: x86_64
+- Platforms: Linux, macOS, Windows
 - Runtimes: HTTP, OpenAPI
 - Frameworks: Backend services
 - Evidence slots:
@@ -30,8 +29,7 @@ Reproit supports 21 atomic targets.
 - Native gates: compose-android
 - Release evidence directories: compose-android in android
 - Field benchmark: validation/field/compose-android.json
-- Operating systems: android-emulator
-- Architectures: x86_64
+- Platforms: Android
 - Runtimes: ART, Appium UiAutomator2
 - Frameworks: Jetpack Compose
 - Evidence slots:
@@ -40,7 +38,7 @@ Reproit supports 21 atomic targets.
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 
-## Electron Linux
+## Electron
 
 - Target id: `electron-linux`
 - Family: desktop-webview
@@ -48,8 +46,7 @@ Reproit supports 21 atomic targets.
 - Native gates: electron
 - Release evidence directories: electron in linux-hosted
 - Field benchmark: validation/field/electron-linux.json
-- Operating systems: linux
-- Architectures: x86_64
+- Platforms: Linux, macOS, Windows
 - Runtimes: Chromium, Node.js, CDP
 - Frameworks: Electron
 - Evidence slots:
@@ -70,8 +67,7 @@ Reproit supports 21 atomic targets.
 - Native gates: flutter-android
 - Release evidence directories: flutter-android in android
 - Field benchmark: validation/field/flutter-android.json
-- Operating systems: android-emulator
-- Architectures: x86_64
+- Platforms: Android
 - Runtimes: Dart VM service (profile-mode build, liveness and isolate only), Appium UiAutomator2
 - Frameworks: Flutter
 - Evidence slots:
@@ -88,8 +84,7 @@ Reproit supports 21 atomic targets.
 - Native gates: flutter-ios
 - Release evidence directories: flutter-ios in flutter
 - Field benchmark: validation/field/flutter-ios.json
-- Operating systems: ios-simulator
-- Architectures: arm64
+- Platforms: iOS
 - Runtimes: Dart VM service, flutter drive
 - Frameworks: Flutter
 - Evidence slots:
@@ -106,8 +101,7 @@ Reproit supports 21 atomic targets.
 - Native gates: linux-atspi-gtk
 - Release evidence directories: linux-atspi-gtk in linux-containers
 - Field benchmark: validation/field/linux-gtk.json
-- Operating systems: linux-container
-- Architectures: x86_64
+- Platforms: Linux
 - Runtimes: AT-SPI 2, GLib main loop
 - Frameworks: GTK 3, GTK 4
 - Evidence slots:
@@ -124,8 +118,7 @@ Reproit supports 21 atomic targets.
 - Native gates: linux-atspi-toolkits
 - Release evidence directories: linux-atspi-toolkits in linux-containers
 - Field benchmark: validation/field/linux-qt-quick.json
-- Operating systems: linux-container
-- Architectures: x86_64
+- Platforms: Linux
 - Runtimes: AT-SPI 2, Qt 6, QML engine
 - Frameworks: Qt Quick/QML
 - Evidence slots:
@@ -142,8 +135,7 @@ Reproit supports 21 atomic targets.
 - Native gates: linux-atspi-toolkits
 - Release evidence directories: linux-atspi-toolkits in linux-containers
 - Field benchmark: validation/field/linux-qt-widgets.json
-- Operating systems: linux-container
-- Architectures: x86_64
+- Platforms: Linux
 - Runtimes: AT-SPI 2, Qt 6
 - Frameworks: Qt Widgets
 - Evidence slots:
@@ -160,8 +152,7 @@ Reproit supports 21 atomic targets.
 - Native gates: linux-atspi-toolkits
 - Release evidence directories: linux-atspi-toolkits in linux-containers
 - Field benchmark: validation/field/linux-wxwidgets.json
-- Operating systems: linux-container
-- Architectures: x86_64
+- Platforms: Linux
 - Runtimes: AT-SPI 2, GTK backend
 - Frameworks: wxWidgets
 - Evidence slots:
@@ -178,8 +169,7 @@ Reproit supports 21 atomic targets.
 - Native gates: macos-ax
 - Release evidence directories: macos-ax in macos
 - Field benchmark: none recorded
-- Operating systems: macos
-- Architectures: arm64
+- Platforms: macOS
 - Runtimes: Swift runtime, Accessibility API
 - Frameworks: SwiftUI, AppKit
 - Evidence slots:
@@ -196,8 +186,7 @@ Reproit supports 21 atomic targets.
 - Native gates: react-native-android
 - Release evidence directories: react-native-android in android
 - Field benchmark: validation/field/react-native-android.json
-- Operating systems: android-emulator
-- Architectures: x86_64
+- Platforms: Android
 - Runtimes: Hermes, Appium UiAutomator2
 - Frameworks: React Native
 - Evidence slots:
@@ -214,8 +203,7 @@ Reproit supports 21 atomic targets.
 - Native gates: react-native-ios
 - Release evidence directories: react-native-ios in swiftui
 - Field benchmark: validation/field/react-native-ios.json
-- Operating systems: ios-simulator
-- Architectures: arm64
+- Platforms: iOS
 - Runtimes: Hermes, Appium XCUITest
 - Frameworks: React Native
 - Evidence slots:
@@ -232,8 +220,7 @@ Reproit supports 21 atomic targets.
 - Native gates: swiftui-ios
 - Release evidence directories: swiftui-ios in swiftui
 - Field benchmark: validation/field/swiftui-ios.json
-- Operating systems: ios-simulator
-- Architectures: arm64
+- Platforms: iOS
 - Runtimes: Swift runtime, Appium XCUITest
 - Frameworks: SwiftUI
 - Evidence slots:
@@ -242,7 +229,7 @@ Reproit supports 21 atomic targets.
   - packageInstall: ci-gate
   - manualReview: field-benchmark
 
-## Tauri Linux
+## Tauri
 
 - Target id: `tauri-linux`
 - Family: desktop-webview
@@ -250,8 +237,7 @@ Reproit supports 21 atomic targets.
 - Native gates: tauri
 - Release evidence directories: tauri in linux-containers
 - Field benchmark: none recorded
-- Operating systems: linux
-- Architectures: x86_64
+- Platforms: Linux, Windows
 - Runtimes: WebKitGTK, tauri-driver
 - Frameworks: Tauri
 - Evidence slots:
@@ -268,10 +254,9 @@ Reproit supports 21 atomic targets.
 - Native gates: tui-pty
 - Release evidence directories: tui-pty in linux-hosted
 - Field benchmark: validation/field/tui.json
-- Operating systems: linux
-- Architectures: x86_64
+- Platforms: Linux, macOS
 - Runtimes: PTY, VT parser
-- Frameworks: Go, TypeScript, Python terminal apps
+- Frameworks: Terminal applications
 - Evidence slots:
   - cleanCorpus: evidence
   - adversarialCorpus: evidence
@@ -286,8 +271,7 @@ Reproit supports 21 atomic targets.
 - Native gates: web-chromium
 - Release evidence directories: web-chromium in linux-hosted
 - Field benchmark: validation/field/benchmark.json
-- Operating systems: linux
-- Architectures: x86_64
+- Platforms: Linux, macOS, Windows
 - Runtimes: Node.js 20+, Playwright CDP
 - Frameworks: DOM applications
 - Evidence slots:
@@ -304,8 +288,7 @@ Reproit supports 21 atomic targets.
 - Native gates: web-engines
 - Release evidence directories: web-engines in linux-hosted
 - Field benchmark: validation/field/web-firefox.json
-- Operating systems: linux
-- Architectures: x86_64
+- Platforms: Linux, macOS, Windows
 - Runtimes: Node.js 20+, Playwright
 - Frameworks: DOM applications
 - Evidence slots:
@@ -322,8 +305,7 @@ Reproit supports 21 atomic targets.
 - Native gates: web-engines
 - Release evidence directories: web-engines in linux-hosted
 - Field benchmark: validation/field/web-webkit.json
-- Operating systems: linux
-- Architectures: x86_64
+- Platforms: Linux, macOS, Windows
 - Runtimes: Node.js 20+, Playwright
 - Frameworks: DOM applications
 - Evidence slots:
@@ -340,8 +322,7 @@ Reproit supports 21 atomic targets.
 - Native gates: windows-uia
 - Release evidence directories: windows-uia in windows
 - Field benchmark: validation/field/windows-avalonia.json
-- Operating systems: windows-x86_64-interactive
-- Architectures: x86_64
+- Platforms: Windows
 - Runtimes: .NET, UI Automation
 - Frameworks: Avalonia
 - Evidence slots:
@@ -358,8 +339,7 @@ Reproit supports 21 atomic targets.
 - Native gates: windows-uia
 - Release evidence directories: windows-uia in windows
 - Field benchmark: validation/field/windows-winui.json
-- Operating systems: windows-x86_64-interactive
-- Architectures: x86_64
+- Platforms: Windows
 - Runtimes: .NET, UI Automation, WinAppSDK
 - Frameworks: WinUI 3
 - Evidence slots:
@@ -376,8 +356,7 @@ Reproit supports 21 atomic targets.
 - Native gates: windows-uia
 - Release evidence directories: windows-uia in windows
 - Field benchmark: validation/field/windows-wpf.json
-- Operating systems: windows-x86_64-interactive
-- Architectures: x86_64
+- Platforms: Windows
 - Runtimes: .NET, UI Automation
 - Frameworks: WPF
 - Evidence slots:

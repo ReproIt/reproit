@@ -43,6 +43,11 @@
           ],
           "framework": [
             "DOM applications"
+          ],
+          "platforms": [
+            "Linux",
+            "macOS",
+            "Windows"
           ]
         }
       }
@@ -82,6 +87,11 @@
           ],
           "framework": [
             "DOM applications"
+          ],
+          "platforms": [
+            "Linux",
+            "macOS",
+            "Windows"
           ]
         }
       }
@@ -121,6 +131,11 @@
           ],
           "framework": [
             "DOM applications"
+          ],
+          "platforms": [
+            "Linux",
+            "macOS",
+            "Windows"
           ]
         }
       }
@@ -160,6 +175,9 @@
           ],
           "framework": [
             "Flutter"
+          ],
+          "platforms": [
+            "iOS"
           ]
         }
       }
@@ -199,6 +217,9 @@
           ],
           "framework": [
             "Flutter"
+          ],
+          "platforms": [
+            "Android"
           ]
         }
       }
@@ -238,6 +259,9 @@
           ],
           "framework": [
             "React Native"
+          ],
+          "platforms": [
+            "Android"
           ]
         }
       }
@@ -277,6 +301,9 @@
           ],
           "framework": [
             "React Native"
+          ],
+          "platforms": [
+            "iOS"
           ]
         }
       }
@@ -316,6 +343,9 @@
           ],
           "framework": [
             "Jetpack Compose"
+          ],
+          "platforms": [
+            "Android"
           ]
         }
       }
@@ -355,6 +385,9 @@
           ],
           "framework": [
             "SwiftUI"
+          ],
+          "platforms": [
+            "iOS"
           ]
         }
       }
@@ -391,6 +424,9 @@
           "framework": [
             "SwiftUI",
             "AppKit"
+          ],
+          "platforms": [
+            "macOS"
           ]
         }
       }
@@ -430,6 +466,9 @@
           ],
           "framework": [
             "WPF"
+          ],
+          "platforms": [
+            "Windows"
           ]
         }
       }
@@ -469,6 +508,9 @@
           ],
           "framework": [
             "Avalonia"
+          ],
+          "platforms": [
+            "Windows"
           ]
         }
       }
@@ -509,6 +551,9 @@
           ],
           "framework": [
             "WinUI 3"
+          ],
+          "platforms": [
+            "Windows"
           ]
         }
       }
@@ -549,6 +594,9 @@
           "framework": [
             "GTK 3",
             "GTK 4"
+          ],
+          "platforms": [
+            "Linux"
           ]
         }
       }
@@ -588,6 +636,9 @@
           ],
           "framework": [
             "Qt Widgets"
+          ],
+          "platforms": [
+            "Linux"
           ]
         }
       }
@@ -628,6 +679,9 @@
           ],
           "framework": [
             "Qt Quick/QML"
+          ],
+          "platforms": [
+            "Linux"
           ]
         }
       }
@@ -667,6 +721,9 @@
           ],
           "framework": [
             "wxWidgets"
+          ],
+          "platforms": [
+            "Linux"
           ]
         }
       }
@@ -705,15 +762,17 @@
             "VT parser"
           ],
           "framework": [
-            "Go",
-            "TypeScript",
-            "Python terminal apps"
+            "Terminal applications"
+          ],
+          "platforms": [
+            "Linux",
+            "macOS"
           ]
         }
       }
     },
     "electron-linux": {
-      "displayName": "Electron Linux",
+      "displayName": "Electron",
       "family": "desktop-webview",
       "scope": "Packaged Electron applications on Linux workers",
       "ownedGates": [
@@ -748,12 +807,17 @@
           ],
           "framework": [
             "Electron"
+          ],
+          "platforms": [
+            "Linux",
+            "macOS",
+            "Windows"
           ]
         }
       }
     },
     "tauri-linux": {
-      "displayName": "Tauri Linux",
+      "displayName": "Tauri",
       "family": "desktop-webview",
       "scope": "Tauri on Linux WebKitGTK workers",
       "ownedGates": [
@@ -787,6 +851,10 @@
           ],
           "framework": [
             "Tauri"
+          ],
+          "platforms": [
+            "Linux",
+            "Windows"
           ]
         }
       }
@@ -826,6 +894,11 @@
           ],
           "framework": [
             "Backend services"
+          ],
+          "platforms": [
+            "Linux",
+            "macOS",
+            "Windows"
           ]
         }
       }

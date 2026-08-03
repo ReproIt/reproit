@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "id": "declared-platforms-not-ci-runners",
+  "changeType": "refactor",
+  "detail": "The public OS and architecture columns were derived from each gate targetOs, which is a CI RUNNER descriptor, so the docs published ios-simulator and linux-container and windows-x86_64-interactive as operating systems, and told readers the backend runs on Linux x86_64 only because its gate happens to execute on a Linux runner, when the backend is eight language SDKs that run wherever their language runs. Platforms are now DECLARED per target in the manifest and validated as a required bounds field; platform_bounds no longer reads gates. Two display names that encoded a runner OS were corrected (Electron Linux to Electron, Tauri Linux to Tauri) because both adapters reach more than Linux. The README list is now shaped by what a developer builds with rather than by how CI is sharded: one line per framework naming the platforms it reaches, so Flutter appears once as Android and iOS instead of twice as two gate rows, and SwiftUI merges across iOS and macOS. The capability ledger also lost its qualification axis (independent/fixture/field/unqualified) and the eleven blocker strings that cited the deleted platform ladder. A README section that claimed backend is where the product goes deepest was rewritten factually: emphasis is ordering, not a ranking claim. Tests were ported, not weakened: the bounds assertion now checks declared platforms, and the surface test asserts every framework and platform reaches the README.",
+  "evidence": [
+    {
+      "path": "README.md",
+      "sha256": "sha256:4b8a52bb8b2474457a3180a44c88f669b722418745e4117ef4c377724722dbd8"
+    },
+    {
+      "path": "SUPPORT.md",
+      "sha256": "sha256:526f60f5a0f4b0e00fd85090de0a83aedfa5e967bfd25be7056249181b37badb"
+    },
+    {
+      "path": "docs/compatibility.md",
+      "sha256": "sha256:7635fe714a05281ef619b153dc0b74ff58a26e1a711d4ae60dfd1c051ee5a5d6"
+    },
+    {
+      "path": "validation/capabilities/README.md",
+      "sha256": "sha256:d1cce9e7cc79d81b569bedb035293d63ac97f776133cd7cb88d510fb27b9b252"
+    },
+    {
+      "path": "validation/capabilities/check.py",
+      "sha256": "sha256:f14be98c887eacece3df5b1e08f0cfbc0756a91ebd8355de4fcf2f85718faa51"
+    },
+    {
+      "path": "validation/capabilities/coverage.json",
+      "sha256": "sha256:99cb52186bce4361e059040250c2267991f05fd2abbb18099b08a95006fd3756"
+    },
+    {
+      "path": "validation/compatibility/STATUS.md",
+      "sha256": "sha256:17221a46ba3a572b2a800bba4a16d862fe65dd195d2682f2d5b71389e781d9cc"
+    },
+    {
+      "path": "validation/compatibility/check.py",
+      "sha256": "sha256:3258e4ab8cda69c79ccc41f524dfdd3819c5db43f1f3e67e02716d0d64b91840"
+    },
+    {
+      "path": "validation/compatibility/compatibility_contract.py",
+      "sha256": "sha256:0fec531266151b066bb88482566913a7103d6099cc784a8d68b790626fd0445d"
+    },
+    {
+      "path": "validation/compatibility/status.json",
+      "sha256": "sha256:2b80489bf4550a40e28d801d55626d7f00015941815ea8634b2c8bef3ee5c99d"
+    },
+    {
+      "path": "validation/compatibility/test_check.py",
+      "sha256": "sha256:af7efd9974aa055a36eae4a66fe38162494c95c664fa07c107e5e32a71b70044"
+    },
+    {
+      "path": "validation/support-manifest.json",
+      "sha256": "sha256:3a23f3a05b9cd44e1493c034a1222b0ae6781617e30da6d1feda478d9eb56213"
+    }
+  ]
+}

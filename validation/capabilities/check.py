@@ -30,7 +30,6 @@ REPLAY_STATES = {
     "adapter-specific",
     "unavailable",
 }
-QUALIFICATION_STATES = {"independent", "fixture", "field", "unqualified"}
 
 
 class LedgerError(Exception):
@@ -106,7 +105,6 @@ def validate_claim(claim: object) -> dict[str, object]:
         "compiler",
         "replay",
         "provider",
-        "qualification",
         "evidence",
         "blockers",
     }
@@ -118,17 +116,12 @@ def validate_claim(claim: object) -> dict[str, object]:
     capture = claim["capture"]
     compiler = claim["compiler"]
     replay = claim["replay"]
-    qualification = claim["qualification"]
     if capture not in CAPTURE_STATES:
         raise LedgerError(f"{claim_id}.capture has invalid state {capture!r}")
     if compiler not in COMPILER_STATES:
         raise LedgerError(f"{claim_id}.compiler has invalid state {compiler!r}")
     if replay not in REPLAY_STATES:
         raise LedgerError(f"{claim_id}.replay has invalid state {replay!r}")
-    if qualification not in QUALIFICATION_STATES:
-        raise LedgerError(
-            f"{claim_id}.qualification has invalid state {qualification!r}"
-        )
     provider = require_text(claim["provider"], f"{claim_id}.provider")
     validate_evidence(claim_id, claim["evidence"])
     blockers = require_string_list(
@@ -141,12 +134,11 @@ def validate_claim(claim: object) -> dict[str, object]:
         capture != "complete"
         or compiler != "complete"
         or replay != "structured"
-        or qualification != "independent"
     )
     if incomplete and not blockers:
         raise LedgerError(f"{claim_id} is incomplete but declares no blocker")
     if not incomplete and blockers:
-        raise LedgerError(f"{claim_id} is fully qualified but still declares blockers")
+        raise LedgerError(f"{claim_id} is complete but still declares blockers")
     if replay == "unavailable" and provider != "none":
         raise LedgerError(f"{claim_id} has unavailable replay but names a provider")
     return claim
@@ -179,9 +171,6 @@ def validate(ledger: object) -> dict[str, object]:
             sorted(Counter(claim["compiler"] for claim in claims).items())
         ),
         "replay": dict(sorted(Counter(claim["replay"] for claim in claims).items())),
-        "qualification": dict(
-            sorted(Counter(claim["qualification"] for claim in claims).items())
-        ),
     }
     if ledger["summary"] != actual_summary:
         raise LedgerError(

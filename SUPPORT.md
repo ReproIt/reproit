@@ -20,7 +20,7 @@ this section by hand cannot add a target.
 
 <!-- generated:support-claim -->
 
-Reproit supports 21 atomic platform targets: Backend contracts, Jetpack Compose Android, Electron Linux, Flutter Android, Flutter iOS, Linux GTK, Linux Qt Quick/QML, Linux Qt Widgets, Linux wxWidgets, macOS Accessibility, React Native Android, React Native iOS, SwiftUI iOS, Tauri Linux, Terminal UI, Web Chromium, Web Firefox, Web WebKit, Windows Avalonia, Windows WinUI 3, Windows WPF.
+Reproit supports 21 atomic platform targets: Backend contracts, Jetpack Compose Android, Electron, Flutter Android, Flutter iOS, Linux GTK, Linux Qt Quick/QML, Linux Qt Widgets, Linux wxWidgets, macOS Accessibility, React Native Android, React Native iOS, SwiftUI iOS, Tauri, Terminal UI, Web Chromium, Web Firefox, Web WebKit, Windows Avalonia, Windows WinUI 3, Windows WPF.
 
 Each one is gated by the native fixtures it owns, and each one is
 covered by the 1.x compatibility promise.

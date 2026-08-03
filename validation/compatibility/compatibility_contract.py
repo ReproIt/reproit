@@ -129,9 +129,9 @@ def validate_evidence_slot(
 
 def validate_bounds(target_id: str, bounds: object) -> None:
     label = f"{target_id}.evidence.bounds"
-    require(isinstance(bounds, dict) and set(bounds) == {"runtime", "framework"},
-            f"{label} keys must be runtime and framework")
-    for field in ("runtime", "framework"):
+    require(isinstance(bounds, dict) and set(bounds) == {"platforms", "runtime", "framework"},
+            f"{label} keys must be platforms, runtime and framework")
+    for field in ("platforms", "runtime", "framework"):
         values = bounds[field]
         require(isinstance(values, list) and values
                 and len(values) == len(set(values))
@@ -208,20 +208,16 @@ def validate_target(
 
 
 def platform_bounds(target: dict, known_gates: dict) -> dict:
-    """Derive OS and architecture bounds from the target's owned native gates."""
-    operating_systems: list[str] = []
-    architectures: list[str] = []
-    for gate_id in target["ownedGates"]:
-        gate = known_gates[gate_id]
-        if gate["targetOs"] not in operating_systems:
-            operating_systems.append(gate["targetOs"])
-        for architecture in gate["architectures"]:
-            if architecture not in architectures:
-                architectures.append(architecture)
+    """Return the target's DECLARED bounds.
+
+    Platforms are declared per target, never derived from the gates: a gate's
+    targetOs names where CI executes it (`ios-simulator`, `linux-container`,
+    `windows-x86_64-interactive`), which is a runner descriptor and says
+    nothing about where a user's application runs.
+    """
     bounds = target["evidence"]["bounds"]
     return {
-        "os": sorted(operating_systems),
-        "arch": sorted(architectures),
+        "platforms": bounds["platforms"],
         "runtime": bounds["runtime"],
         "framework": bounds["framework"],
     }

@@ -77,66 +77,40 @@ bugs and hands out occurrence ids; it never executes your code and never holds y
 source. Captured values are classified and redacted at the source before they become
 replayable.
 
-## Backend services are where this goes deepest
+## Server SDKs
 
-Eight server SDKs record a failing operation together with its outbound exchanges, and
-serve those exchanges back at replay: **node, python, rust, go, java, dotnet, php, ruby**.
-Each one ships its own acceptance test that pins all four verdicts on a real failure
-(reproduced with the dependencies stopped, fixed once the bug is repaired, reproduced
-again after the fix is reverted, diverged when a recorded exchange goes missing), so the
-capsule any of them writes re-executes on another machine with the database down and the
-network denied. `sdk/INVENTORY.json` gates that list: an SDK in this repository runs its
-own suite on every push, and a failure fails the build.
+Eight languages record a failing operation together with its outbound exchanges and
+serve those exchanges back at replay: node, python, rust, go, java, dotnet, php, ruby.
+Each ships an acceptance test that pins all four verdicts on a real failure: reproduced
+with the dependencies stopped, fixed once the bug is repaired, reproduced again after
+the fix is reverted, and diverged when a recorded exchange goes missing.
+`sdk/INVENTORY.json` gates the list: an SDK in this repository runs its own suite on
+every push, and a failure fails the build.
 
-The UI targets below use the same capture, replay, and verdict machinery through their
-own runners. Per-target gates, bounds, and evidence live in
-[compatibility](docs/compatibility.md).
+Per-target gates, platforms, and evidence live in [compatibility](docs/compatibility.md).
 
 ## Where Reproit runs
 
 <!-- generated:platforms -->
 
-**Backend services**
-
-- Backend contracts
-
-**Web**
-
-- Web Chromium
-- Web Firefox
-- Web WebKit
-
-**Desktop webview**
-
-- Electron Linux
-- Tauri Linux
-
-**Desktop native**
-
-- Linux GTK
-- Linux Qt Quick/QML
-- Linux Qt Widgets
-- Linux wxWidgets
-- macOS Accessibility
-- Windows Avalonia
-- Windows WinUI 3
-- Windows WPF
-
-**Mobile**
-
-- Jetpack Compose Android
-- React Native Android
-- React Native iOS
-- SwiftUI iOS
-
-**Flutter**
-
-- Flutter Android
-- Flutter iOS
-
-**Terminal**
-
-- Terminal UI
+- **Backend services**: Linux, macOS, Windows
+- **DOM applications**: Linux, macOS, Windows
+- **Jetpack Compose**: Android
+- **React Native**: Android, iOS
+- **Flutter**: Android, iOS
+- **Electron**: Linux, macOS, Windows
+- **Tauri**: Linux, Windows
+- **GTK 3**: Linux
+- **GTK 4**: Linux
+- **Qt Quick/QML**: Linux
+- **Qt Widgets**: Linux
+- **wxWidgets**: Linux
+- **SwiftUI**: macOS, iOS
+- **AppKit**: macOS
+- **Avalonia**: Windows
+- **WinUI 3**: Windows
+- **WPF**: Windows
+- **Terminal applications**: Linux, macOS
 
 <!-- /generated:platforms -->
 

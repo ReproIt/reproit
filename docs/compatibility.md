@@ -41,29 +41,29 @@ control, and exact-commit native evidence.
 
 Supported atomic targets: 21.
 
-| Target | Family | Native gates | OS | Architectures |
-|---|---|---|---|---|
-| Backend contracts | backend | backend-contract | linux | x86_64 |
-| Jetpack Compose Android | native-mobile | compose-android | android-emulator | x86_64 |
-| Electron Linux | desktop-webview | electron | linux | x86_64 |
-| Flutter Android | flutter | flutter-android | android-emulator | x86_64 |
-| Flutter iOS | flutter | flutter-ios | ios-simulator | arm64 |
-| Linux GTK | desktop | linux-atspi-gtk | linux-container | x86_64 |
-| Linux Qt Quick/QML | desktop | linux-atspi-toolkits | linux-container | x86_64 |
-| Linux Qt Widgets | desktop | linux-atspi-toolkits | linux-container | x86_64 |
-| Linux wxWidgets | desktop | linux-atspi-toolkits | linux-container | x86_64 |
-| macOS Accessibility | desktop | macos-ax | macos | arm64 |
-| React Native Android | native-mobile | react-native-android | android-emulator | x86_64 |
-| React Native iOS | native-mobile | react-native-ios | ios-simulator | arm64 |
-| SwiftUI iOS | native-mobile | swiftui-ios | ios-simulator | arm64 |
-| Tauri Linux | desktop-webview | tauri | linux | x86_64 |
-| Terminal UI | tui | tui-pty | linux | x86_64 |
-| Web Chromium | web | web-chromium | linux | x86_64 |
-| Web Firefox | web | web-engines | linux | x86_64 |
-| Web WebKit | web | web-engines | linux | x86_64 |
-| Windows Avalonia | desktop | windows-uia | windows-x86_64-interactive | x86_64 |
-| Windows WinUI 3 | desktop | windows-uia | windows-x86_64-interactive | x86_64 |
-| Windows WPF | desktop | windows-uia | windows-x86_64-interactive | x86_64 |
+| Target | Framework | Platforms | Driving runtime |
+|---|---|---|---|
+| Backend contracts | Backend services | Linux, macOS, Windows | HTTP, OpenAPI |
+| Jetpack Compose Android | Jetpack Compose | Android | ART, Appium UiAutomator2 |
+| Electron | Electron | Linux, macOS, Windows | Chromium, Node.js, CDP |
+| Flutter Android | Flutter | Android | Dart VM service (profile-mode build, liveness and isolate only), Appium UiAutomator2 |
+| Flutter iOS | Flutter | iOS | Dart VM service, flutter drive |
+| Linux GTK | GTK 3, GTK 4 | Linux | AT-SPI 2, GLib main loop |
+| Linux Qt Quick/QML | Qt Quick/QML | Linux | AT-SPI 2, Qt 6, QML engine |
+| Linux Qt Widgets | Qt Widgets | Linux | AT-SPI 2, Qt 6 |
+| Linux wxWidgets | wxWidgets | Linux | AT-SPI 2, GTK backend |
+| macOS Accessibility | SwiftUI, AppKit | macOS | Swift runtime, Accessibility API |
+| React Native Android | React Native | Android | Hermes, Appium UiAutomator2 |
+| React Native iOS | React Native | iOS | Hermes, Appium XCUITest |
+| SwiftUI iOS | SwiftUI | iOS | Swift runtime, Appium XCUITest |
+| Tauri | Tauri | Linux, Windows | WebKitGTK, tauri-driver |
+| Terminal UI | Terminal applications | Linux, macOS | PTY, VT parser |
+| Web Chromium | DOM applications | Linux, macOS, Windows | Node.js 20+, Playwright CDP |
+| Web Firefox | DOM applications | Linux, macOS, Windows | Node.js 20+, Playwright |
+| Web WebKit | DOM applications | Linux, macOS, Windows | Node.js 20+, Playwright |
+| Windows Avalonia | Avalonia | Windows | .NET, UI Automation |
+| Windows WinUI 3 | WinUI 3 | Windows | .NET, UI Automation, WinAppSDK |
+| Windows WPF | WPF | Windows | .NET, UI Automation |
 
 Every target's runtime and framework bounds, release evidence
 directories, and retained evidence slots are listed in

@@ -6,12 +6,10 @@ must not be conflated:
 
 1. capture availability;
 2. capture-to-requirement compilation;
-3. executable replay provider support; and
-4. production qualification.
+3. executable replay provider support.
 
 A capability modeled by the protocol is not described as captured. An authored
-command wrapper is not described as a structured provider. Fixture and field
-evidence are not described as independent production-to-local qualification.
+command wrapper is not described as a structured provider.
 
 Run:
 

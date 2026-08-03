@@ -27,7 +27,7 @@ class CompatibilityContractTests(unittest.TestCase):
         )
         for target in status["targets"]:
             self.assertTrue(target["nativeGates"], target["id"])
-            self.assertTrue(target["bounds"]["os"], target["id"])
+            self.assertTrue(target["bounds"]["platforms"], target["id"])
 
     def test_every_owned_gate_is_release_gated(self):
         for target_id, target in self.support["targets"].items():
@@ -148,7 +148,12 @@ class CompatibilityContractTests(unittest.TestCase):
         section = CHECK.target_section(status)
         document = CHECK.markdown_status(status)
         for target in status["targets"]:
-            self.assertIn(target["displayName"], table)
+            # The README is framework-shaped, so it carries each target's
+            # framework and platform reach rather than its atomic gate name.
+            for framework in target["bounds"]["framework"]:
+                self.assertIn(framework, table)
+            for platform in target["bounds"]["platforms"]:
+                self.assertIn(platform, table)
             self.assertIn(target["displayName"], claim)
             self.assertIn(target["displayName"], section)
             self.assertIn(f"`{target['id']}`", document)

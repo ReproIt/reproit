@@ -88,8 +88,7 @@ def markdown_status(status: dict) -> str:
                     for gate_id, directory in sorted(target["releaseGates"].items())
                 ),
                 f"- Field benchmark: {target['fieldBenchmark'] or 'none recorded'}",
-                f"- Operating systems: {', '.join(bounds['os'])}",
-                f"- Architectures: {', '.join(bounds['arch'])}",
+                f"- Platforms: {', '.join(bounds['platforms'])}",
                 f"- Runtimes: {', '.join(bounds['runtime'])}",
                 f"- Frameworks: {', '.join(bounds['framework'])}",
                 "- Evidence slots:",
@@ -104,58 +103,53 @@ def markdown_status(status: dict) -> str:
 README_FAMILY_ORDER = (
     "backend",
     "web",
-    "desktop-webview",
-    "desktop",
     "native-mobile",
     "flutter",
+    "desktop-webview",
+    "desktop",
     "tui",
 )
 
-README_FAMILY_TITLES = {
-    "backend": "Backend services",
-    "web": "Web",
-    "desktop-webview": "Desktop webview",
-    "desktop": "Desktop native",
-    "native-mobile": "Mobile",
-    "flutter": "Flutter",
-    "tui": "Terminal",
-}
-
 
 def readme_platforms(status: dict) -> str:
-    """Render the README list grouped by family, backend first.
+    """Render one line per framework with the platforms it reaches.
 
-    The grouping is generated, not hand-written prose, so the emphasis cannot
-    drift from the canonical record. This list answers "does Reproit reach my
-    stack"; the per-target bounds and gates live in `docs/compatibility.md`.
+    Generated from the canonical record, and shaped by what a developer builds
+    with rather than by how CI happens to be sharded: a framework that runs on
+    two platforms is one entry naming both, not two entries named after runners.
     """
-    families: dict[str, list[dict]] = {}
+    platforms: dict[str, list[str]] = {}
+    first_family: dict[str, str] = {}
     for target in status["targets"]:
-        families.setdefault(target["family"], []).append(target)
-    unordered = sorted(set(families) - set(README_FAMILY_ORDER))
-    blocks = []
+        bounds = target["bounds"]
+        for framework in bounds["framework"]:
+            first_family.setdefault(framework, target["family"])
+            for platform in bounds["platforms"]:
+                if platform not in platforms.setdefault(framework, []):
+                    platforms[framework].append(platform)
+    unordered = sorted(set(first_family.values()) - set(README_FAMILY_ORDER))
+    lines = []
     for family in (*README_FAMILY_ORDER, *unordered):
-        targets = families.get(family)
-        if not targets:
-            continue
-        names = "\n".join(f"- {target['displayName']}" for target in targets)
-        blocks.append(f"**{README_FAMILY_TITLES.get(family, family)}**\n\n{names}")
-    return "\n\n".join(blocks)
+        for framework, reach in platforms.items():
+            if first_family[framework] == family:
+                lines.append(f"- **{framework}**: {', '.join(reach)}")
+    return "\n".join(lines)
+
+
 
 
 def target_section(status: dict) -> str:
     lines = [
         f"Supported atomic targets: {len(status['targets'])}.",
         "",
-        "| Target | Family | Native gates | OS | Architectures |",
-        "|---|---|---|---|---|",
+        "| Target | Framework | Platforms | Driving runtime |",
+        "|---|---|---|---|",
     ]
     for target in status["targets"]:
         bounds = target["bounds"]
         lines.append(
-            f"| {target['displayName']} | {target['family']} | "
-            f"{', '.join(target['nativeGates'])} | {', '.join(bounds['os'])} | "
-            f"{', '.join(bounds['arch'])} |"
+            f"| {target['displayName']} | {', '.join(bounds['framework'])} | "
+            f"{', '.join(bounds['platforms'])} | {', '.join(bounds['runtime'])} |"
         )
     lines.extend(
         [
