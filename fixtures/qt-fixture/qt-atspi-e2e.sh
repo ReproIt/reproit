@@ -30,7 +30,7 @@ VOLUME_LABEL="${REPROIT_DOCKER_VOLUME_LABEL:-}"
 cp "$HERE/main.cpp" "$WORK/main.cpp"
 cp "$HERE/qml-main.cpp" "$WORK/qml-main.cpp"
 cp "$HERE/main.qml" "$WORK/main.qml"
-cp "$ROOT/examples/wxwidgets-fixture/main.cpp" "$WORK/wx-main.cpp"
+cp "$ROOT/fixtures/wxwidgets-fixture/main.cpp" "$WORK/wx-main.cpp"
 
 cat > "$WORK/Dockerfile" <<'EOF'
 FROM rust:1.88-bookworm

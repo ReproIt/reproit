@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Relative on purpose: the hermetic gate copies sdk/ and examples/ together to a
+    <!-- Relative on purpose: the hermetic gate copies sdk/ and fixtures/ together to a
          different absolute path (the PORTABILITY bar), and this reference must still land. -->
     <ProjectReference
       Include="../../sdk/reproit-backend-dotnet/ReproitBackend/ReproitBackend.csproj" />

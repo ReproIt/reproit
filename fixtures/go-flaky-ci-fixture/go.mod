@@ -1,4 +1,4 @@
-module github.com/reproit/examples/go-flaky-ci-fixture
+module github.com/reproit/fixtures/go-flaky-ci-fixture
 
 go 1.26.3
 

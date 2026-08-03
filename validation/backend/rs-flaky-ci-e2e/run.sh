@@ -69,7 +69,7 @@ EOF
 COPY="$WORK/copy"
 mkdir -p "$COPY"
 (cd "$ROOT" && tar cf - \
-  --exclude=./target --exclude=./.git --exclude='./examples/*/target' \
+  --exclude=./target --exclude=./.git --exclude='./fixtures/*/target' \
   --exclude='./sdk/*/node_modules' --exclude='./sdk/*/.venv' .) | (cd "$COPY" && tar xf -)
 cargo test --quiet --no-run --manifest-path "$COPY/$FIXTURE_REL/Cargo.toml"
 TESTCMD="cargo test --quiet --manifest-path $COPY/$FIXTURE_REL/Cargo.toml -- --test-threads=1"

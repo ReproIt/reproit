@@ -65,7 +65,7 @@ docker rm -f "$PG_NAME" >/dev/null
 COPY="$WORK/copy"
 mkdir -p "$COPY"
 (cd "$ROOT" && tar cf - \
-  --exclude=./target --exclude=./.git --exclude='./examples/*/target' \
+  --exclude=./target --exclude=./.git --exclude='./fixtures/*/target' \
   --exclude='./sdk/*/node_modules' --exclude='./sdk/*/.venv' .) | (cd "$COPY" && tar xf -)
 cargo build --quiet --manifest-path "$COPY/$FIXTURE_REL/Cargo.toml"
 SERVE="$COPY/$FIXTURE_REL/target/debug/rs-backend-fixture"

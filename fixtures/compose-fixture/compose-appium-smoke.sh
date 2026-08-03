@@ -67,10 +67,10 @@ curl -sf "$APPIUM_URL/status" > /dev/null || {
 # launch. A separate HOME key event can race a direct `am start -W`, leave the
 # launcher resumed, and make the adb client wait indefinitely.
 (
-  cd "$ROOT/examples/compose-fixture"
+  cd "$ROOT/fixtures/compose-fixture"
   ANDROID_HOME="$ANDROID_HOME" ./gradlew --no-daemon :app:assembleDebug
 )
-adb_device install -r "$ROOT/examples/compose-fixture/app/build/outputs/apk/debug/app-debug.apk"
+adb_device install -r "$ROOT/fixtures/compose-fixture/app/build/outputs/apk/debug/app-debug.apk"
 adb_device shell settings put global hide_error_dialogs 1 || true
 adb_device shell settings put global device_provisioned 1 || true
 adb_device shell settings put secure user_setup_complete 1 || true

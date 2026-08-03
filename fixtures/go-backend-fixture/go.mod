@@ -1,4 +1,4 @@
-module github.com/reproit/examples/go-backend-fixture
+module github.com/reproit/fixtures/go-backend-fixture
 
 go 1.26.3
 
