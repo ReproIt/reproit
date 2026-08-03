@@ -3,7 +3,7 @@
 If you ship an app containing the ReproIt Android SDK, Google Play requires you to declare the data
 the SDK collects in your app's Data safety form. You are responsible for your own declaration; this
 page states exactly what this SDK collects so you can fill the form accurately. The authoritative
-technical contract is [docs/data-handling.md](../../docs/data-handling.md).
+technical contract is [docs/security.md](../../docs/security.md).
 
 ## What the SDK collects
 

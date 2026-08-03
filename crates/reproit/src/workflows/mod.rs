@@ -3,7 +3,7 @@
 //! Modules here group by TARGET CLASS (backend, UI-driving, process capsule),
 //! not by bug lifecycle. The lifecycle is the axis each module is already
 //! organized by internally, so regrouping by it cuts through the largest
-//! modules rather than grouping them. `docs/architecture.md` records the
+//! modules rather than grouping them. `docs/decisions/architecture.md` records the
 //! measurement behind that choice.
 
 pub(crate) mod a2ui;

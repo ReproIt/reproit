@@ -52,7 +52,7 @@ a `URLProtocol`, a module prepend) whatever the core is written in.
 
 Extend the vectors when a new behavior needs pinning, which costs one JSON edit
 plus a small hookup per SDK, and gate every SDK in CI so a regression is caught
-on the push that causes it (`sdk/INVENTORY.json`, `docs/sdk-support.md`, the
+on the push that causes it (`sdk/INVENTORY.json`, `docs/decisions/sdk-support.md`, the
 `sdk-backend-reference` and `sdk-backend-ports` jobs).
 
 ## When to revisit

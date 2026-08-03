@@ -1,169 +1,157 @@
 # CLI reference
 
-The public CLI is organized around outcomes, not backend mechanisms.
-
-## Configure and diagnose
-
-```sh
-reproit init [URL] [--platform PLATFORM]
-reproit doctor
-```
-
-`init` detects the project and writes the smallest usable configuration. It does not modify
-application source. `doctor` checks the selected platform, runner, target, credentials, and native
-toolchain. Every failed check includes a repair when Reproit knows a safe one. JSON output includes
-the same `detail` and `fix` fields:
+Eight commands are listed in `--help`. They are the whole loop. Specialist commands exist and run
+normally but are unlisted, so a first reader sees the loop instead of the inventory; the last
+section names them.
 
 ```sh
-reproit --json doctor
+reproit init            configure this project
+reproit capture         preserve a failure you can already point at
+reproit find            search for failures you have not seen yet
+reproit <id>            reproduce one exact failure
+reproit keep <id>       preserve it as a regression guard
+reproit check           prove saved failures are still fixed
+reproit list            show saved guards
+reproit doctor          diagnose setup
+reproit login           sign in to Cloud
 ```
 
-## Capture a known failure
+Global options, valid on every command: `--config PATH`, `--json`, `--quiet`, `--yes`.
+
+## init
 
 ```sh
-reproit capture [OPTIONS] [-- COMMAND...]
+reproit init [URL] [--platform flutter|web|rn|android|backend] [--target SERVICE_URL] [--force]
 ```
 
-Important forms:
+Detects the project and writes the smallest configuration that works. It never modifies application
+source. A URL argument always selects the web workflow. `--target` points at a running service, and
+init then sends one bounded GET per parameterless GET route and records what came back, so the
+generated config describes the service as it actually behaves.
+
+## capture
+
+A failure you can already point at, from three sources.
 
 ```sh
-reproit capture --include-output -- cargo test failing_test
-reproit capture --attach --title "menu closes" --record-video
-reproit capture --bundle support.rpb
+reproit capture -- cargo test failing_test     # a command that fails
+reproit capture --attach --title "menu closes" # a running application
+reproit capture --bundle support.rpb           # a signed offline bundle
 ```
 
-`--timeout-ms` bounds command execution. `--include-output` stores bounded stdout and stderr as
-restricted local evidence. `--local-only` prevents Cloud upload. Imported evidence cannot supply
-an executable mechanism.
+`--timeout-ms` bounds the command (default 300000). `--include-output` keeps bounded stdout and
+stderr as local-only restricted evidence. `--local-only` prevents Cloud upload even when
+credentials exist. Imported bundle evidence can never supply an executable mechanism.
 
-## Find unknown failures
+## find
 
 ```sh
-reproit find [TARGET]
+reproit find [TARGET] [--quick | --deep | --exhaustive] [--runs N] [--budget N]
 ```
 
-`find` runs a fast surface pass, then bounded deep exploration, exact replay confirmation, and
-minimization. A finding is emitted only when its oracle authority and exact identity are preserved.
-Incomplete coverage and unsupported capabilities remain explicit blockers.
+A fast surface pass, then bounded deep exploration, then exact replay confirmation and
+minimization. A finding is reported only when its oracle authority and exact identity survive all
+of it. Incomplete coverage stays an explicit blocker rather than an implied clean result.
 
-## Reproduce one case
+`--only` and `--no` restrict or exclude detector categories; the default is the stable set.
+
+## Reproduce one failure
 
 ```sh
-reproit fnd_...
-reproit occ_...
-reproit @saved-name
+reproit fnd_...        # a local finding
+reproit occ_...        # a production occurrence
+reproit @saved-name    # a saved guard, by alias
 ```
 
-The result distinguishes:
+`reproit` is the verb, so there is no `run` or `replay` command. The result is one of: the exact
+failure reproduced; a clean result; a different failure; a flaky result; stale or unsupported
+evidence; or an infrastructure failure. A different failure never counts as a reproduction.
 
-- exact failure reproduced;
-- clean result;
-- a different failure;
-- flaky result;
-- stale or unsupported evidence;
-- infrastructure failure.
+On a TTY the replayed app is held for you to attach a debugger. `--auto` (and any non-TTY, `--json`,
+or `--yes` run) reports the verdict and exits.
 
-A different failure never counts as a reproduction.
-
-## Guard a fix
+## keep
 
 ```sh
-reproit keep fnd_... [--as NAME]
-reproit keep capture.json [--exec "node server.js"]   # hermetic guard
-reproit keep capsule.json --exec "./subject"          # process capsule guard
-reproit keep GUARD --refresh [--yes]                  # re-record a drifted guard
-reproit check [CAPTURE]
-reproit check [CAPTURE] --exec "node server.js"
-reproit check --changed [BASE]   # repeat count and device matrix come from reproit.yaml `gate:`
-reproit check --junit report.xml
+reproit keep fnd_... [--as NAME] [--strict]
+reproit keep capture.json [--exec "node server.js"]
+reproit keep GUARD --refresh [--yes]
 ```
 
-`keep` preserves a confirmed case. `check` runs all saved guards unless a single capture reference
-is supplied. `--changed` changes execution order only and never skips the rest of the suite.
-`--strict` makes quarantined failures block the exit code.
+Preserves a confirmed failure in the committed suite. The store directory is the repro's content
+hash, so it is stable across machines and self-deduping; `--as` adds a human alias. A guard lands
+quarantined until its first green run unless `--strict` makes it blocking immediately.
 
-`check <capture.json>` alone re-evaluates the captured backend events offline.
-`--exec` re-executes them instead: it boots the named command with
-`REPROIT_REPLAY` pointed at the capture, the SDK serves every recorded
-dependency exchange in process, and the verdict comes from the live response:
-reproduced, fixed, diverged (the code no longer makes the captured calls), or
-inconclusive. Diverged and inconclusive fail closed. This needs a version-2
-capture with recorded exchanges, produced by any of the eight backend SDKs
-with `instrument.install()`, and an app that listens on `$PORT`.
+`--exec` is the boot command for a hermetic guard, and defaults to `backend.exec` in reproit.yaml
+when set. A capture never supplies a command: only repo-local config does.
 
-`--exec` is optional when the project sets `backend.exec` in reproit.yaml;
-`reproit init` records it whenever it can infer the boot command, and the flag
-remains the override. A capture never supplies a command: only repo-local
-config does.
+`--refresh` re-records a guard whose code has DRIFTED. It boots the guard's own stored recipe with
+recording on, fires the recorded trigger, and prints the old-versus-new exchange diff: added calls,
+removed calls, or the same calls reordered. Nothing is rewritten without `--yes`, and an
+unconfirmed refresh exits 3 having changed nothing. The inbound trigger and the oracle are always
+preserved, so a refresh re-records how the operation reaches its dependencies, never what was asked
+of it or what counts as failure.
 
-A `reproit-process-capsule` keeps the same way and needs `--exec` for the same
-reason: it re-executes a whole program rather than re-firing a request. The
-guard lands as `capsule.json` plus its boot recipe, is proven live at keep time
-(a capsule that currently diverges or is inconclusive is refused with the
-verdict named), and `reproit check rep_<id>` replays it afterwards with no
-capsule path and no flag. Replay runs in the capsule's recorded working
-directory, so relative paths resolve as they did when recorded; a recorded
-directory that no longer exists is inconclusive with that named cause.
-
-A CI TEST capsule is the same capture payload with a test as its
-trigger: the Node backend SDK's `ci.suite(...)` integration for the `node:test`
-runner records each test's outbound exchanges and envelope when the test job
-sets `REPROIT_CI_CAPTURE=1`, and spools a capsule for every failing test (the
-GitHub action's `test-command` mode uploads the spool as a job artifact). The
-hand-off is file-based and needs no cloud:
-`reproit check <capsule.json> --exec "<test command>"` boots nothing, re-runs
-only the named test with the recorded exchanges served in process, and
-verdicts reproduced (fails the same way), fixed (passes UNDER the recorded
-envelope and exchanges), diverged, or inconclusive. Two honest limits: a plain
-rerun that passes outside the capsule is flaky, envelope-dependent evidence
-and is never reported as fixed (only a pass under the capsule is); and a race
-the replay boundary cannot see (scheduling, shared memory) reports
-inconclusive, never a faked reproduction. Node test runner only today; jest is
-not yet integrated.
-
-`keep <guard> --refresh` re-records a guard whose code has DRIFTED (a diverged
-verdict). It boots the guard's own stored recipe with recording on and replay
-off, fires the guard's recorded inbound trigger, and prints the old-versus-new
-exchange diff: added calls, removed calls, or the same calls reordered. Nothing
-is rewritten without `--yes`, and an unconfirmed refresh exits 3 having changed
-nothing. A refresh preserves the inbound trigger and the oracle, so it
-re-records how the operation reaches its dependencies, never what was asked of
-it or what counts as failure.
-
-Exit classifications are stable:
-
-- pass: the exact failure is absent;
-- fail: the exact failure is present;
-- flaky: repeated runs disagree;
-- stale: the case cannot establish its required contract.
-
-Infrastructure and different-failure results are reported separately in structured output.
-
-## List current work
+## check
 
 ```sh
-reproit list
-reproit list --state candidates
-reproit list --state bugs [--query TEXT]
+reproit check                       # the whole saved suite
+reproit check capture.json          # re-evaluate one capture offline
+reproit check capture.json --exec "node server.js"   # re-execute it
+reproit check --changed [BASE]      # changed-first ordering, never a subset
+reproit check --junit report.xml    # CI report
+reproit check --service a/reproit.yaml --service b/reproit.yaml
 ```
 
-The default lists local guards. Candidates include exact blockers. Bugs lists confirmed production
-identities, not unverified telemetry.
+Exit codes are the contract:
 
-## Account selection
+| code | meaning |
+| ---: | --- |
+| 0 | pass: the exact failure is absent |
+| 1 | fail: the exact failure is present |
+| 2 | flaky: repeated runs disagree |
+| 3 | stale: the case cannot establish its required contract |
+
+Infrastructure failures and different-failure results are reported separately in `--json` output.
+Read the `outcome` field, not the exit code alone, when you need to tell them apart.
+
+`--changed` changes execution order only and never skips the rest of the suite. `--strict` makes a
+quarantined failure block the exit code. Repeat count and the device matrix come from the `gate:`
+section of reproit.yaml, not from flags.
+
+`check <capture.json>` alone re-evaluates the captured events offline. `--exec` re-executes them:
+it boots the named command with `REPROIT_REPLAY` pointed at the capture, the SDK serves every
+recorded dependency exchange in process, and the verdict comes from the live response. Diverged
+(the code no longer makes the captured calls) and inconclusive both fail closed. This needs a
+version-2 capture with recorded exchanges, from any of the eight backend SDKs with
+`instrument.install()`, and an app that listens on `$PORT`.
+
+## list, doctor, login
 
 ```sh
-reproit login
+reproit list [--state guards|candidates|bugs] [--query TEXT]
+reproit doctor [--json]
+reproit login [--cloud URL] [--key KEY]
 ```
 
-Login stores an account credential in the platform credential store and selects a project.
-Local-only capture and checking do not require login.
+`list` defaults to local guards. `candidates` includes exact blockers; `bugs` lists confirmed
+production identities, never unverified telemetry.
 
-## Global options
+`doctor` checks the platform, runner, target, credentials, and native toolchain, and every failed
+check carries a repair when Reproit knows a safe one. `--json` carries the same `detail` and `fix`
+fields.
 
-```text
---config PATH   select reproit.yaml
---json          machine-readable output
---quiet         suppress human output
---yes           disable prompts for CI
-```
+`login` stores a credential in the platform credential store and selects a project. Local capture
+and checking never require it.
+
+## Unlisted commands
+
+These are real commands, typed the same way; `--help` does not list them so the loop stays legible.
+`reproit <name> --help` documents each.
+
+`scan`, `fuzz`, `verify`, `accept`, `baseline`, `proof`, `repro simplify|why`, `journey`,
+`screenshots`, `auth`, `import`, `collect`, `inspect`, `surface`, `push`, `create`, `triage`,
+`timeline`, `resolution-events`, `skills`, `platforms`, `mcp`, `reset`, `update`, `debug`.
+
+Names beginning `__` are not commands at all. They are process entry points reproit spawns on
+itself (runner hosts, the direct-id routes, the update check) and are deliberately untypeable.

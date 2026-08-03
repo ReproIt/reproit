@@ -172,11 +172,11 @@ pub(super) async fn run(
             })
         }
         // Support-bundle verification: manifest, digest, and signature checks
-        // without decrypting artifacts (docs/support-bundle-security.md).
+        // without decrypting artifacts (docs/security.md).
         InternalCmd::Inspect { reference } => {
             if !reference.ends_with(".rpb") {
                 anyhow::bail!(
-                    "internal inspect verifies `.rpb` support bundles; reproduce a bug with \
+                    "`reproit inspect` verifies `.rpb` support bundles; reproduce a bug with \
                      `reproit <id>` (interactive by default)"
                 );
             }

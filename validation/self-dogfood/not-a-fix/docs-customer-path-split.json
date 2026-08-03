@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "docs-customer-path-split",
+  "changeType": "maintenance",
+  "detail": "docs/ carried 20 files and 2,509 lines with two audiences mixed in one directory. Roughly half were internal decision records rather than documentation, and five opened by citing a plan file (the first line of surface-decisions.md is 'plan-structural-reduction.md step D'), which is a memo to the founder sitting in the path a customer reads. The reference itself taught a namespace --help refused to show, because docs/cli.md documented `reproit internal capture` and `reproit internal list` as ordinary commands. This splits the tree by audience: ten decision records move to docs/decisions/ unlinked from the README, causal-capsules and causal-validation merge into docs/repros.md, data-handling and support-bundle-security merge into docs/security.md so a security reviewer reads one page, upgrading.md folds into CHANGELOG.md next to the entries it tells you to read, and docs/cli.md is rewritten against the real clap surface with the exit-code contract stated as a table. docs/ci.md is new and is the largest gap closed here: CI is where check earns its keep and nothing walked a person through wiring it, so the gate, the four exit codes, quarantine-until-first-green, --changed ordering, multi-service gating, baseline adoption, and the red-build capsule hand-off had no home. docs/signature.md was planned for merging and deliberately kept standalone instead: it is a cross-SDK spec cited from source by section name and line range in 11 places, so folding it into a narrative page would break the citations and demote a contract to prose. Recorded evidence files and past not-a-fix records keep their original paths, because repointing a record to a file that moved after it was written would falsify it.",
+  "evidence": [
+    {
+      "path": "docs/cli.md",
+      "sha256": "sha256:78f53696d6f5c3f67fad54a387d271e8bbf5fd1920a852b44cb76a120d9b20c9"
+    },
+    {
+      "path": "docs/ci.md",
+      "sha256": "sha256:6b9f7fe785acc36279e27b187cd385490386bbaf57879700a40fae81140d9cc6"
+    },
+    {
+      "path": "docs/security.md",
+      "sha256": "sha256:eac29b621f0ea96e9b2e4e794f18b99e2575536705094e92368a1c9ac34a37a7"
+    },
+    {
+      "path": "docs/repros.md",
+      "sha256": "sha256:83038e2a050286168c1cb8fd0b4703d3d87c843df261ae0612a494d4076382b4"
+    }
+  ]
+}

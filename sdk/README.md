@@ -186,7 +186,7 @@ after source redaction, structural-only, content-addressed artifacts, or environ
 references. Passwords, credentials, hidden values, and restricted customer data must never be
 classified as replayable or exportable.
 
-Read [data handling and privacy](../docs/data-handling.md) for the complete wire contract and
+Read [data handling and privacy](../docs/security.md) for the complete wire contract and
 [structural signatures](../docs/signature.md) for the cross-platform identity contract.
 
 ## Verify the integration

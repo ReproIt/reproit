@@ -116,12 +116,15 @@ Per-target gates, platforms, and evidence live in [compatibility](docs/compatibi
 
 ## Documentation
 
-- [CLI reference](docs/cli.md)
-- [compatibility](docs/compatibility.md)
-- [causal capsules](docs/causal-capsules.md)
-- [architecture](docs/architecture.md)
-- [oracle reference](docs/oracles.md)
-- [data handling](docs/data-handling.md)
-- [release contract](docs/release.md)
+- [CLI reference](docs/cli.md) — every command, and the exit-code contract
+- [ReproIt in CI](docs/ci.md) — the gate, and capturing a red build
+- [What a repro is made of](docs/repros.md) — the proof contract and platform coverage
+- [Oracle reference](docs/oracles.md) — what counts as a bug, and why
+- [Security and data handling](docs/security.md) — what leaves your machine
+- [Compatibility](docs/compatibility.md) — per-target gates and evidence
+- [Screen signatures](docs/signature.md) — the cross-SDK identity spec
+
+Decision records (why things are the way they are, not how to use them) live in
+[docs/decisions](docs/decisions).
 
 Apache-2.0. See [SUPPORT.md](SUPPORT.md) for support and security reporting.
