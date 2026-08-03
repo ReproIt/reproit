@@ -126,6 +126,7 @@ Per-target gates, platforms, and evidence live in [compatibility](docs/compatibi
 - [Security and data handling](docs/security.md) — what leaves your machine
 - [Compatibility](docs/compatibility.md) — per-target gates and evidence
 - [Screen signatures](docs/signature.md) — the cross-SDK identity spec
+- [Configuration examples](docs/examples) — a `reproit.yaml` per framework, gated by a test
 - [ReproIt Cloud](docs/cloud/README.md) — signup, SDKs, the dashboard, the API
 
 Decision records (why things are the way they are, not how to use them) live in

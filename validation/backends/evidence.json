@@ -13,7 +13,7 @@
         "bash",
         "validation/backends/run-flutter-drive.sh"
       ],
-      "fixture": "examples/flutter-fixture",
+      "fixture": "fixtures/flutter-fixture",
       "targetOs": "ios-simulator",
       "architectures": [
         "arm64"
@@ -46,7 +46,7 @@
         "bash",
         "validation/backends/run-flutter-drive-android.sh"
       ],
-      "fixture": "examples/flutter-fixture",
+      "fixture": "fixtures/flutter-fixture",
       "targetOs": "android-emulator",
       "architectures": [
         "x86_64"
@@ -76,7 +76,7 @@
         "bash",
         "validation/backends/run-web-cdp.sh"
       ],
-      "fixture": "examples/web-fixture",
+      "fixture": "fixtures/web-fixture",
       "targetOs": "linux",
       "architectures": [
         "x86_64"
@@ -106,7 +106,7 @@
         "bash",
         "validation/backends/run-web-engines.sh"
       ],
-      "fixture": "examples/web-fixture",
+      "fixture": "fixtures/web-fixture",
       "targetOs": "linux",
       "architectures": [
         "x86_64"
@@ -133,7 +133,7 @@
         "bash",
         "validation/backends/run-electron.sh"
       ],
-      "fixture": "examples/electron-fixture",
+      "fixture": "fixtures/electron-fixture",
       "targetOs": "linux",
       "architectures": [
         "x86_64"
@@ -163,7 +163,7 @@
         "bash",
         "validation/backends/run-tauri.sh"
       ],
-      "fixture": "examples/tauri-fixture",
+      "fixture": "fixtures/tauri-fixture",
       "targetOs": "linux",
       "architectures": [
         "x86_64"
@@ -195,7 +195,7 @@
         "bash",
         "validation/backends/run-react-native-android.sh"
       ],
-      "fixture": "examples/react-native-fixture",
+      "fixture": "fixtures/react-native-fixture",
       "targetOs": "android-emulator",
       "architectures": [
         "x86_64"
@@ -229,7 +229,7 @@
         "bash",
         "validation/backends/run-react-native-ios.sh"
       ],
-      "fixture": "examples/react-native-fixture",
+      "fixture": "fixtures/react-native-fixture",
       "targetOs": "ios-simulator",
       "architectures": [
         "arm64"
@@ -261,9 +261,9 @@
         "bash",
         "validation/backends/with-appium.sh",
         "bash",
-        "examples/compose-fixture/compose-appium-smoke.sh"
+        "fixtures/compose-fixture/compose-appium-smoke.sh"
       ],
-      "fixture": "examples/compose-fixture",
+      "fixture": "fixtures/compose-fixture",
       "targetOs": "android-emulator",
       "architectures": [
         "x86_64"
@@ -297,7 +297,7 @@
         "bash",
         ".github/scripts/appium-ios-swiftui-smoke.sh"
       ],
-      "fixture": "examples/ios-swiftui-fixture",
+      "fixture": "fixtures/ios-swiftui-fixture",
       "targetOs": "ios-simulator",
       "architectures": [
         "arm64"
@@ -329,7 +329,7 @@
         "bash",
         "validation/backends/run-macos-ax.sh"
       ],
-      "fixture": "examples/macos-swiftui-fixture",
+      "fixture": "fixtures/macos-swiftui-fixture",
       "targetOs": "macos",
       "architectures": [
         "arm64"
@@ -362,7 +362,7 @@
         "powershell",
         "validation/backends/run-windows-desktop.ps1"
       ],
-      "fixture": "examples/wpf-fixture, examples/avalonia-fixture, examples/winui-fixture",
+      "fixture": "fixtures/wpf-fixture, fixtures/avalonia-fixture, fixtures/winui-fixture",
       "targetOs": "windows-x86_64-interactive",
       "architectures": [
         "x86_64"
@@ -418,9 +418,9 @@
       "backend": "desktop-atspi",
       "command": [
         "bash",
-        "examples/qt-fixture/qt-atspi-e2e.sh"
+        "fixtures/qt-fixture/qt-atspi-e2e.sh"
       ],
-      "fixture": "examples/qt-fixture and examples/wxwidgets-fixture",
+      "fixture": "fixtures/qt-fixture and fixtures/wxwidgets-fixture",
       "targetOs": "linux-container",
       "architectures": [
         "x86_64"
@@ -447,7 +447,7 @@
         "bash",
         "validation/backends/run-tui.sh"
       ],
-      "fixture": "examples/tui-demo/menu.py",
+      "fixture": "fixtures/tui-demo/menu.py",
       "targetOs": "linux",
       "architectures": [
         "x86_64"

@@ -42,7 +42,7 @@ HARNESS_GLOBS = (
     "validation/**/*.sh",
     "validation/**/*.py",
     "validation/**/*.ps1",
-    "examples/**/*.sh",
+    "fixtures/**/*.sh",
 )
 
 # The dead multiplex, in ARGUMENT POSITION.

@@ -27,15 +27,15 @@ BIN="$ROOT/target/debug/reproit"
 # itself evidence of the closure: the pure-stdlib SDK and the fixture. No
 # gems, no database, no upstream.
 COPY="$WORK/copy"
-mkdir -p "$COPY/sdk" "$COPY/examples"
+mkdir -p "$COPY/sdk" "$COPY/fixtures"
 cp -R "$ROOT/sdk/reproit-backend-rb" "$COPY/sdk/"
-cp -R "$ROOT/examples/rb-flaky-ci-fixture" "$COPY/examples/"
-TEST="$COPY/examples/rb-flaky-ci-fixture/tests/checkout_test.rb"
+cp -R "$ROOT/fixtures/rb-flaky-ci-fixture" "$COPY/fixtures/"
+TEST="$COPY/fixtures/rb-flaky-ci-fixture/tests/checkout_test.rb"
 
 # The failure fires ONLY under CI-like conditions: a plain run of the suite
 # from the original checkout passes, which is exactly why the bug reads as
 # unreproducible without the capsule.
-if ! ruby "$ROOT/examples/rb-flaky-ci-fixture/tests/checkout_test.rb" >/dev/null 2>&1; then
+if ! ruby "$ROOT/fixtures/rb-flaky-ci-fixture/tests/checkout_test.rb" >/dev/null 2>&1; then
   echo "FAIL the planted failure fired outside CI conditions" >&2
   exit 1
 fi
@@ -46,7 +46,7 @@ echo "PASS plain local run passes (the failure is invisible without CI condition
 # capsule.
 SPOOL="$WORK/spool"
 if REPROIT_CI_CAPTURE=1 CI_LEGACY_MATRIX=1 REPROIT_CI_SPOOL="$SPOOL" \
-  ruby "$ROOT/examples/rb-flaky-ci-fixture/tests/checkout_test.rb" >/dev/null 2>&1; then
+  ruby "$ROOT/fixtures/rb-flaky-ci-fixture/tests/checkout_test.rb" >/dev/null 2>&1; then
   echo "FAIL the simulated CI run did not fail" >&2
   exit 1
 fi

@@ -12,7 +12,7 @@ trap cleanup EXIT
 
 printf '{"budget":4}' > "$WORK/fuzz.json"
 python3 -m http.server "$PORT" --bind 127.0.0.1 \
-  --directory "$ROOT/examples/web-fixture" > "$WORK/server.log" 2>&1 &
+  --directory "$ROOT/fixtures/web-fixture" > "$WORK/server.log" 2>&1 &
 SERVER_PID=$!
 for _ in $(seq 1 50); do
   curl -fsS "http://127.0.0.1:$PORT/" >/dev/null && break

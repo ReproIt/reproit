@@ -37,7 +37,7 @@ Platform for every row: Docker linux/arm64 on an arm64 host, image
 trixie, glibc 2.41, seccomp completeness layer active. Subjects and
 engine versions: SDL 2.32.4 (`validation/process/engine.c`, fixed timestep
 loop on SDL's timer and event pump, `SDL_VIDEODRIVER=dummy`), and
-bevy_app/bevy_ecs 0.16.1 (`examples/engine-session-bevy`, bevy's
+bevy_app/bevy_ecs 0.16.1 (`fixtures/engine-session-bevy`, bevy's
 `ScheduleRunnerPlugin` fixed timestep runner, headless by construction).
 Both plant the SAME defect: a stale combo that fires only when presses
 arrive FAR APART, so a replay that ignored the recorded schedule would not

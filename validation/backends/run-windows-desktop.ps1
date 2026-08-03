@@ -32,19 +32,19 @@ try {
     $fixtures = @(
         @{
             Name = "WPF"
-            Project = "examples/wpf-fixture/WpfFixture.csproj"
+            Project = "fixtures/wpf-fixture/WpfFixture.csproj"
             Exe = "WpfFixture.exe"
             Process = "WpfFixture"
         },
         @{
             Name = "Avalonia"
-            Project = "examples/avalonia-fixture/AvaloniaFixture.csproj"
+            Project = "fixtures/avalonia-fixture/AvaloniaFixture.csproj"
             Exe = "AvaloniaFixture.exe"
             Process = "AvaloniaFixture"
         },
         @{
             Name = "WinUI"
-            Project = "examples/winui-fixture/WinUiFixture.csproj"
+            Project = "fixtures/winui-fixture/WinUiFixture.csproj"
             Exe = "WinUiFixture.exe"
             Process = "WinUiFixture"
         }

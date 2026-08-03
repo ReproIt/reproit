@@ -1,6 +1,6 @@
 import Foundation
 // ReproIt iOS SwiftUI smoke fixture: the SwiftUI counterpart of
-// examples/ios-smoke-fixture (which is UIKit). The site marquee claims ReproIt
+// fixtures/ios-smoke-fixture (which is UIKit). The site marquee claims ReproIt
 // drives SwiftUI apps; the UIKit fixture only proved the UIKit path, so this
 // fixture proves the XCUITest backend drives a REAL SwiftUI app built with the
 // modern @main App lifecycle, @State, and the declarative View tree.

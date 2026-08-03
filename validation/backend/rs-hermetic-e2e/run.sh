@@ -13,7 +13,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-FIXTURE_REL="examples/rs-backend-fixture"
+FIXTURE_REL="fixtures/rs-backend-fixture"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/reproit-rs-hermetic.XXXXXX")"
 PG_NAME="reproit-rs-hermetic-pg"
 PG_PORT=15499

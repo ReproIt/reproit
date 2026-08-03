@@ -28,7 +28,7 @@ class H(BaseHTTPRequestHandler):
 HTTPServer(("0.0.0.0",18765),H).serve_forever()' &
 SERVER_PID=$!
 
-cd "$ROOT/examples/compose-fixture"
+cd "$ROOT/fixtures/compose-fixture"
 ./gradlew :app:assembleDebug >/dev/null
 "$ADB" install -r app/build/outputs/apk/debug/app-debug.apk >/dev/null
 "$ADB" shell setprop debug.reproit.fuzz 1

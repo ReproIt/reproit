@@ -12,7 +12,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-FIXTURE_REL="examples/dotnet-backend-fixture"
+FIXTURE_REL="fixtures/dotnet-backend-fixture"
 SDK_REL="sdk/reproit-backend-dotnet"
 DLL_REL="$FIXTURE_REL/bin/Debug/net8.0/DotnetBackendFixture.dll"
 DOTNET="${DOTNET:-$HOME/.dotnet/dotnet}"
@@ -47,9 +47,9 @@ EOF
 # relative layout is preserved so the fixture's project reference still
 # lands. Build outputs are dropped so the copy builds at its own path.
 COPY="$WORK/copy"
-mkdir -p "$COPY/sdk" "$COPY/examples"
+mkdir -p "$COPY/sdk" "$COPY/fixtures"
 cp -R "$ROOT/$SDK_REL" "$COPY/sdk/"
-cp -R "$ROOT/$FIXTURE_REL" "$COPY/examples/"
+cp -R "$ROOT/$FIXTURE_REL" "$COPY/fixtures/"
 find "$COPY" -type d \( -name bin -o -name obj \) -prune -exec rm -rf {} +
 "$DOTNET" build "$COPY/$FIXTURE_REL" -v q --nologo >/dev/null
 

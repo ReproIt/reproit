@@ -43,7 +43,7 @@ class FlutterDriveRetryContractTest(unittest.TestCase):
                 "sample-stalled-tools.sh",
             ):
                 shutil.copy(ROOT / "validation/backends" / name, backends / name)
-            fixture = fake_root / "examples/flutter-fixture/lib"
+            fixture = fake_root / "fixtures/flutter-fixture/lib"
             fixture.mkdir(parents=True)
             (fixture / "main.dart").write_text("// fixture\n", encoding="utf-8")
             (fake_root / "target/debug").mkdir(parents=True)

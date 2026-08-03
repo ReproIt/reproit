@@ -11,7 +11,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-FIXTURE_REL="examples/go-backend-fixture"
+FIXTURE_REL="fixtures/go-backend-fixture"
 SDK_REL="sdk/reproit-backend-go"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/reproit-go-hermetic.XXXXXX")"
 cleanup() { rm -rf "$WORK"; }
@@ -41,9 +41,9 @@ EOF
 # their relative layout is preserved so the fixture's go.mod replace
 # directive still lands.
 COPY="$WORK/copy"
-mkdir -p "$COPY/sdk" "$COPY/examples"
+mkdir -p "$COPY/sdk" "$COPY/fixtures"
 cp -R "$ROOT/$SDK_REL" "$COPY/sdk/"
-cp -R "$ROOT/$FIXTURE_REL" "$COPY/examples/"
+cp -R "$ROOT/$FIXTURE_REL" "$COPY/fixtures/"
 (cd "$COPY/$FIXTURE_REL" && go build -o "$COPY/fixture-replay" .)
 SERVE="$COPY/fixture-replay"
 

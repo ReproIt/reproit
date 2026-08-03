@@ -18,7 +18,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-APP="$(bash "$ROOT/examples/ios-swiftui-fixture/build.sh" "$BUILD")"
+APP="$(bash "$ROOT/fixtures/ios-swiftui-fixture/build.sh" "$BUILD")"
 xcrun simctl install "$UDID" "$APP"
 DATA="$(xcrun simctl get_app_container "$UDID" com.reproit.swiftuifixture data)"
 NETWORK="$DATA/tmp/reproit-network.jsonl"

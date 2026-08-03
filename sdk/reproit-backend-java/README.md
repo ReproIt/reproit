@@ -128,7 +128,7 @@ observed result is the `REPROIT:CI-TEST` stderr marker the CLI's four-way verdic
 OUTSIDE the capsule is flaky evidence, never Fixed. Honest limit, same as Node's: races the
 exchange boundary cannot see are Inconclusive, never a fake reproduction.
 
-Fixture: `examples/java-flaky-ci-fixture/` (planted order-dependent failure invisible in a
+Fixture: `fixtures/java-flaky-ci-fixture/` (planted order-dependent failure invisible in a
 plain run); gate: `validation/backend/java-flaky-ci-e2e/run.sh` (six legs: plain run
 passes, CI run spools, plain rerun passes without a fix, reproduce / fix / revert /
 deleted-exchange-diverges under the PORTABILITY bar, replay compiled with plain javac).
@@ -173,7 +173,7 @@ NAMED capability gaps of the no-weaving boundary (each a gap, never a silent dow
 - `TimeZone.setDefault`/`Locale.setDefault` pin zone- and locale-aware code; code reading the
   `TZ` environment variable directly is not affected.
 
-The money-test fixture lives in `examples/java-backend-fixture/` and the four-verdict gate in
+The money-test fixture lives in `fixtures/java-backend-fixture/` and the four-verdict gate in
 `validation/backend/java-hermetic-e2e/run.sh` (capture, portability copy, reproduce / fix /
 revert / deleted-exchange-diverges). `sdk/test/backend_replay_parity_test.js` byte-compares the
 served exchange, the 599 body, and the divergence marker against the Node reference.

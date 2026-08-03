@@ -22,7 +22,7 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/reproit-go-flaky-ci.XXXXXX")"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 
-FIXTURE_REL="examples/go-flaky-ci-fixture"
+FIXTURE_REL="fixtures/go-flaky-ci-fixture"
 SDK_REL="sdk/reproit-backend-go"
 
 # PORTABILITY: the replay side runs from a COPY of the checkout at a
@@ -31,9 +31,9 @@ SDK_REL="sdk/reproit-backend-go"
 # layout preserved so the fixture's go.mod replace directive still lands. No
 # database, no upstream.
 COPY="$WORK/copy"
-mkdir -p "$COPY/sdk" "$COPY/examples"
+mkdir -p "$COPY/sdk" "$COPY/fixtures"
 cp -R "$ROOT/$SDK_REL" "$COPY/sdk/"
-cp -R "$ROOT/$FIXTURE_REL" "$COPY/examples/"
+cp -R "$ROOT/$FIXTURE_REL" "$COPY/fixtures/"
 # `go -C` instead of `cd &&` so run_case can prefix the command with
 # FIXED=1 and have the variable reach go test, not the cd builtin.
 TESTDIR="$COPY/$FIXTURE_REL"

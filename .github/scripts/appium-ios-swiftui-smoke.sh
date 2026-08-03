@@ -4,7 +4,7 @@
 # UIKit fixture; the site marquee claims ReproIt drives SwiftUI, so this smoke
 # proves the SAME production runner (runners/rn/runner.mjs) drives a fixture
 # written with the modern SwiftUI @main App lifecycle, @State, and declarative
-# View tree (examples/ios-swiftui-fixture). It is deliberately identical to
+# View tree (fixtures/ios-swiftui-fixture). It is deliberately identical to
 # appium-ios-smoke.sh except for the fixture it builds and installs, so the ONLY
 # variable under test is UIKit vs SwiftUI: same runner, same assertion pass,
 # same crash-oracle contract.
@@ -65,7 +65,7 @@ echo "appium-ios-swiftui-smoke: using simulator $UDID"
 
 # Build the fixture .app (swiftc, simulator SDK, ad-hoc signed; seconds).
 BUILD_DIR="$(mktemp -d)"
-APP_PATH="$(bash "$ROOT/examples/ios-swiftui-fixture/build.sh" "$BUILD_DIR")"
+APP_PATH="$(bash "$ROOT/fixtures/ios-swiftui-fixture/build.sh" "$BUILD_DIR")"
 BUNDLE_ID="com.reproit.swiftuifixture"
 echo "appium-ios-swiftui-smoke: built fixture $APP_PATH"
 

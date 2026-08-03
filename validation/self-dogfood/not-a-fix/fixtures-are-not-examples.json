@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "fixtures-are-not-examples",
+  "changeType": "maintenance",
+  "detail": "`examples/` held 39 entries, 35 of them named *-fixture, and NOT ONE was cited by a single doc. Nothing in it was an example: it is the corpus of tiny known-answer apps every native gate drives, which is what stands behind each per-target row of docs/compatibility.md. The name was inviting people to read it as sample code and to conclude it was junk worth deleting; deleting it would have removed the evidence under every platform claim. Checked before recommending: 113 tracked files, 9.8 MB tracked (the 749 MB on disk is gitignored build output), 64 referencing files outside the tree, and ZERO orphans, so nothing there was unused. Renamed to fixtures/, with the four genuine samples (reproit.example.yaml, appmap.example.json, configs/, journeys/) moved to docs/examples/ where docs can cite them; they were already gated by all_example_configs_load, which is the model this makes explicit: an example that is read AND parsed cannot rot. The rename needed two passes because the first rule was wrong in both directions: excluding any path preceded by a segment correctly skipped sdk/reproit-backend-rs/examples/ (a cargo convention dir), $GRPC/examples/helloworld, /app/examples/builder and pages/examples/invoice.html, but it ALSO skipped $ROOT/examples/... which is ours. The entry names alone turned out to be the safe discriminator, since no foreign path uses them. Temp-repo copies in the backend e2e harnesses ($COPY/examples) had to move too, or a fixture's relative layout stops resolving. Proven by running the gates rather than by grep: tui-pty and web-chromium both pass serving from fixtures/. docs/cloud/sdks.md stopped punting with 'each SDK README has its install line' (they do not: the SDKs ship as source, not as published packages) and now shows the real per-language integration, drawn from the gated fixtures so the snippets cannot rot silently.",
+  "evidence": [
+    {
+      "path": "docs/examples/README.md",
+      "sha256": "sha256:beee455ff357facca99290463afeff38389460acf275239177e719bdaaa14d41"
+    },
+    {
+      "path": "docs/cloud/sdks.md",
+      "sha256": "sha256:75c4271b42909f36bbd8479fc6ff27c7928b1c4a17722361ae8bca8f6d870bd5"
+    },
+    {
+      "path": "validation/backends/evidence.json",
+      "sha256": "sha256:0f0665e38af3fe1a361eacbadbfdca2eb368bc8033d765c760fb8c5aa435420b"
+    }
+  ]
+}

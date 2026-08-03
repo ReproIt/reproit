@@ -27,11 +27,11 @@ trap cleanup EXIT
 # itself evidence of the closure: the SDK and the fixture. No virtualenv, no
 # database, no upstream.
 COPY="$WORK/copy"
-mkdir -p "$COPY/sdk" "$COPY/examples"
+mkdir -p "$COPY/sdk" "$COPY/fixtures"
 cp -R "$ROOT/sdk/reproit-backend-py" "$COPY/sdk/"
 rm -rf "$COPY/sdk/reproit-backend-py/.venv"
-cp -R "$ROOT/examples/py-flaky-ci-fixture" "$COPY/examples/"
-TEST_REL="examples/py-flaky-ci-fixture/tests/test_checkout.py"
+cp -R "$ROOT/fixtures/py-flaky-ci-fixture" "$COPY/fixtures/"
+TEST_REL="fixtures/py-flaky-ci-fixture/tests/test_checkout.py"
 PYTEST_ORIG="uv run --project $ROOT/sdk/reproit-backend-py --group test \
 python -m pytest -q -s -p no:cacheprovider $ROOT/$TEST_REL"
 PYTEST_COPY="uv run --project $COPY/sdk/reproit-backend-py --group test \

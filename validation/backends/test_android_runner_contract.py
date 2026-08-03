@@ -9,7 +9,7 @@ SCRIPT = Path(__file__).with_name("run-flutter-drive-android.sh")
 REACT_NATIVE_SCRIPT = Path(__file__).with_name("run-react-native-android.sh")
 COMPOSE_SCRIPT = (
     Path(__file__).resolve().parents[2]
-    / "examples"
+    / "fixtures"
     / "compose-fixture"
     / "compose-appium-smoke.sh"
 )

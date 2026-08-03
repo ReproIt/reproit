@@ -1,4 +1,4 @@
-//! Config schema and loader. See examples/reproit.example.yaml for the shape.
+//! Config schema and loader. See docs/examples/reproit.yaml for the shape.
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};

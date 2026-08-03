@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Qt6 (desktop) RUNTIME e2e for the Linux AT-SPI backend (runners/linux-atspi.py).
-# Builds the minimal REAL Qt Widgets app in examples/qt-fixture/main.cpp inside an
+# Builds the minimal REAL Qt Widgets app in fixtures/qt-fixture/main.cpp inside an
 # ubuntu:24.04 container (Xvfb + a session bus + the dbus-activated a11y bus, the
 # same harness the AT-SPI barrier validation used), forces Qt's AT-SPI a11y
 # bridge on, and drives it with the production runner in single-actor EXPLORE

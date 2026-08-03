@@ -682,7 +682,7 @@ jobs:
   # of appium-android-smoke. Boots a real iPhone simulator (preinstalled on the
   # macOS runner image), starts a real Appium server, and drives the SAME
   # production runner (runners/rn/runner.mjs) against the tiny purpose-built
-  # fixture app in examples/ios-smoke-fixture (built in-job with swiftc against
+  # fixture app in fixtures/ios-smoke-fixture (built in-job with swiftc against
   # the simulator SDK; NOT the preinstalled Settings app, whose a11y tree is
   # iOS-version/boot-timing dependent and surfaced ZERO tappable elements on
   # the macos-15 runner). It PROVES: XCUITest session creation (including the
@@ -726,7 +726,7 @@ jobs:
 
   # RUNTIME smoke for the Appium backend against a REAL SwiftUI app: identical
   # to appium-ios-smoke except the fixture is written with the modern SwiftUI
-  # @main App lifecycle (examples/ios-swiftui-fixture) instead of UIKit. The
+  # @main App lifecycle (fixtures/ios-swiftui-fixture) instead of UIKit. The
   # site marquee claims SwiftUI, and UIKit and SwiftUI publish DIFFERENT
   # accessibility trees for the "same" screen (SwiftUI synthesizes its element
   # hierarchy from the View graph), so a UIKit pass does not by itself prove the

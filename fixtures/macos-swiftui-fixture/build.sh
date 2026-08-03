@@ -2,7 +2,7 @@
 # Build the ReproIt macOS SwiftUI smoke fixture (MacFixture.swift + Info.plist)
 # into a proper .app bundle, with plain swiftc against the macosx SDK: no Xcode
 # project, no scheme, no signing identity (ad-hoc). The desktop counterpart of
-# examples/ios-swiftui-fixture/build.sh; -parse-as-library is needed so the
+# fixtures/ios-swiftui-fixture/build.sh; -parse-as-library is needed so the
 # @main App attribute is honoured.
 #
 # Usage: build.sh [output-dir]     (default: <this dir>/build)

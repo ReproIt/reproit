@@ -5,7 +5,7 @@
 //! - dot: Graphviz for pipelines that want it.
 //!
 //! The input is reproit's learned internal app model or explicit appmap JSON
-//! (schema: src/appmap.rs); see examples/appmap.example.json.
+//! (schema: src/appmap.rs); see docs/examples/appmap.json.
 
 use crate::domain::appmap::{Action, AppMap, InterruptPolicy, Reversibility};
 use anyhow::{Context, Result};

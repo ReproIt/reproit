@@ -1,6 +1,6 @@
 # Planted order-dependent test failure that fires only under CI-like
 # conditions, for the flaky-CI wedge (Track 3), Ruby port of
-# examples/flaky-ci-fixture.
+# fixtures/flaky-ci-fixture.
 #
 # The first test runs ONLY on the CI legacy matrix (CI_LEGACY_MATRIX=1) and
 # leaks state into the shared config service: it switches the service to its

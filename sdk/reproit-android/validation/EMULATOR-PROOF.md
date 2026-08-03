@@ -19,7 +19,7 @@ JUnit runner.
 
 The module had no committed wrapper, so it inherited whatever system Gradle
 happened to be installed (9.6.1 here). A wrapper is now committed, pinned to
-the SAME toolchain the composite build in `examples/compose-fixture` already
+the SAME toolchain the composite build in `fixtures/compose-fixture` already
 uses. One toolchain per module regardless of entry point: a green
 `./gradlew test` compiles the same bytes the composite and device builds
 compile, so a standalone pass is evidence about the AAR that ships.

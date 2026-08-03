@@ -1,6 +1,6 @@
 app:
   platform: tui
-  executable: python3 ${REPROIT_ROOT:?set repository root}/examples/tui-demo/menu.py
+  executable: python3 ${REPROIT_ROOT:?set repository root}/fixtures/tui-demo/menu.py
   runnerDir: ${REPROIT_ROOT:?set repository root}/runners
 devices:
   namePrefix: ReleaseOutputClean

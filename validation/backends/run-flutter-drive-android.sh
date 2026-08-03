@@ -25,7 +25,7 @@ if [[ "${REPROIT_OFFLINE:-0}" == 1 ]]; then
   FLUTTER_CREATE_ARGS+=(--no-pub)
 fi
 flutter create "${FLUTTER_CREATE_ARGS[@]}" "$APP"
-cp "$ROOT/examples/flutter-fixture/lib/main.dart" "$APP/lib/main.dart"
+cp "$ROOT/fixtures/flutter-fixture/lib/main.dart" "$APP/lib/main.dart"
 cargo build -p reproit --manifest-path "$ROOT/Cargo.toml"
 CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
 (cd "$APP" && "$CARGO_TARGET_DIR/debug/reproit" init --platform flutter --force --yes)

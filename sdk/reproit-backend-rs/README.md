@@ -144,7 +144,7 @@ also documented in the `ci` module header):
   are written straight to fd 2 so libtest's output capture cannot swallow
   them; `--nocapture` is not required.
 
-Fixture and gate: `examples/rs-flaky-ci-fixture` (planted order-dependent
+Fixture and gate: `fixtures/rs-flaky-ci-fixture` (planted order-dependent
 failure, invisible in a plain run) and `validation/backend/rs-flaky-ci-e2e/
 run.sh` (six legs, cloned from the Node gate).
 

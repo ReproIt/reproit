@@ -166,7 +166,7 @@ end
   `REPROIT:CI-TEST` stderr marker `reproit check` parses. `reproit check <capsule> --exec "ruby
   tests/checkout_test.rb"` maps it to the four-way verdict (reproduced / fixed / diverged /
   inconclusive), proven end to end by `validation/backend/rb-flaky-ci-e2e/run.sh` against
-  `examples/rb-flaky-ci-fixture`.
+  `fixtures/rb-flaky-ci-fixture`.
 
 Honest limit (same as Node): replay pins the envelope and the recorded exchanges, which is the
 whole boundary this SDK can see. A race the boundary cannot see (thread scheduling, shared

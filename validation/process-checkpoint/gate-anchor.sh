@@ -142,7 +142,7 @@ fi
 BUILD="$OUT/trainer-build"
 mkdir -p "$BUILD"
 gcc -O1 -o "$BUILD/trainer" \
-  "$ROOT/examples/trainer-checkpoint-fixture/trainer.c" -lm \
+  "$ROOT/fixtures/trainer-checkpoint-fixture/trainer.c" -lm \
   || { echo "FAIL trainer build" >&2; exit 1; }
 
 # The training data: 400 samples of y = 3x, one line per step, with the

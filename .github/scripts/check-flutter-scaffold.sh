@@ -31,7 +31,7 @@ flutter create \
   --platforms=linux \
   --project-name reproit_flutter_fixture \
   "$APP_DIR" >/dev/null
-cp "$REPROIT_ROOT/examples/flutter-fixture/lib/main.dart" "$APP_DIR/lib/main.dart"
+cp "$REPROIT_ROOT/fixtures/flutter-fixture/lib/main.dart" "$APP_DIR/lib/main.dart"
 rm "$APP_DIR/test/widget_test.dart"
 
 (

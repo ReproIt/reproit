@@ -15,7 +15,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 SDK_REL="sdk/reproit-backend-java"
-FIXTURE_REL="examples/java-flaky-ci-fixture"
+FIXTURE_REL="fixtures/java-flaky-ci-fixture"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/reproit-java-flaky-ci.XXXXXX")"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
@@ -69,9 +69,9 @@ EOF
 # which is itself evidence of the closure: no jars, no database, no
 # upstream.
 COPY="$WORK/copy"
-mkdir -p "$COPY/sdk" "$COPY/examples"
+mkdir -p "$COPY/sdk" "$COPY/fixtures"
 cp -R "$ROOT/$SDK_REL" "$COPY/sdk/"
-cp -R "$ROOT/$FIXTURE_REL" "$COPY/examples/"
+cp -R "$ROOT/$FIXTURE_REL" "$COPY/fixtures/"
 rm -rf "$COPY/$SDK_REL/target"
 javac -d "$WORK/classes-replay" \
   -sourcepath "$COPY/$SDK_REL/src/main/java:$COPY/$FIXTURE_REL" \

@@ -312,7 +312,7 @@
     "stack": "ubuntu:24.04, webkit2gtk-4.1, WebKitWebDriver, tauri-driver, Xvfb, dbus, webdriverio 9, Rust 1.88",
     "probe": "reproit-cli/validation/field/probe-tauri.mjs",
     "observationProven": {
-      "subject": "reproit-cli/examples/tauri-fixture, built in the worker",
+      "subject": "reproit-cli/fixtures/tauri-fixture, built in the worker",
       "result": "readiness, trigger, observe, and the neighboring control all answered from inside the WebKitGTK webview under Xvfb: title 'Reproit Tauri Fixture', url tauri://localhost, the toggle revealed the detail section, and the untouched control element kept its text",
       "note": "the Tauri adapter observes through the WebDriver DOM channel, not AT-SPI, so this is the channel the campaigns actually use"
     },

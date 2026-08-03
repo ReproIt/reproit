@@ -53,8 +53,8 @@ else
   npx --yes @react-native-community/cli@15.1.3 init ReproitRnFixture \
     --version 0.76.9 --directory "$WORK/app" --skip-install --skip-git-init
 fi
-cp "$ROOT/examples/react-native-fixture/App.tsx" "$WORK/app/App.tsx"
-cp "$ROOT/examples/react-native-fixture/index.js" "$WORK/app/index.js"
+cp "$ROOT/fixtures/react-native-fixture/App.tsx" "$WORK/app/App.tsx"
+cp "$ROOT/fixtures/react-native-fixture/index.js" "$WORK/app/index.js"
 sed -i.bak 's/^newArchEnabled=true$/newArchEnabled=false/' "$WORK/app/android/gradle.properties"
 
 npm install --prefix "$WORK/app" --no-audit --no-fund

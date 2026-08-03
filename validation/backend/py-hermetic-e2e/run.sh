@@ -11,7 +11,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-FIXTURE_REL="examples/py-backend-fixture/app.py"
+FIXTURE_REL="fixtures/py-backend-fixture/app.py"
 SDK_REL="sdk/reproit-backend-py"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/reproit-py-hermetic.XXXXXX")"
 cleanup() { rm -rf "$WORK"; }
@@ -40,9 +40,9 @@ EOF
 # different absolute path. Only the SDK and the fixture are needed; their
 # relative layout is preserved so the fixture's sys.path hop still lands.
 COPY="$WORK/copy"
-mkdir -p "$COPY/sdk" "$COPY/examples"
+mkdir -p "$COPY/sdk" "$COPY/fixtures"
 cp -R "$ROOT/$SDK_REL" "$COPY/sdk/"
-cp -R "$ROOT/examples/py-backend-fixture" "$COPY/examples/"
+cp -R "$ROOT/fixtures/py-backend-fixture" "$COPY/fixtures/"
 rm -rf "$COPY/$SDK_REL/.venv"
 
 SERVE="uv run --project $COPY/$SDK_REL --group e2e python $COPY/$FIXTURE_REL"

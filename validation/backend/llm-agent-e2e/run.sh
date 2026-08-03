@@ -9,7 +9,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-FIXTURE="$ROOT/examples/llm-agent-fixture"
+FIXTURE="$ROOT/fixtures/llm-agent-fixture"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/reproit-llm-agent.XXXXXX")"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT

@@ -299,7 +299,7 @@ fn tui_map_structural_exits_when_frontier_is_exhausted() {
     let root = repo_root();
     let dir = temp_dir("tui-map-budget");
     let config = dir.join("reproit.yaml");
-    let menu = root.join("examples/tui-demo/menu.py");
+    let menu = root.join("fixtures/tui-demo/menu.py");
     let runners = root.join("runners");
     fs::write(
         &config,

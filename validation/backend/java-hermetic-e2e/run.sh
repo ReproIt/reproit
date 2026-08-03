@@ -12,7 +12,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-FIXTURE_REL="examples/java-backend-fixture/Main.java"
+FIXTURE_REL="fixtures/java-backend-fixture/Main.java"
 SDK_REL="sdk/reproit-backend-java"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/reproit-java-hermetic.XXXXXX")"
 cleanup() { rm -rf "$WORK"; }
@@ -44,9 +44,9 @@ EOF
 # different absolute path. Only the SDK and the fixture are needed; their
 # relative layout is preserved and the compile output lands under WORK.
 COPY="$WORK/copy"
-mkdir -p "$COPY/sdk" "$COPY/examples"
+mkdir -p "$COPY/sdk" "$COPY/fixtures"
 cp -R "$ROOT/$SDK_REL" "$COPY/sdk/"
-cp -R "$ROOT/examples/java-backend-fixture" "$COPY/examples/"
+cp -R "$ROOT/fixtures/java-backend-fixture" "$COPY/fixtures/"
 rm -rf "$COPY/$SDK_REL/target"
 javac -d "$WORK/classes-replay" \
   -sourcepath "$COPY/$SDK_REL/src/main/java" "$COPY/$FIXTURE_REL"

@@ -22,17 +22,17 @@ trap cleanup EXIT
 # itself evidence of the closure: the SDK, its recorder dependency, and the
 # fixture. No node_modules, no database, no upstream.
 COPY="$WORK/copy"
-mkdir -p "$COPY/sdk" "$COPY/examples"
+mkdir -p "$COPY/sdk" "$COPY/fixtures"
 cp -R "$ROOT/sdk/reproit-backend-node" "$COPY/sdk/"
 rm -rf "$COPY/sdk/reproit-backend-node/node_modules"
 cp -R "$ROOT/sdk/reproit-recorder-node" "$COPY/sdk/"
-cp -R "$ROOT/examples/flaky-ci-fixture" "$COPY/examples/"
-TEST="$COPY/examples/flaky-ci-fixture/tests/checkout.test.mjs"
+cp -R "$ROOT/fixtures/flaky-ci-fixture" "$COPY/fixtures/"
+TEST="$COPY/fixtures/flaky-ci-fixture/tests/checkout.test.mjs"
 
 # The failure fires ONLY under CI-like conditions: a plain run of the suite
 # from the original checkout passes, which is exactly why the bug reads as
 # unreproducible without the capsule.
-if ! node "$ROOT/examples/flaky-ci-fixture/tests/checkout.test.mjs" >/dev/null 2>&1; then
+if ! node "$ROOT/fixtures/flaky-ci-fixture/tests/checkout.test.mjs" >/dev/null 2>&1; then
   echo "FAIL the planted failure fired outside CI conditions" >&2
   exit 1
 fi
@@ -43,7 +43,7 @@ echo "PASS plain local run passes (the failure is invisible without CI condition
 # capsule.
 SPOOL="$WORK/spool"
 if REPROIT_CI_CAPTURE=1 CI_LEGACY_MATRIX=1 REPROIT_CI_SPOOL="$SPOOL" \
-  node "$ROOT/examples/flaky-ci-fixture/tests/checkout.test.mjs" >/dev/null 2>&1; then
+  node "$ROOT/fixtures/flaky-ci-fixture/tests/checkout.test.mjs" >/dev/null 2>&1; then
   echo "FAIL the simulated CI run did not fail" >&2
   exit 1
 fi

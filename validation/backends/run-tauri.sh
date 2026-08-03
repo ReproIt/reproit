@@ -33,7 +33,7 @@ EOF
 
 cat > "$WORK/inner.sh" <<'EOF'
 set -euo pipefail
-cp -R /repo/examples/tauri-fixture /tmp/fixture
+cp -R /repo/fixtures/tauri-fixture /tmp/fixture
 cp -R /repo/runners /tmp/runners
 mkdir -p /tmp/fixture/src-tauri/icons
 base64 -d > /tmp/fixture/src-tauri/icons/icon.png <<'PNG'

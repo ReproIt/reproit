@@ -3,7 +3,7 @@
 # a simulator .app bundle, with plain swiftc against the iphonesimulator SDK: no
 # Xcode project, no scheme, no signing identity (ad-hoc), so it is fast enough
 # to run inside the CI smoke job itself. The SwiftUI counterpart of
-# examples/ios-smoke-fixture/build.sh; the only difference is -parse-as-library,
+# fixtures/ios-smoke-fixture/build.sh; the only difference is -parse-as-library,
 # needed so the @main App attribute is honoured (a SwiftUI App has no top-level
 # entry statement the way the UIKit fixture's main.swift does).
 #

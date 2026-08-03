@@ -22,7 +22,7 @@
 # Subjects:
 #   sdl    validation/process/engine.c, a fixed timestep loop on SDL2 with
 #          SDL_VIDEODRIVER=dummy (third-party platform layer, own loop)
-#   bevy   examples/engine-session-bevy, bevy_app's ScheduleRunnerPlugin at a
+#   bevy   fixtures/engine-session-bevy, bevy_app's ScheduleRunnerPlugin at a
 #          fixed timestep (a real third-party engine runner), headless by
 #          construction
 #
@@ -104,14 +104,14 @@ gcc -O1 -o "$OUT/sdl-build/engine" "$ROOT/validation/process/engine.c" \
   || { echo "FAIL SDL engine build" >&2; exit 1; }
 
 echo "=== building the bevy sample (cached) ==="
-(cd "$ROOT/examples/engine-session-bevy" && cargo build -q --release) \
+(cd "$ROOT/fixtures/engine-session-bevy" && cargo build -q --release) \
   || { echo "FAIL bevy sample build" >&2; exit 1; }
-BEVY_TARGET="${CARGO_TARGET_DIR:-$ROOT/examples/engine-session-bevy/target}"
+BEVY_TARGET="${CARGO_TARGET_DIR:-$ROOT/fixtures/engine-session-bevy/target}"
 mkdir -p "$OUT/bevy-build"
 cp "$BEVY_TARGET/release/engine-session-bevy" "$OUT/bevy-build/engine" \
   || { echo "FAIL bevy binary missing" >&2; exit 1; }
 BEVY_VERSION="$(grep -A1 'name = "bevy_app"' \
-  "$ROOT/examples/engine-session-bevy/Cargo.lock" | awk -F'"' '/version/{print $2}')"
+  "$ROOT/fixtures/engine-session-bevy/Cargo.lock" | awk -F'"' '/version/{print $2}')"
 echo "engine versions: SDL $(sdl2-config --version), bevy_app $BEVY_VERSION"
 
 export SDL_VIDEODRIVER=dummy ENGINE_FRAMES=120

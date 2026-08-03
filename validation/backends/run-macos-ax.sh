@@ -9,7 +9,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-APP="$($ROOT/examples/macos-swiftui-fixture/build.sh "$WORK")"
+APP="$($ROOT/fixtures/macos-swiftui-fixture/build.sh "$WORK")"
 FUZZ="$WORK/fuzz.json"
 LOG="$WORK/run.log"
 printf '{"budget":4}' > "$FUZZ"

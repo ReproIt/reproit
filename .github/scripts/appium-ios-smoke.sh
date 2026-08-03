@@ -5,7 +5,7 @@
 # the Rust orchestrator's Appium backend); the Android smoke proved the
 # UiAutomator2 half, this proves the XCUITest half against a REAL iPhone
 # simulator, driving the purpose-built fixture app in
-# examples/ios-smoke-fixture (one screen, accessibility-identified controls, a
+# fixtures/ios-smoke-fixture (one screen, accessibility-identified controls, a
 # button that structurally toggles a labeled detail row). The fixture is
 # compiled here with plain swiftc against the simulator SDK (no Xcode project,
 # no signing; seconds, while the WebDriverAgent build dominates the job).
@@ -87,7 +87,7 @@ echo "appium-ios-smoke: using simulator $UDID"
 
 # Build the fixture .app (swiftc, simulator SDK, ad-hoc signed; seconds).
 BUILD_DIR="$(mktemp -d)"
-APP_PATH="$(bash "$ROOT/examples/ios-smoke-fixture/build.sh" "$BUILD_DIR")"
+APP_PATH="$(bash "$ROOT/fixtures/ios-smoke-fixture/build.sh" "$BUILD_DIR")"
 BUNDLE_ID="com.reproit.smokefixture"
 echo "appium-ios-smoke: built fixture $APP_PATH"
 

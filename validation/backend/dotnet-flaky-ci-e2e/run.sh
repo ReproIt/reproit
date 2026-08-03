@@ -35,12 +35,12 @@ fi
 # itself evidence of the closure: the SDK and the fixture. No config
 # service, no captured state.
 COPY="$WORK/copy"
-mkdir -p "$COPY/sdk" "$COPY/examples"
+mkdir -p "$COPY/sdk" "$COPY/fixtures"
 cp -R "$ROOT/sdk/reproit-backend-dotnet" "$COPY/sdk/"
-cp -R "$ROOT/examples/dotnet-flaky-ci-fixture" "$COPY/examples/"
+cp -R "$ROOT/fixtures/dotnet-flaky-ci-fixture" "$COPY/fixtures/"
 find "$COPY" -type d \( -name bin -o -name obj \) -prune -exec rm -rf {} +
-FIXTURE_SRC="$ROOT/examples/dotnet-flaky-ci-fixture/FlakyCiFixture.csproj"
-FIXTURE_COPY="$COPY/examples/dotnet-flaky-ci-fixture/FlakyCiFixture.csproj"
+FIXTURE_SRC="$ROOT/fixtures/dotnet-flaky-ci-fixture/FlakyCiFixture.csproj"
+FIXTURE_COPY="$COPY/fixtures/dotnet-flaky-ci-fixture/FlakyCiFixture.csproj"
 
 "$DOTNET" build "$FIXTURE_SRC" -v q --nologo >/dev/null
 "$DOTNET" build "$FIXTURE_COPY" -v q --nologo >/dev/null

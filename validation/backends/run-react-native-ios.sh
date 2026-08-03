@@ -23,8 +23,8 @@ curl -fsS "$APPIUM_URL/status" >/dev/null
 
 npx --yes @react-native-community/cli@15.1.3 init ReproitRnFixture \
   --version 0.76.9 --directory "$WORK/app" --skip-install --skip-git-init
-cp "$ROOT/examples/react-native-fixture/App.tsx" "$WORK/app/App.tsx"
-cp "$ROOT/examples/react-native-fixture/index.js" "$WORK/app/index.js"
+cp "$ROOT/fixtures/react-native-fixture/App.tsx" "$WORK/app/App.tsx"
+cp "$ROOT/fixtures/react-native-fixture/index.js" "$WORK/app/index.js"
 npm install --prefix "$WORK/app" --no-audit --no-fund
 
 export RCT_NEW_ARCH_ENABLED=0

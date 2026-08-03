@@ -19,7 +19,7 @@ capture. The same file is two things at once:
   `<name>.png`, fanned across locales and devices.
 
 Because the state signature is locale-invariant, **one tour covers every locale** with no per-locale
-selectors. Start from `examples/journeys/marketing.yaml`.
+selectors. Start from `docs/examples/journeys/marketing.yaml`.
 
 ## The craft: what makes screenshots _ideal_ (not just captured)
 

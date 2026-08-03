@@ -23,15 +23,15 @@ trap cleanup EXIT
 # itself evidence of the closure: the SDK and the fixture. No Composer
 # vendor dir, no database, no upstream.
 COPY="$WORK/copy"
-mkdir -p "$COPY/sdk" "$COPY/examples"
+mkdir -p "$COPY/sdk" "$COPY/fixtures"
 cp -R "$ROOT/sdk/reproit-backend-php" "$COPY/sdk/"
-cp -R "$ROOT/examples/php-flaky-ci-fixture" "$COPY/examples/"
-TEST="$COPY/examples/php-flaky-ci-fixture/tests/checkout_test.php"
+cp -R "$ROOT/fixtures/php-flaky-ci-fixture" "$COPY/fixtures/"
+TEST="$COPY/fixtures/php-flaky-ci-fixture/tests/checkout_test.php"
 
 # The failure fires ONLY under CI-like conditions: a plain run of the suite
 # from the original checkout passes, which is exactly why the bug reads as
 # unreproducible without the capsule.
-if ! php "$ROOT/examples/php-flaky-ci-fixture/tests/checkout_test.php" >/dev/null 2>&1; then
+if ! php "$ROOT/fixtures/php-flaky-ci-fixture/tests/checkout_test.php" >/dev/null 2>&1; then
   echo "FAIL the planted failure fired outside CI conditions" >&2
   exit 1
 fi
@@ -42,7 +42,7 @@ echo "PASS plain local run passes (the failure is invisible without CI condition
 # capsule.
 SPOOL="$WORK/spool"
 if REPROIT_CI_CAPTURE=1 CI_LEGACY_MATRIX=1 REPROIT_CI_SPOOL="$SPOOL" \
-  php "$ROOT/examples/php-flaky-ci-fixture/tests/checkout_test.php" >/dev/null 2>&1; then
+  php "$ROOT/fixtures/php-flaky-ci-fixture/tests/checkout_test.php" >/dev/null 2>&1; then
   echo "FAIL the simulated CI run did not fail" >&2
   exit 1
 fi

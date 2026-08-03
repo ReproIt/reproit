@@ -23,7 +23,7 @@ for gate in "${GATES[@]}"; do
   case "$gate" in
     compose-android)
       (
-        cd "$ROOT/examples/compose-fixture"
+        cd "$ROOT/fixtures/compose-fixture"
         ./gradlew --no-daemon :app:assembleDebug
       )
       ;;
@@ -41,8 +41,8 @@ for gate in "${GATES[@]}"; do
           -cf - .
       ) | sha256sum | awk '{print $1}' >"$template_sha256"
       cp -a "$template" "$work/app"
-      cp "$ROOT/examples/react-native-fixture/App.tsx" "$work/app/App.tsx"
-      cp "$ROOT/examples/react-native-fixture/index.js" "$work/app/index.js"
+      cp "$ROOT/fixtures/react-native-fixture/App.tsx" "$work/app/App.tsx"
+      cp "$ROOT/fixtures/react-native-fixture/index.js" "$work/app/index.js"
       sed -i 's/^newArchEnabled=true$/newArchEnabled=false/' \
         "$work/app/android/gradle.properties"
       npm install --prefix "$work/app" --no-audit --no-fund
@@ -61,7 +61,7 @@ for gate in "${GATES[@]}"; do
       cargo build --locked -p reproit --manifest-path "$ROOT/Cargo.toml"
       flutter create --platforms=android \
         --project-name reproit_flutter_fixture "$work/app"
-      cp "$ROOT/examples/flutter-fixture/lib/main.dart" "$work/app/lib/main.dart"
+      cp "$ROOT/fixtures/flutter-fixture/lib/main.dart" "$work/app/lib/main.dart"
       (
         cd "$work/app"
         "$CARGO_TARGET_DIR/debug/reproit" init --platform flutter --force --yes

@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-cp -R "$ROOT/examples/electron-fixture/." "$WORK/app"
+cp -R "$ROOT/fixtures/electron-fixture/." "$WORK/app"
 # A developer checkout may contain ignored host dependencies. The Linux gate
 # must install its own pinned runtime, never reuse a macOS or Windows binary.
 rm -rf "$WORK/app/node_modules"

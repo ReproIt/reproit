@@ -14,7 +14,7 @@
 // neither the upstream nor the database exists. FIXED=1 applies the fix.
 //
 // Compile: javac -d classes -sourcepath sdk/reproit-backend-java/src/main/java \
-//   examples/java-backend-fixture/Main.java
+//   fixtures/java-backend-fixture/Main.java
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;

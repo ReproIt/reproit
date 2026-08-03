@@ -11,7 +11,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-FIXTURE_REL="examples/rb-backend-fixture/app.rb"
+FIXTURE_REL="fixtures/rb-backend-fixture/app.rb"
 SDK_REL="sdk/reproit-backend-rb"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/reproit-rb-hermetic.XXXXXX")"
 cleanup() { rm -rf "$WORK"; }
@@ -40,9 +40,9 @@ EOF
 # relative layout is preserved so the fixture's require_relative hop still
 # lands.
 COPY="$WORK/copy"
-mkdir -p "$COPY/sdk" "$COPY/examples"
+mkdir -p "$COPY/sdk" "$COPY/fixtures"
 cp -R "$ROOT/$SDK_REL" "$COPY/sdk/"
-cp -R "$ROOT/examples/rb-backend-fixture" "$COPY/examples/"
+cp -R "$ROOT/fixtures/rb-backend-fixture" "$COPY/fixtures/"
 
 SERVE="ruby $COPY/$FIXTURE_REL"
 

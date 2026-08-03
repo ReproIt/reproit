@@ -21,7 +21,7 @@ unchanged (gate case 2 pins that).
 
 Reproduce with `validation/process-checkpoint/gate-anchor.sh` (self-wrapping
 in Docker; image and cargo volume shared with gate-session.sh). Fixture:
-`examples/trainer-checkpoint-fixture/trainer.c`, a scalar SGD loop over 400
+`fixtures/trainer-checkpoint-fixture/trainer.c`, a scalar SGD loop over 400
 one-line samples that checkpoints every 50 steps and dies on a declared
 assertion at step 380 (poisoned label), so the last checkpoint sits at 350,
 near the failure.

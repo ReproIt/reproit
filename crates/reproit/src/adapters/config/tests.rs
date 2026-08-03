@@ -175,7 +175,7 @@ fn loader_resolves_app_web_runner_dir() {
 }
 
 fn examples_dir() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/configs")
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/examples/configs")
 }
 
 // Every shipped per-platform example must parse + resolve its platform +
@@ -186,7 +186,7 @@ fn examples_dir() -> std::path::PathBuf {
 fn all_example_configs_load() {
     let dir = examples_dir();
     let mut count = 0;
-    for entry in std::fs::read_dir(&dir).expect("examples/configs") {
+    for entry in std::fs::read_dir(&dir).expect("docs/examples/configs") {
         let p = entry.unwrap().path();
         if p.extension().and_then(|e| e.to_str()) != Some("yaml") {
             continue;

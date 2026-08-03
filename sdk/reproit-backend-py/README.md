@@ -149,7 +149,7 @@ reproduction.
 Spool bounds, same numbers as the Node reference: `REPROIT_CI_SPOOL` names the directory
 (default `.reproit/ci-spool`), `REPROIT_CI_SPOOL_MAX` caps its TOTAL bytes (default 16 MiB,
 floor 4 KiB, ceiling 64 MiB); an over-cap capsule is dropped and counted in the on-disk
-`dropped.count`, never silently. Fixture and gate: `examples/py-flaky-ci-fixture` (a planted
+`dropped.count`, never silently. Fixture and gate: `fixtures/py-flaky-ci-fixture` (a planted
 order-dependent failure invisible in a plain run) and `validation/backend/py-flaky-ci-e2e`
 (six legs including the flaky-vs-fixed distinction).
 

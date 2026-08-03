@@ -3,7 +3,7 @@
 # (runners/rn/runner.mjs, the same production runner the android / rn-appium /
 # swift-ios platforms route through). Unlike appium-android-smoke.sh, which
 # drives the preinstalled Settings app, this drives a REAL minimal Jetpack
-# Compose app (examples/compose-fixture) so the Compose framework claimed on the
+# Compose app (fixtures/compose-fixture) so the Compose framework claimed on the
 # marquee is actually exercised end to end.
 #
 # The fixture is a single Composable: a Button whose Modifier.testTag("toggle")

@@ -12,7 +12,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-FIXTURE_REL="examples/php-backend-fixture/app.php"
+FIXTURE_REL="fixtures/php-backend-fixture/app.php"
 SDK_REL="sdk/reproit-backend-php"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/reproit-php-hermetic.XXXXXX")"
 cleanup() { rm -rf "$WORK"; }
@@ -40,9 +40,9 @@ EOF
 # different absolute path. Only the SDK and the fixture are needed; their
 # relative layout is preserved so the fixture's require hop still lands.
 COPY="$WORK/copy"
-mkdir -p "$COPY/sdk" "$COPY/examples"
+mkdir -p "$COPY/sdk" "$COPY/fixtures"
 cp -R "$ROOT/$SDK_REL" "$COPY/sdk/"
-cp -R "$ROOT/examples/php-backend-fixture" "$COPY/examples/"
+cp -R "$ROOT/fixtures/php-backend-fixture" "$COPY/fixtures/"
 
 # $PORT is expanded by the `sh -c` the CLI boots the command with, so php -S
 # is the direct child and dies with the check.

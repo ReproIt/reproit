@@ -1,6 +1,6 @@
 // Planted order-dependent test failure that fires only under CI-like
 // conditions, for the flaky-CI wedge (Track 3), Java port of
-// examples/flaky-ci-fixture.
+// fixtures/flaky-ci-fixture.
 //
 // The first test runs ONLY on the CI legacy matrix (CI_LEGACY_MATRIX=1) and
 // leaks state into the shared config service: it switches the service to its
@@ -15,7 +15,7 @@
 // is ReproitCi) so replay compiles with plain javac and needs no jars and no
 // network. Compile:
 //   javac -d classes -sourcepath sdk/reproit-backend-java/src/main/java \
-//     examples/java-flaky-ci-fixture/CheckoutTest.java
+//     fixtures/java-flaky-ci-fixture/CheckoutTest.java
 
 import com.sun.net.httpserver.HttpServer;
 import dev.reproit.backend.Ci;

@@ -165,7 +165,7 @@ redirect are load-bearing: the VSTest host swallows raw test console output, and
 console logger re-prints the SDK's markers verbatim on stdout for the redirect to hand to
 `reproit check`. `validation/backend/dotnet-flaky-ci-e2e/run.sh` is the gate
 (plain-run-passes, flaky rerun, reproduce / fix / revert / deleted-exchange verdicts from a
-PORTABILITY copy); `examples/dotnet-flaky-ci-fixture` is the planted order-dependent failure.
+PORTABILITY copy); `fixtures/dotnet-flaky-ci-fixture` is the planted order-dependent failure.
 
 Honest limit, same as the Node reference: replay pins the envelope and the recorded exchanges,
 which is the whole boundary this SDK can see. A race the boundary cannot see (scheduling, shared

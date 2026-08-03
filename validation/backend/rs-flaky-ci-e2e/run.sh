@@ -18,7 +18,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-FIXTURE_REL="examples/rs-flaky-ci-fixture"
+FIXTURE_REL="fixtures/rs-flaky-ci-fixture"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/reproit-rs-flaky-ci.XXXXXX")"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT

@@ -66,7 +66,7 @@ fi
 
 APP="$WORK/app"
 flutter create --platforms=ios --project-name reproit_flutter_fixture "$APP"
-cp "$ROOT/examples/flutter-fixture/lib/main.dart" "$APP/lib/main.dart"
+cp "$ROOT/fixtures/flutter-fixture/lib/main.dart" "$APP/lib/main.dart"
 cargo build -p reproit --manifest-path "$ROOT/Cargo.toml"
 (cd "$APP" && "$ROOT/target/debug/reproit" init --platform flutter --force --yes)
 printf '{"budget":4}' > "$WORK/fuzz.json"

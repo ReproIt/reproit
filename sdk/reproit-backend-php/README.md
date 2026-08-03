@@ -142,7 +142,7 @@ Named capability gaps, stated rather than papered over:
   request is not covered by request-scoped capture; trace it explicitly as its own operation.
 
 Acceptance: `validation/backend/php-hermetic-e2e/run.sh` captures a planted 5xx (PSR-18
-upstream call plus PDO query) on `examples/php-backend-fixture/app.php` and re-executes it from
+upstream call plus PDO query) on `fixtures/php-backend-fixture/app.php` and re-executes it from
 a copied checkout with every dependency stopped, asserting all four verdicts (reproduced /
 fixed / reproduced / diverged-naming-the-call).
 
@@ -200,7 +200,7 @@ a PHPUnit listener is a follow-up, not shipped, so PHPUnit suites are not yet wi
 PHPUnit as a dependency was deliberately avoided).
 
 Acceptance: `validation/backend/php-flaky-ci-e2e/run.sh` on
-`examples/php-flaky-ci-fixture/` (a planted order-dependent failure invisible in a plain
+`fixtures/php-flaky-ci-fixture/` (a planted order-dependent failure invisible in a plain
 run), cloned leg for leg from `validation/backend/flaky-ci-e2e`: plain run passes, the
 simulated CI run spools, a plain rerun from the copy passes (flaky evidence, never Fixed),
 then reproduced (1) / fixed (0) / reproduced again (1) / deleted exchange diverges (3)
