@@ -663,3 +663,31 @@ fn a_stale_result_names_its_cause_and_is_not_a_pass() {
         None
     );
 }
+
+/// The property that makes a guard survivable: its identity is the failure it
+/// preserves, never the mechanism that reaches it.
+///
+/// This used to be derived from the reproduction plan id, a content hash over
+/// the plan INCLUDING the mechanism's `templateDigest`. So re-pinning a
+/// reviewed mechanism silently created a DIFFERENT guard and orphaned the
+/// original with its alias, status and check history, which is how one guard
+/// in this repository became unrepairable by any honest operation.
+#[test]
+fn guard_identity_is_the_failure_not_the_mechanism() {
+    let occurrence = "occ_3d58c73d6512e36a";
+    let before = guard_repro_id(occurrence);
+
+    // A mechanism re-pin changes the plan id, the provider digest, and the
+    // whole package. None of that may move the guard.
+    assert_eq!(before, guard_repro_id(occurrence));
+    assert_ne!(
+        before,
+        repro_id(0, &["plan:plan_70eec7d3e6a00bc3".to_string()]),
+        "a guard must not be addressed by its plan id"
+    );
+
+    // A different failure is a different guard.
+    assert_ne!(before, guard_repro_id("occ_00e941e87a6d9542"));
+    assert_eq!(before.len(), 12);
+    assert!(before.chars().all(|c| c.is_ascii_hexdigit()));
+}

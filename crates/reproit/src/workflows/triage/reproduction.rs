@@ -472,17 +472,28 @@ pub fn materialize_pull(pkg: &Value, as_name: &str, created: &str) -> Result<Pul
         );
     }
     let seed = pkg["seed"].as_u64().unwrap_or(0);
-    let identity_actions = if actions.is_empty() {
-        vec![format!(
-            "plan:{}",
-            plan.as_ref()
-                .map(|plan| plan.id.as_str())
-                .unwrap_or("capture")
-        )]
+    // A plan-backed pull is identified by the occurrence it preserves, so the
+    // guard survives a mechanism re-pin; an action-replay pull keeps its
+    // seed+actions identity.
+    // Anchor an action-less guard on the occurrence it preserves, so it
+    // survives a mechanism re-pin. A tester capture carries no typed package
+    // and no plan, so it keeps the cloud's own occurrence reference; only a
+    // pull with neither has nothing stable to be identified by.
+    let id = if actions.is_empty() {
+        let occurrence_id = typed_package
+            .as_ref()
+            .map(|package| package.occurrence.occurrence_id.clone())
+            .or_else(|| {
+                pkg["occurrenceId"]
+                    .as_str()
+                    .or_else(|| pkg["bucketId"].as_str())
+                    .map(str::to_string)
+            })
+            .context("an action-less pull carries no occurrence to identify its guard by")?;
+        repro::guard_repro_id(&occurrence_id)
     } else {
-        actions.clone()
+        repro::repro_id(seed, &actions)
     };
-    let id = repro::repro_id(seed, &identity_actions);
     // The crash signature re-confirms the SAME finding on replay; fall back to the
     // session's start sig, then None (the trigger_index does the work alone).
     let typed_legacy = typed_package

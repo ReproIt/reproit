@@ -145,6 +145,21 @@ pub fn normalize_actions<S: AsRef<str>>(actions: &[S]) -> Vec<String> {
 /// The hashed preimage is `seed\n` followed by one normalized action per line,
 /// so the id is insensitive to surrounding whitespace but sensitive to the
 /// action ORDER (reordering is a different case, hence a different repro).
+/// The identity of a plan-backed guard: the FAILURE it preserves.
+///
+/// This used to be derived from the plan id, which is a content hash over the
+/// whole reproduction plan INCLUDING the mechanism's `templateDigest`. That
+/// made a guard's directory a function of the code that reaches the failure,
+/// so re-pinning a reviewed mechanism did not update a guard, it silently
+/// created a different one and orphaned the original along with its alias,
+/// status and check history. A guard is not "this way of running something",
+/// it is "this observed failure, preserved", so it is anchored on the
+/// occurrence: stable across every mechanism re-pin, and different for every
+/// distinct failure.
+pub fn guard_repro_id(occurrence_id: &str) -> String {
+    repro_id(0, &[format!("occurrence:{occurrence_id}")])
+}
+
 pub fn repro_id<S: AsRef<str>>(seed: u64, actions: &[S]) -> String {
     let norm = normalize_actions(actions);
     let mut hasher = Sha256::new();

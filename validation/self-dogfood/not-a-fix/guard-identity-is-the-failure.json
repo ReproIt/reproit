@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "guard-identity-is-the-failure",
+  "changeType": "refactor",
+  "detail": "A plan-backed guard's directory was derived from its reproduction plan id, which is a content hash over the whole plan INCLUDING the mechanism's templateDigest, which in turn hashes the provider's source file. Guard identity was therefore a function of the CODE THAT REACHES the failure. Verified by hand: sha256(\"0\\nplan:plan_70eec7d3e6a00bc3\\n\") begins b9fee273bb4a, which was that guard's directory name. The consequence is that re-pinning a reviewed mechanism could not update a guard: it created a different guard and orphaned the original along with its alias, status, oracle and check history. That made a stranded guard unrepairable by any honest operation, which is exactly what happened when removing the `internal` command surface changed a digest-pinned verifier: the guard could not be re-captured (its defect is already fixed, so there is no failure left to observe), could not be re-pinned (that made a new guard), and could not be retired (the policy correctly requires a replacement guard that already exists and is required). Guard identity is now anchored on the OCCURRENCE, the failure the guard preserves, which is stable across every mechanism re-pin and distinct for every distinct failure. `keep --refresh` now works on plan guards: it reports which pinned sources moved, refuses to write without --yes, then advances the provider's source digest, the plan bindings, and each content-addressed container's own id using that container's own code rather than patching ids by hand. The recorded occurrence and its evidence artifacts are deliberately NEVER touched: templateDigest is execution-time tamper-evidence for the mechanism, not provenance for the observation, and recomputing an artifact digest after changing the mechanism would not re-derive an observation but invent one. The five committed guards were migrated to failure-anchored ids, each with a retirement record naming its successor: same alias, same trigger signature, same occurrence, same evidence, nothing asserted less. All five pass, including the one that was stranded.",
+  "evidence": [
+    {
+      "path": "crates/reproit/src/domain/repro.rs",
+      "sha256": "sha256:1a9a312c47c23007939264e0b314b8ec2d9172bc04562bb6387524110e748248"
+    },
+    {
+      "path": "crates/reproit/src/workflows/plan_refresh.rs",
+      "sha256": "sha256:407ffb72d1c66928cef559e184b86ccec710c98d5e8a39cf5dbd411f4f62cc17"
+    },
+    {
+      "path": "crates/reproit/src/adapters/execution/runner/catalog.rs",
+      "sha256": "sha256:141d223484db4dd6ffe6753a252c9a9119e55f6849c9df0dcf3e98a20ea6323d"
+    },
+    {
+      "path": "crates/reproit/src/domain/repro/tests.rs",
+      "sha256": "sha256:b8cac64b3e30919ce99dcb3b8e256782e36131f48bdad3ff342dfd2504e130db"
+    }
+  ]
+}

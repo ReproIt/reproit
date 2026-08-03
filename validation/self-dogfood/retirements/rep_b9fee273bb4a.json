@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "guard": "rep_b9fee273bb4a",
+  "reason": "Re-identified, not retired: this guard's directory was derived from its reproduction plan id, which is a content hash over the plan INCLUDING the mechanism's templateDigest. That made a guard's identity a function of the code that reaches its failure, so re-pinning a reviewed mechanism could not update a guard, it created a different one and orphaned the original with its alias, status and check history. Guard identity is now anchored on the OCCURRENCE, the failure the guard preserves, which is stable across every mechanism re-pin. The replacement named here is the same guard, same alias, same trigger signature, same recorded occurrence and the same evidence, addressed by what it preserves instead of by how it runs. Nothing is asserted less than before. Alias: self-dogfood-contract-null-optional.",
+  "replacement": "rep_a0c5982cf686"
+}

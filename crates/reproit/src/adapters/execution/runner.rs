@@ -25,8 +25,11 @@ mod process;
 pub(crate) use automatic::{
     compile_package_automatically, AutomaticCompilation, CompilationBlocker,
 };
-pub(crate) use catalog::persist_plan_catalog;
 use catalog::*;
+pub(crate) use catalog::{
+    persist_plan_catalog, pinned_provider_digest, repin_guard_providers, repin_package_mechanism,
+    source_digest,
+};
 pub(crate) use model::PlanRun;
 use model::*;
 use process::*;

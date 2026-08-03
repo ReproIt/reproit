@@ -125,7 +125,7 @@ async function contractNullOptionalIsAccepted(root) {
 
     let output = '';
     try {
-      const result = await execFileAsync(binary, ['internal', 'verify'], {
+      const result = await execFileAsync(binary, ['verify'], {
         cwd: directory,
         timeout: COMMAND_TIMEOUT_MS,
         env: { ...process.env, REPROIT_NO_UPDATE_CHECK: '1' },

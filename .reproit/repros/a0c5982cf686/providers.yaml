@@ -6,7 +6,7 @@ providers:
     capabilities: []
     source:
       path: validation/self-dogfood/cli-defect-verifier.mjs
-      sha256: sha256:60d8508e2d12cfd1db05043c7d1267606c02a8de695e89c12372f750afc0a844
+      sha256: sha256:9948e57b5d61e4e48b4d72263d25c6ea0f2572ab51ec1d5037dffc6628e0c1c1
     argv:
     - node
     - validation/self-dogfood/cli-defect-verifier.mjs

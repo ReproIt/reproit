@@ -413,9 +413,11 @@ mod tests {
         .unwrap();
         assert!(pulled.actions.is_empty());
         assert_eq!(pulled.plan.as_ref().map(|value| &value.id), Some(&plan.id));
+        // A guard is identified by the failure it preserves, never by the
+        // mechanism: re-pinning the mechanism must not re-home the guard.
         assert_eq!(
             pulled.meta.id,
-            repro::repro_id(0, &[format!("plan:{}", plan.id)])
+            repro::guard_repro_id("occ_cli_process_start")
         );
     }
 

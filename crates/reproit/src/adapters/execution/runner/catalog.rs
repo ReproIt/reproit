@@ -29,8 +29,10 @@ pub(super) fn load_catalog(
             merge_catalog(&mut catalog, local, "local execution provider")?;
         }
     }
-    if let Some(plan_id) = plan_id {
-        let committed_path = committed_catalog_path(root, plan_id);
+    // A committed guard catalog is looked up by the failure it preserves, not
+    // by the plan: the plan id moves whenever the mechanism is re-pinned.
+    if let (Some(occurrence_id), Some(_)) = (occurrence_id, plan_id) {
+        let committed_path = committed_catalog_path(root, occurrence_id);
         if committed_path.exists() {
             let committed = read_catalog(&committed_path)?;
             merge_catalog(&mut catalog, committed, "committed guard provider")?;
@@ -105,9 +107,8 @@ pub(super) fn local_catalog_path(root: &Path, occurrence_id: &str) -> PathBuf {
         .join(format!("{occurrence_id}.yaml"))
 }
 
-pub(super) fn committed_catalog_path(root: &Path, plan_id: &str) -> PathBuf {
-    let repro_id = repro::repro_id(0, &[format!("plan:{plan_id}")]);
-    repro::repro_dir(root, &repro_id).join("providers.yaml")
+pub(super) fn committed_catalog_path(root: &Path, occurrence_id: &str) -> PathBuf {
+    repro::repro_dir(root, &repro::guard_repro_id(occurrence_id)).join("providers.yaml")
 }
 
 pub(super) fn validate_occurrence_id(occurrence_id: &str) -> Result<()> {
@@ -331,6 +332,12 @@ pub(super) fn provider_digest(provider: &CommandProvider) -> Result<String> {
     Ok(format!("sha256:{encoded}"))
 }
 
+/// The digest a provider pins its source file by. Exposed so a refresh can say
+/// which pinned sources moved, which is the reason it is being run.
+pub(crate) fn source_digest(path: &Path) -> Result<String> {
+    sha256_path(path)
+}
+
 pub(super) fn sha256_path(path: &Path) -> Result<String> {
     let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     let digest = Sha256::digest(bytes);
@@ -367,6 +374,107 @@ pub(super) fn captured_provider_source(root: &Path, argv: &[String]) -> Option<P
         path: relative,
         sha256: sha256_path(&canonical).ok()?,
     })
+}
+
+/// Re-pin a guard's committed providers onto the current checkout.
+///
+/// Reads the guard's own `providers.yaml` RAW: `load_catalog` validates the
+/// pinned source digest and would reject exactly the state a re-pin exists to
+/// resolve. Each provider's `source.sha256` is advanced to what its file
+/// hashes to now, the catalog is rewritten, and the resulting provider digest
+/// is returned so the plan's bindings can be moved to match. A machine-local
+/// copy of the same provider is advanced alongside it, or the two would
+/// disagree and every later run would report a provider conflict.
+pub(crate) fn repin_guard_providers(
+    root: &Path,
+    directory: &Path,
+    occurrence_id: &str,
+) -> Result<String> {
+    let path = directory.join("providers.yaml");
+    let mut catalog = read_catalog(&path)?;
+    for provider in catalog.providers.values_mut() {
+        let Some(source) = provider.source.as_mut() else {
+            continue;
+        };
+        let file = root.join(&source.path);
+        if !file.is_file() {
+            anyhow::bail!(
+                "provider source {} is missing from this checkout; there is no mechanism to \
+                 re-pin onto",
+                source.path.display()
+            );
+        }
+        source.sha256 = sha256_path(&file)?;
+    }
+    let digest = catalog
+        .providers
+        .values()
+        .next()
+        .map(provider_digest)
+        .context("the guard catalog defines no provider")??;
+
+    let encoded = serde_yaml::to_string(&catalog).context("serializing guard providers")?;
+    let temporary = directory.join(format!(".providers.{}.tmp", std::process::id()));
+    std::fs::write(&temporary, &encoded)?;
+    std::fs::rename(&temporary, &path).with_context(|| format!("installing {}", path.display()))?;
+
+    let local = local_catalog_path(root, occurrence_id);
+    if local.exists() {
+        let temporary = local.with_extension("yaml.tmp");
+        std::fs::write(&temporary, &encoded)?;
+        std::fs::rename(&temporary, &local)
+            .with_context(|| format!("installing {}", local.display()))?;
+    }
+    Ok(digest)
+}
+
+/// The mechanism digest the guard's plan currently pins.
+pub(crate) fn pinned_provider_digest(package: &ReproductionPackage) -> Option<String> {
+    package
+        .plan
+        .as_ref()?
+        .bindings
+        .first()
+        .map(|binding| binding.template_digest.clone())
+}
+
+/// Accept a reviewed mechanism for this package.
+///
+/// Every binding's `templateDigest` moves, and then each content-addressed
+/// container re-derives its own id with its own code rather than being patched,
+/// so nothing ends up with an id that no longer describes it. The occurrence
+/// and its recorded artifacts are deliberately untouched.
+pub(crate) fn repin_package_mechanism(
+    package: &mut ReproductionPackage,
+    digest: &str,
+) -> Result<()> {
+    if let Some(plan) = package.plan.as_mut() {
+        for binding in &mut plan.bindings {
+            binding.template_digest = digest.to_string();
+        }
+        plan.finalize_id()
+            .map_err(|error| anyhow::anyhow!("re-deriving the reproduction plan id: {error}"))?;
+    }
+    if let Some(value) = package.capsule.clone() {
+        let mut capsule: crate::domain::capsule::Capsule =
+            serde_json::from_value(value).context("parsing the guard capsule for a re-pin")?;
+        if let Some(plan) = capsule.reproduction_plan.as_mut() {
+            for binding in &mut plan.bindings {
+                binding.template_digest = digest.to_string();
+            }
+            plan.finalize_id()
+                .map_err(|error| anyhow::anyhow!("re-deriving the capsule's plan id: {error}"))?;
+        }
+        capsule.finalize_id()?;
+        package.capsule = Some(serde_json::to_value(&capsule)?);
+    }
+    package
+        .finalize_id()
+        .map_err(|error| anyhow::anyhow!("re-deriving the package id: {error}"))?;
+    package
+        .validate()
+        .map_err(|error| anyhow::anyhow!("the re-pinned package is invalid: {error}"))?;
+    Ok(())
 }
 
 pub(crate) fn persist_plan_catalog(

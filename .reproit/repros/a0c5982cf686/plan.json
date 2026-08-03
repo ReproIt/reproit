@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "id": "plan_8d467858ff59032a",
-  "occurrenceId": "occ_00e941e87a6d9542",
+  "id": "plan_024149a830821a90",
+  "occurrenceId": "occ_3d58c73d6512e36a",
   "target": "current-checkout",
   "destination": {
     "kind": "local-process"
@@ -9,17 +9,17 @@
   "bindings": [
     {
       "requirementId": "req_001_trigger",
-      "providerId": "local-occ_00e941e87a6d9542",
+      "providerId": "local-occ_3d58c73d6512e36a",
       "mechanismAuthority": "explicit-local-approval",
-      "templateDigest": "sha256:078ff113e5aef4fc0e507fdd0b5029a6d135f70f8d95d7a10c79402d17d198aa",
+      "templateDigest": "sha256:09cf07aadc6f7013234295f1fff8f3a2974979b5ed2f2b89d62c5bf845a8572a",
       "evidenceArtifactIds": [
-        "sha256:97be2f81488dce7fa2f06a648d222ed0381725b236eebb9df1d9808959a82559"
+        "sha256:ed43418e685ec11496d9d02da3048402c5095247ebe8095b75ee10b1a003bb55"
       ]
     }
   ],
   "observation": {
     "observation": "exit",
-    "identity": "cli:check-flag-callers",
+    "identity": "cli:contract-null-optional",
     "authority": "runtime-diagnosis"
   }
 }

@@ -644,7 +644,7 @@ fn persist_compiled_package(
     compiled.validate().map_err(protocol_error)?;
     write_json_atomically(&package_path, &compiled)?;
 
-    let repro_id = crate::domain::repro::repro_id(0, &[format!("plan:{}", plan.id)]);
+    let repro_id = crate::domain::repro::guard_repro_id(&compiled.occurrence.occurrence_id);
     let repro_directory = crate::domain::repro::repro_dir(root, &repro_id);
     std::fs::create_dir_all(&repro_directory)?;
     let meta = if let Some(mut existing) = crate::domain::repro::load_meta(root, &repro_id) {

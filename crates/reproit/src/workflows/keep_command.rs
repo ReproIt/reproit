@@ -26,6 +26,17 @@ pub(super) async fn run(
 ) -> Result<ExitCode> {
     if refresh {
         let reference = id.context("keep --refresh needs the guard to re-record")?;
+        // Two guard formats can drift, and each re-records the way it was
+        // recorded: a hermetic guard re-boots its stored recipe, a plan guard
+        // re-pins its reviewed mechanism. Routing by what the guard IS keeps
+        // `--refresh` one word to the user.
+        let root = std::env::current_dir()?;
+        if let Some(meta) = crate::domain::repro::resolve(&root, reference) {
+            let directory = crate::domain::repro::repro_dir(&root, &meta.id);
+            if directory.join("plan.json").is_file() && !directory.join("hermetic.json").is_file() {
+                return super::plan_refresh::refresh_plan_guard(ctx, reference, &meta).await;
+            }
+        }
         return super::backend_headless::refresh_capture_guard(ctx, reference).await;
     }
     // A capture file lands as a hermetic guard: proven by re-execution at keep

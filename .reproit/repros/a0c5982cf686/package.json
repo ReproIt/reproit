@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "id": "pkg_bbbfafa0ba11b11a",
+  "id": "pkg_d4d6be77793b634a",
   "occurrence": {
     "version": 1,
     "occurrenceId": "occ_3d58c73d6512e36a",
@@ -82,7 +82,7 @@
   },
   "plan": {
     "version": 1,
-    "id": "plan_70eec7d3e6a00bc3",
+    "id": "plan_024149a830821a90",
     "occurrenceId": "occ_3d58c73d6512e36a",
     "target": "current-checkout",
     "destination": {
@@ -93,7 +93,7 @@
         "requirementId": "req_001_trigger",
         "providerId": "local-occ_3d58c73d6512e36a",
         "mechanismAuthority": "explicit-local-approval",
-        "templateDigest": "sha256:4a8a9da88ae638700810420ea7ef2961eba3be15f20e977576fa0dfc8948833f",
+        "templateDigest": "sha256:09cf07aadc6f7013234295f1fff8f3a2974979b5ed2f2b89d62c5bf845a8572a",
         "evidenceArtifactIds": [
           "sha256:ed43418e685ec11496d9d02da3048402c5095247ebe8095b75ee10b1a003bb55"
         ]
@@ -175,7 +175,7 @@
       "oracle": "exit",
       "trigger": "current-checkout"
     },
-    "id": "cap_e6ca15f9d0afc0d4",
+    "id": "cap_b7c7ebbe5a18aeeb",
     "occurrence": {
       "artifacts": [
         {
@@ -246,13 +246,13 @@
           "mechanismAuthority": "explicit-local-approval",
           "providerId": "local-occ_3d58c73d6512e36a",
           "requirementId": "req_001_trigger",
-          "templateDigest": "sha256:4a8a9da88ae638700810420ea7ef2961eba3be15f20e977576fa0dfc8948833f"
+          "templateDigest": "sha256:09cf07aadc6f7013234295f1fff8f3a2974979b5ed2f2b89d62c5bf845a8572a"
         }
       ],
       "destination": {
         "kind": "local-process"
       },
-      "id": "plan_70eec7d3e6a00bc3",
+      "id": "plan_024149a830821a90",
       "observation": {
         "authority": "runtime-diagnosis",
         "identity": "cli:contract-null-optional",
