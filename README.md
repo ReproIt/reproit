@@ -35,8 +35,11 @@ the first mismatch named; there are no similarity scores. A repro is `reproduced
 when a clean run reaches the observation point and matches the original failure identity.
 
 A repro is portable: it replays from a copy of the checkout at any path, on another
-machine, with dependencies down. Kept repros run in CI as regression guards; drifted
-guards quarantine and report instead of silently re-baselining.
+machine, with dependencies down. A repro backed by a capsule additionally needs that
+capsule, which is encrypted and machine-local by default; share the store and set
+`REPROIT_CAPSULE_KEY` to replay it elsewhere, and a guard that cannot reach its pinned
+capsule reports stale rather than passing. Kept repros run in CI as regression guards;
+drifted guards quarantine and report instead of silently re-baselining.
 
 ## Install
 
@@ -123,6 +126,7 @@ Per-target gates, platforms, and evidence live in [compatibility](docs/compatibi
 - [Security and data handling](docs/security.md) — what leaves your machine
 - [Compatibility](docs/compatibility.md) — per-target gates and evidence
 - [Screen signatures](docs/signature.md) — the cross-SDK identity spec
+- [ReproIt Cloud](docs/cloud/README.md) — signup, SDKs, the dashboard, the API
 
 Decision records (why things are the way they are, not how to use them) live in
 [docs/decisions](docs/decisions).

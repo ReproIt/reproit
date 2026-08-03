@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "cloud-customer-documentation",
+  "changeType": "maintenance",
+  "detail": "ReproIt Cloud had no customer-facing documentation of any kind. reproit.com links only to /privacy, /terms and cloud.reproit.com, with no /docs, so a person who signed up had nothing to read: no page explained getting a project key, installing an SDK, what the dashboard's states mean, how reproduction reaches their CI, or how to reach the API. Everything written about Cloud lived in a private repository and was addressed to an operator of a self-hosted install, a product the same README says does not exist. This adds eight pages under docs/cloud/ in the PUBLIC repository, so one docs tree and one review path covers both halves of the product rather than a public CLI tree and a private Cloud tree that drift. Every claim is taken from the code rather than from the old prose: the publishable-versus-secret key split from auth/keys.rs, the oracle-gated ingest and redaction-claim rejection from ingest, the four resolution states and the build-order regression rule from triage/resolution.rs, and the fact that `fixed` is MACHINE-OWNED and cannot be posted by a human, from triage/state.rs, which is the sharpest thing on the dashboard and was documented nowhere. The security page states what is NOT encrypted as plainly as what is: evidence blobs have no application-layer envelope encryption and no per-workspace key, only the storage provider's own at-rest encryption. The site's legal copy was already scoped carefully enough not to claim otherwise, so nothing false was published, but a buyer asking the obvious next question deserves the answer in writing rather than a careful silence.",
+  "evidence": [
+    {
+      "path": "docs/cloud/README.md",
+      "sha256": "sha256:fc84fb047323cdb4fd71769bbfbf02aa2f8c117e7a41b88e1019ef5ad114e7fb"
+    },
+    {
+      "path": "docs/cloud/api.md",
+      "sha256": "sha256:8c5fd39373f64e7c1ab8fb7b9454673dbb651e65a68c3a8292f20ae5f9e04aa5"
+    },
+    {
+      "path": "docs/cloud/dashboard.md",
+      "sha256": "sha256:b3ff8481dbc14f5ecf6a9b1bf7803b62e8cf0eec0b30a833e223c22d590cc38d"
+    },
+    {
+      "path": "docs/cloud/reproduction.md",
+      "sha256": "sha256:88783b627258e2b9cff133b27667f9de535a15cca2bdbf4b9e9994ed998a642e"
+    },
+    {
+      "path": "docs/cloud/sdks.md",
+      "sha256": "sha256:cda96f14d9179a59d18b0620895d17ad8473afd160bd9c2597e8553b3edd102c"
+    },
+    {
+      "path": "docs/cloud/security.md",
+      "sha256": "sha256:bbaf31f5a3f722d94387f95df21b2b814127c10fb5c705c06e323d6ebd243076"
+    },
+    {
+      "path": "docs/cloud/start.md",
+      "sha256": "sha256:3fed4661fc6b36bc580421d547ba32dbb451380959dd2ae17e0fddeef6866fb5"
+    },
+    {
+      "path": "docs/cloud/workspace.md",
+      "sha256": "sha256:02ce9f51afcab20906d2b9468ee0ee9e2de3d08b70f6c9e383067670ded54177"
+    }
+  ]
+}
