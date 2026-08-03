@@ -3,6 +3,52 @@
 use super::interaction::{observe_mouse_protocol_stream, MouseProtocol};
 use super::*;
 
+/// The target child's resident set size in bytes, or None when it cannot be
+/// attributed. This is the process analogue of a browser runner's heap sample.
+fn rss_bytes(pid: u32) -> Option<u64> {
+    #[cfg(target_os = "linux")]
+    {
+        let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+        for line in status.lines() {
+            if let Some(rest) = line.strip_prefix("VmRSS:") {
+                let kibibytes: u64 = rest.split_whitespace().next()?.parse().ok()?;
+                return Some(kibibytes * 1024);
+            }
+        }
+        None
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let output = std::process::Command::new("ps")
+            .args(["-o", "rss=", "-p", &pid.to_string()])
+            .output()
+            .ok()?;
+        let kibibytes: u64 = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse()
+            .ok()?;
+        Some(kibibytes * 1024)
+    }
+}
+
+pub(super) fn sample_rss(pid: u32, elapsed_ms: u64) {
+    if let Some(rss) = rss_bytes(pid) {
+        emit(&format!(
+            "MEMORY:SAMPLE {}",
+            serde_json::json!({ "t_ms": elapsed_ms, "heap_used": rss })
+        ));
+    }
+}
+
+pub(super) fn coverage_is_incomplete(
+    failed: bool,
+    actions_attempted: usize,
+    actions_effective: usize,
+    nonzero_exits: u32,
+) -> bool {
+    !failed && actions_attempted > 0 && actions_effective == 0 && nonzero_exits > 0
+}
+
 pub(super) fn looks_crashed(parser: &Arc<Mutex<vt100::Parser>>) -> bool {
     let contents = parser.lock().unwrap().screen().contents();
     contents.contains("panicked at")
@@ -98,7 +144,25 @@ type Session = (
     // Mouse encoding requested by the app. A terminal consumes DECSET mode
     // changes; they must never be echoed back as app input.
     Arc<AtomicU8>,
+    // Bounded terminal frames observed outside DEC synchronized-output mode.
+    // Drained per action by the presented-frame flicker oracle.
+    Arc<Mutex<std::collections::VecDeque<(Instant, String)>>>,
 );
+
+pub(super) fn update_synchronized_output(chunk: &[u8], tail: &mut Vec<u8>, active: &mut bool) {
+    tail.extend_from_slice(chunk);
+    for index in 0..tail.len() {
+        let rest = &tail[index..];
+        if rest.starts_with(b"\x1b[?2026h") {
+            *active = true;
+        } else if rest.starts_with(b"\x1b[?2026l") {
+            *active = false;
+        }
+    }
+    if tail.len() > 15 {
+        tail.drain(..tail.len() - 15);
+    }
+}
 
 /// Open a PTY, launch the target via `sh -c`, start a reader thread feeding a
 /// fresh VT parser, and return the handles. Called once per session: we
@@ -142,14 +206,19 @@ pub(super) fn spawn_session(cmdline: &str) -> Result<Session> {
     let parser = Arc::new(Mutex::new(vt100::Parser::new(ROWS, COLS, 0)));
     let erases = Arc::new(AtomicU64::new(0));
     let mouse = Arc::new(AtomicU8::new(MouseProtocol::None as u8));
+    let timeline = Arc::new(Mutex::new(std::collections::VecDeque::new()));
     {
         let parser = parser.clone();
         let writer = writer.clone();
         let erases = erases.clone();
         let mouse = mouse.clone();
+        let timeline = timeline.clone();
         std::thread::spawn(move || {
             let mut buf = [0u8; 8192];
             let mut terminal_mode_tail = Vec::with_capacity(15);
+            let mut sync_tail = Vec::with_capacity(15);
+            let mut synchronized_output = false;
+            let mut prior_frame = String::new();
             while let Ok(n) = reader.read(&mut buf) {
                 if n == 0 {
                     break;
@@ -160,9 +229,21 @@ pub(super) fn spawn_session(cmdline: &str) -> Result<Session> {
                 }
                 observe_mouse_protocol_stream(&buf[..n], &mut terminal_mode_tail, &mouse);
                 parser.lock().unwrap().process(&buf[..n]);
+                update_synchronized_output(&buf[..n], &mut sync_tail, &mut synchronized_output);
+                if !synchronized_output {
+                    let frame = parser.lock().unwrap().screen().contents();
+                    if frame != prior_frame {
+                        prior_frame.clone_from(&frame);
+                        let mut frames = timeline.lock().unwrap();
+                        frames.push_back((Instant::now(), frame));
+                        while frames.len() > 512 {
+                            frames.pop_front();
+                        }
+                    }
+                }
                 answer_queries(&buf[..n], &parser, &writer);
             }
         });
     }
-    Ok((pair.master, child, parser, writer, erases, mouse))
+    Ok((pair.master, child, parser, writer, erases, mouse, timeline))
 }

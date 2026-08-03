@@ -212,6 +212,35 @@
             }),
         );
       }
+      const relation1 = await browser.execute(indicatorRelationshipScan).catch(() => null);
+      let relation2 = null;
+      if (relation1?.outcome === 'VIOLATION') {
+        await browser.pause(120);
+        relation2 = await browser.execute(indicatorRelationshipScan).catch(() => null);
+        const relations = confirmRelationshipViolations(relation1, relation2);
+        if (relations.length) {
+          log(
+            'EXPLORE:RELATION ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                items: relations,
+              }),
+          );
+        }
+      }
+      const relationStatus = relation2 || relation1;
+      if (relationStatus) {
+        log(
+          'EXPLORE:RELATIONSTATUS ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              outcome: relationStatus.outcome,
+              checks: relationStatus.checks,
+            }),
+        );
+      }
       // ZERO-CONTRAST: text whose resolved foreground exactly equals its
       // composited backdrop is invisible where it must be read. Pure in-webview
       // getComputedStyle scan (WebKitGTK/WebView2 both expose it), shared
@@ -241,6 +270,17 @@
               sig: snap.sig,
               ...(snap.anchor ? { route: snap.anchor } : {}),
               items: sec,
+            }),
+        );
+      }
+      const deadInput = await tauriDeadInputProbe(browser).catch(() => []);
+      if (deadInput.length) {
+        log(
+          'EXPLORE:DEADINPUT ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              items: deadInput,
             }),
         );
       }
@@ -695,12 +735,27 @@
     try {
       await browser.execute(focusLossArm);
     } catch (e) {}
+    const flickerCapture = clipArmed ? null : startTransitionFlicker(resolveTauriPid(APP));
+    if (flickerCapture) await browser.pause(500);
     if (!(await tap(browser, sel))) {
+      await finishTransitionFlicker(flickerCapture);
       log('FUZZ:MISS ' + act);
       stuck++;
       continue;
     }
     await browser.pause(700);
+    const flicker = await finishTransitionFlicker(flickerCapture);
+    if (flicker) {
+      log(
+        'EXPLORE:FLICKER ' +
+          JSON.stringify({
+            from: before,
+            action: 'tap:' + sel,
+            peak: flicker.peak,
+            frames: flicker.frames,
+          }),
+      );
+    }
     // JANK/HANG watchdog: did this action block the main thread past the
     // jank/hang floor? Keyed by (from, action) like the flicker oracle, so the
     // Rust side attributes it to this transition and `check` re-confirms it.

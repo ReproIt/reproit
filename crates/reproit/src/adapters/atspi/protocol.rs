@@ -5,6 +5,8 @@ use super::*;
 // (verify against the installed atspi-constants.h; 27 is STALE, a different
 // state).
 pub(super) const ATSPI_STATE_SHOWING: c_int = 25;
+pub(super) const ATSPI_STATE_FOCUSED: c_int = 12;
+pub(super) const ATSPI_STATE_VERTICAL: c_int = 29;
 pub(super) const ATSPI_COORD_TYPE_SCREEN: c_int = 0;
 pub(super) const ATSPI_KEY_PRESSRELEASE: c_int = 2;
 pub(super) const XKEYCODE_ESCAPE: c_long = 9; // X11 keycode for Escape
@@ -36,6 +38,8 @@ extern "C" {
     fn atspi_accessible_get_role_name(obj: *mut c_void, err: *mut *mut c_void) -> *mut c_char;
     fn atspi_accessible_get_name(obj: *mut c_void, err: *mut *mut c_void) -> *mut c_char;
     fn atspi_accessible_get_accessible_id(obj: *mut c_void, err: *mut *mut c_void) -> *mut c_char;
+    fn atspi_accessible_get_id(obj: *mut c_void, err: *mut *mut c_void) -> c_int;
+    fn atspi_accessible_get_parent(obj: *mut c_void, err: *mut *mut c_void) -> *mut c_void;
     fn atspi_accessible_get_toolkit_name(obj: *mut c_void, err: *mut *mut c_void) -> *mut c_char;
     fn atspi_accessible_get_process_id(obj: *mut c_void, err: *mut *mut c_void) -> c_int;
     fn atspi_accessible_get_attributes(obj: *mut c_void, err: *mut *mut c_void) -> *mut c_void;
@@ -47,6 +51,13 @@ extern "C" {
         ctype: c_int,
         err: *mut *mut c_void,
     ) -> *mut AtspiRect;
+    fn atspi_component_get_accessible_at_point(
+        obj: *mut c_void,
+        x: c_int,
+        y: c_int,
+        ctype: c_int,
+        err: *mut *mut c_void,
+    ) -> *mut c_void;
     pub(super) fn atspi_component_grab_focus(obj: *mut c_void, err: *mut *mut c_void) -> c_int;
     pub(super) fn atspi_accessible_get_action_iface(obj: *mut c_void) -> *mut c_void;
     pub(super) fn atspi_action_get_n_actions(obj: *mut c_void, err: *mut *mut c_void) -> c_int;
@@ -57,6 +68,9 @@ extern "C" {
     ) -> c_int;
     fn atspi_accessible_get_value_iface(obj: *mut c_void) -> *mut c_void;
     fn atspi_value_get_current_value(obj: *mut c_void, err: *mut *mut c_void) -> f64;
+    fn atspi_value_get_minimum_value(obj: *mut c_void, err: *mut *mut c_void) -> f64;
+    fn atspi_value_get_maximum_value(obj: *mut c_void, err: *mut *mut c_void) -> f64;
+    fn atspi_value_set_current_value(obj: *mut c_void, value: f64, err: *mut *mut c_void) -> c_int;
     fn atspi_accessible_get_text_iface(obj: *mut c_void) -> *mut c_void;
     fn atspi_text_get_character_count(obj: *mut c_void, err: *mut *mut c_void) -> c_int;
     fn atspi_text_get_text(
@@ -155,6 +169,15 @@ pub(super) fn acc_id(acc: &Acc) -> Option<String> {
     }
 }
 
+pub(super) fn acc_object_id(acc: &Acc) -> Option<u64> {
+    let id = unsafe { atspi_accessible_get_id(acc.ptr(), ptr::null_mut()) };
+    (id > 0).then_some(id as u64)
+}
+
+pub(super) fn acc_parent(acc: &Acc) -> Option<Acc> {
+    Acc::from_owned(unsafe { atspi_accessible_get_parent(acc.ptr(), ptr::null_mut()) })
+}
+
 pub(super) fn acc_pid(acc: &Acc) -> u32 {
     unsafe { atspi_accessible_get_process_id(acc.ptr(), ptr::null_mut()).max(0) as u32 }
 }
@@ -188,6 +211,18 @@ pub(super) fn is_showing(acc: &Acc) -> bool {
         let has = atspi_state_set_contains(ss, ATSPI_STATE_SHOWING) != 0;
         g_object_unref(ss);
         has
+    }
+}
+
+pub(super) fn has_state(acc: &Acc, state: c_int) -> Option<bool> {
+    unsafe {
+        let set = atspi_accessible_get_state_set(acc.ptr());
+        if set.is_null() {
+            return None;
+        }
+        let has = atspi_state_set_contains(set, state) != 0;
+        g_object_unref(set);
+        Some(has)
     }
 }
 
@@ -235,6 +270,51 @@ pub(super) fn extents(acc: &Acc) -> Option<(i32, i32, i32, i32)> {
         } else {
             Some((rect.x, rect.y, rect.width, rect.height))
         }
+    }
+}
+
+pub(super) fn accessible_at_point(acc: &Acc, x: i32, y: i32) -> Option<Acc> {
+    unsafe {
+        let component = atspi_accessible_get_component_iface(acc.ptr());
+        if component.is_null() {
+            return None;
+        }
+        let hit = atspi_component_get_accessible_at_point(
+            component,
+            x,
+            y,
+            ATSPI_COORD_TYPE_SCREEN,
+            ptr::null_mut(),
+        );
+        g_object_unref(component);
+        Acc::from_owned(hit)
+    }
+}
+
+pub(super) fn value_range(acc: &Acc) -> Option<(f64, f64, f64)> {
+    unsafe {
+        let value = atspi_accessible_get_value_iface(acc.ptr());
+        if value.is_null() {
+            return None;
+        }
+        let current = atspi_value_get_current_value(value, ptr::null_mut());
+        let minimum = atspi_value_get_minimum_value(value, ptr::null_mut());
+        let maximum = atspi_value_get_maximum_value(value, ptr::null_mut());
+        g_object_unref(value);
+        (current.is_finite() && minimum.is_finite() && maximum.is_finite() && maximum > minimum)
+            .then_some((current, minimum, maximum))
+    }
+}
+
+pub(super) fn set_value(acc: &Acc, value: f64) -> bool {
+    unsafe {
+        let iface = atspi_accessible_get_value_iface(acc.ptr());
+        if iface.is_null() {
+            return false;
+        }
+        let changed = atspi_value_set_current_value(iface, value, ptr::null_mut()) != 0;
+        g_object_unref(iface);
+        changed
     }
 }
 

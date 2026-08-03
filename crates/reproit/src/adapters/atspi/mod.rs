@@ -37,6 +37,9 @@ use std::time::{Duration, Instant};
 
 use regex::Regex;
 
+use crate::domain::native_oracle::{
+    focus_was_lost, FocusAfter, FocusArm, NativeNode, ScrollPoint, ScrollSample,
+};
 use crate::domain::signature::{
     apply_value_nodes, content_fingerprint, signature, structural_only, value_class, Node, ValueCap,
 };
@@ -55,6 +58,161 @@ use actions::*;
 use capture::*;
 use protocol::*;
 use session::*;
+
+struct OracleNode {
+    observation: NativeNode,
+    accessible: Acc,
+}
+
+fn atspi_oracle_node(acc: &Acc, role: &str) -> Option<NativeNode> {
+    let key = format!("id:{}", acc_id(acc)?);
+    let identity = acc_object_id(acc)?;
+    Some(NativeNode {
+        key,
+        identity,
+        role: role.to_string(),
+    })
+}
+
+fn atspi_focus_arm(node: Option<&OracleNode>, dialog_count: usize) -> Option<FocusArm> {
+    let node = node?;
+    if has_state(&node.accessible, ATSPI_STATE_FOCUSED) != Some(true) {
+        return None;
+    }
+    Some(FocusArm {
+        key: node.observation.key.clone(),
+        identity: node.observation.identity,
+        role: node.observation.role.clone(),
+        dialog_count,
+    })
+}
+
+fn atspi_oracle_node_for_label<'a>(snapshot: &'a Snapshot, label: &str) -> Option<&'a OracleNode> {
+    let target_id = snapshot.nodes.get(label).and_then(acc_object_id)?;
+    snapshot
+        .oracle_nodes
+        .values()
+        .find(|node| node.observation.identity == target_id)
+}
+
+fn atspi_lost_focus(arm: Option<&FocusArm>, after: &Snapshot, same_screen: bool) -> bool {
+    let Some(arm) = arm else {
+        return false;
+    };
+    let Some(target) = after.oracle_nodes.get(&arm.key) else {
+        return false;
+    };
+    focus_was_lost(
+        Some(arm),
+        Some(&FocusAfter {
+            target: target.observation.clone(),
+            focused_identity: after.focused_identity,
+            focus_is_window: after.focus_is_window,
+            dialog_count: after.dialog_count,
+            same_screen,
+        }),
+    )
+}
+
+fn normalize_scroll_text(text: &str) -> String {
+    let mut out = String::new();
+    let mut in_number = false;
+    for character in text.chars().take(120) {
+        if character.is_ascii_digit() || matches!(character, '.' | ',' | ':') {
+            if !in_number {
+                out.push('#');
+                in_number = true;
+            }
+        } else {
+            in_number = false;
+            out.push(character);
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn atspi_scroll_sample(viewport: &Acc, scrollbar: &Acc) -> Option<ScrollSample> {
+    let (offset, minimum, maximum) = value_range(scrollbar)?;
+    let (left, top, width, height) = extents(viewport)?;
+    if width < 8 || height < 8 {
+        return None;
+    }
+    let mut points = Vec::new();
+    for fraction in [2, 5, 8] {
+        let hit = accessible_at_point(viewport, left + width / 2, top + height * fraction / 10);
+        points.push(hit.and_then(|hit| {
+            let text = acc_name(&hit);
+            let (_, _, hit_width, hit_height) = extents(&hit)?;
+            (!text.is_empty()).then(|| ScrollPoint {
+                position: format!("y={fraction}"),
+                text: normalize_scroll_text(&text),
+                shape: format!("{}|{hit_width}|{hit_height}", atspi_role(&role_name(&hit))),
+            })
+        }));
+    }
+    Some(ScrollSample {
+        offset_milli: (((offset - minimum) / (maximum - minimum)) * 1000.0).round() as i64,
+        points,
+    })
+}
+
+fn atspi_scroll_round_trip(app: &Acc) -> Vec<serde_json::Value> {
+    let mut stack = vec![app.dup()];
+    let mut candidate: Option<(Acc, Acc, i64)> = None;
+    for _ in 0..4096 {
+        let Some(accessible) = stack.pop() else {
+            break;
+        };
+        if role_name(&accessible) == "SCROLL_BAR"
+            && has_state(&accessible, ATSPI_STATE_VERTICAL) == Some(true)
+            && has_state(&accessible, ATSPI_STATE_SHOWING) == Some(true)
+        {
+            if let (Some(parent), Some((_, minimum, maximum))) =
+                (acc_parent(&accessible), value_range(&accessible))
+            {
+                let area = extents(&parent)
+                    .map(|(_, _, width, height)| i64::from(width) * i64::from(height))
+                    .unwrap_or(0);
+                if maximum > minimum && candidate.as_ref().is_none_or(|old| area > old.2) {
+                    candidate = Some((parent, accessible.dup(), area));
+                }
+            }
+        }
+        stack.extend(acc_children(&accessible));
+    }
+    let Some((viewport, scrollbar, _)) = candidate else {
+        return Vec::new();
+    };
+    let Some((original, minimum, maximum)) = value_range(&scrollbar) else {
+        return Vec::new();
+    };
+    let Some(before) = atspi_scroll_sample(&viewport, &scrollbar) else {
+        return Vec::new();
+    };
+    let away_value = if original < (minimum + maximum) / 2.0 {
+        maximum
+    } else {
+        minimum
+    };
+    if !set_value(&scrollbar, away_value) {
+        return Vec::new();
+    }
+    std::thread::sleep(Duration::from_millis(120));
+    let away = atspi_scroll_sample(&viewport, &scrollbar);
+    if !set_value(&scrollbar, original) {
+        return Vec::new();
+    }
+    std::thread::sleep(Duration::from_millis(120));
+    let returned = atspi_scroll_sample(&viewport, &scrollbar);
+    std::thread::sleep(Duration::from_millis(120));
+    let confirmed = atspi_scroll_sample(&viewport, &scrollbar);
+    crate::domain::native_oracle::scroll_round_trip_changes(
+        Some(&before),
+        away.as_ref(),
+        returned.as_ref(),
+        confirmed.as_ref(),
+    )
+}
 
 pub fn run() -> Result<()> {
     let target = std::env::var("REPROIT_TARGET")

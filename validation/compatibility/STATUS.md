@@ -168,14 +168,14 @@ Reproit supports 21 atomic targets.
 - Scope: Permissioned macOS accessibility on SwiftUI
 - Native gates: macos-ax
 - Release evidence directories: macos-ax in macos
-- Field benchmark: none recorded
+- Field benchmark: validation/field/macos-ax.json
 - Platforms: macOS
 - Runtimes: Swift runtime, Accessibility API
 - Frameworks: SwiftUI, AppKit
 - Evidence slots:
-  - cleanCorpus: missing
-  - adversarialCorpus: missing
-  - packageInstall: missing
+  - cleanCorpus: evidence
+  - adversarialCorpus: evidence
+  - packageInstall: ci-gate
   - manualReview: field-benchmark
 
 ## React Native Android

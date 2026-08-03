@@ -74,10 +74,10 @@ not how interesting it looks.
 | `visual`             | baseline proof        | Pixels differ from an approved, pinned baseline beyond its tolerance                   | screenshot-capable runners                                                    |
 | `jank`               | environment-dependent | Dropped or excessively late frames                                                     | browser, Electron, Tauri, Android                                             |
 | `leak`               | environment-dependent | Retained memory grows across a repeated workload                                       | precise heap or attributable process sampling                                 |
-| `flicker`            | environment-dependent | A presented frame diverges and then resolves                                           | web and Electron (settled frame), web and TUI (re-render churn)               |
+| `flicker`            | environment-dependent | A presented frame diverges and then resolves                                           | web, Electron, Tauri, iOS Appium, Flutter, and TUI presented-frame streams    |
 | `divergence`         | specialist            | The same flow differs across targets or engines                                        | multi-target runs                                                             |
 | `content-bug`        | heuristic             | Visible stringify or template artifacts such as `[object Object]`                      | DOM, accessibility labels, TUI grid, instrumented labels                      |
-| `overflow`           | declared proof        | Text outside an explicitly bounded app-owned container                                 | web, Electron, Tauri, and all DOM frameworks                                  |
+| `overflow`           | declared proof        | Text outside an explicitly bounded app-owned container, or an exact framework overflow | web, Electron, Tauri, and Flutter                                              |
 | `hang`               | environment-dependent | An action makes no progress beyond a high threshold                                    | runners with an attributable progress signal                                  |
 | `occlusion`          | heuristic             | A visible control's hit target is covered by a foreign element                         | web, Electron, Tauri                                                          |
 | `choice-anomaly`     | heuristic             | One sibling choice changes global layout unlike the others                             | browser, Electron, Tauri                                                      |
@@ -85,13 +85,13 @@ not how interesting it looks.
 | `security`           | specialist            | Deterministic client markup hazards such as reverse tabnabbing or mixed content        | web                                                                           |
 | `stuck-keyboard`     | environment-dependent | The soft keyboard remains visible without an editable focus owner                      | native mobile                                                                 |
 | `duplicate-submit`   | specialist            | An opt-in double activation causes the same first-party mutation twice                 | web                                                                           |
-| `focus-loss`         | specialist            | An already-focused control survives an action but keyboard focus falls to the document | web, Electron, Tauri                                                          |
+| `focus-loss`         | specialist            | An already-focused control survives an action but keyboard focus falls to the document | web, Electron, Tauri, macOS AX, UIA, and AT-SPI                               |
 | `blank-screen`       | specialist            | An empty route is corroborated by a first-party exception or renderer crash             | web                                                                           |
 | `broken-asset`       | specialist            | A required same-origin image, stylesheet, script, or imported dependency failed        | web                                                                           |
 | `zoom-reflow`        | specialist            | At 200% zoom, content requires two-dimensional scrolling or a control collapses        | web                                                                           |
 | `rotation`           | environment-dependent | A round trip through orientation permanently changes the screen structure              | mobile and browser-backed surfaces                                            |
 | `background-restore` | environment-dependent | Background and foreground changes the restored screen                                  | mobile and browser-backed surfaces                                            |
-| `scroll-round-trip`  | environment-dependent | Returning to a pinned list offset yields different structural content                  | web and Flutter                                                               |
+| `scroll-round-trip`  | environment-dependent | Returning to a pinned list offset yields different structural content                  | web, Electron, Tauri, Flutter, macOS AX, UIA, and AT-SPI                      |
 | `wakelock`           | environment-dependent | An Android wakelock remains held after leaving its owning screen                       | Android                                                                       |
 | `safe-area`          | environment-dependent | An interactive control intersects an authoritative device inset                        | native mobile                                                                 |
 | `permission-walk`    | environment-dependent | A controlled permission denial leaves no working forward exit                          | native mobile                                                                 |
@@ -159,8 +159,8 @@ screenshot.
 ## Backend oracles
 
 Backend evaluation is opt-in (see `docs/compatibility.md`). A finding requires a schema-owned or
-authored contract plus a runtime event correlated to the exact operation. Framework names and function names are not evidence
-of intent.
+authored contract plus a runtime event correlated to the exact operation. Framework names and
+function names are not evidence of intent.
 
 OpenAPI, GraphQL, and protobuf describe shapes. Stronger behavior such as idempotency,
 authorization, transactionality, ordering, or consistency must be declared explicitly.
@@ -351,40 +351,44 @@ each `no`.
 
 <!-- generated:oracle-coverage -->
 
-Coverage is enforced by `validation/oracles/check.py` against `validation/oracles/coverage.json`; this table is generated from it. `yes` means that runner emits the marker, `no` means the platform cannot express the oracle (the ledger carries the reason), and `todo` means it could be written and has not been.
+Coverage is enforced by `validation/oracles/check.py` against
+`validation/oracles/coverage.json`; this table is generated from it.
+`yes` means that runner emits the marker.
+`no` means the platform cannot express the oracle; the ledger carries the reason.
+`todo` means it could be written and has not been.
 
 | Oracle | Marker | web | electron | tauri | appium | flutter | macos-ax | uia | atspi | tui |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `accessibility-state` | `EXPLORE:A11YSTATESTATUS` | yes | todo | todo | no | todo | no | no | no | no |
+| `accessibility-state` | `EXPLORE:A11YSTATESTATUS` | yes | yes | no | no | no | no | no | no | no |
 | `background-restore` | `EXPLORE:BGRESTORE` | yes | yes | yes | yes | yes | no | no | no | no |
-| `blank-screen` | `EXPLORE:BLANKSCREEN` | yes | yes | yes | yes | yes | todo | todo | todo | yes |
+| `blank-screen` | `EXPLORE:BLANKSCREEN` | yes | yes | yes | yes | yes | no | no | no | yes |
 | `broken-asset` | `EXPLORE:BROKENASSET` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
 | `broken-route` | `EXPLORE:BROKENROUTE` | yes | yes | no | no | no | no | no | no | no |
-| `choice-anomaly` | `EXPLORE:CHOICEBUG` | yes | yes | yes | todo | todo | todo | todo | todo | todo |
+| `choice-anomaly` | `EXPLORE:CHOICEBUG` | yes | yes | yes | no | no | no | no | no | no |
 | `content-bug` | `EXPLORE:CONTENTBUG` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
-| `dead-input` | `EXPLORE:DEADINPUT` | yes | yes | todo | todo | todo | todo | todo | todo | yes |
+| `dead-input` | `EXPLORE:DEADINPUT` | yes | yes | yes | no | no | no | no | no | yes |
 | `duplicate-submit` | `EXPLORE:DUPSUBMIT` | yes | yes | no | no | no | no | no | no | no |
-| `flicker` | `EXPLORE:FLICKER` | yes | yes | todo | todo | todo | todo | todo | todo | todo |
-| `focus-loss` | `EXPLORE:FOCUSLOSS` | yes | yes | yes | todo | todo | todo | todo | todo | todo |
+| `flicker` | `EXPLORE:FLICKER` | yes | yes | yes | yes | yes | no | no | no | yes |
+| `focus-loss` | `EXPLORE:FOCUSLOSS` | yes | yes | yes | no | no | yes | yes | yes | no |
 | `hang` | `EXPLORE:HANG` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
 | `invariant` | `EXPLORE:INVARIANT` | yes | yes | yes | yes | yes | yes | yes | yes | yes |
-| `jank` | `EXPLORE:JANK` | yes | yes | yes | yes | todo | no | no | no | no |
-| `leak` | `EXPLORE:LISTENERLEAK` | yes | yes | no | todo | todo | no | no | no | no |
-| `occlusion` | `EXPLORE:OCCLUSION` | yes | yes | yes | todo | todo | todo | todo | todo | no |
-| `overflow` | `EXPLORE:OVERFLOW` | yes | yes | yes | todo | todo | todo | todo | todo | todo |
+| `jank` | `EXPLORE:JANK` | yes | yes | yes | yes | yes | no | no | no | no |
+| `leak` | `EXPLORE:LISTENERLEAK` | yes | yes | no | no | no | no | no | no | no |
+| `occlusion` | `EXPLORE:OCCLUSION` | yes | yes | yes | no | no | no | no | no | no |
+| `overflow` | `EXPLORE:OVERFLOW` | yes | yes | yes | no | yes | no | no | no | no |
 | `permission-walk` | `EXPLORE:PERMISSIONWALK` | no | no | no | yes | yes | no | no | no | no |
-| `detached-indicator` | `EXPLORE:RELATION` | yes | todo | todo | yes | yes | todo | todo | todo | todo |
-| `flicker` | `EXPLORE:RERENDER` | yes | todo | todo | todo | todo | todo | todo | todo | yes |
+| `detached-indicator` | `EXPLORE:RELATION` | yes | yes | yes | yes | yes | no | no | no | no |
+| `flicker` | `EXPLORE:RERENDER` | yes | no | no | no | no | no | no | no | yes |
 | `rotation` | `EXPLORE:ROTATION` | yes | yes | yes | yes | yes | no | no | no | no |
 | `safe-area` | `EXPLORE:SAFEAREA` | no | no | no | yes | yes | no | no | no | no |
-| `scroll-round-trip` | `EXPLORE:SCROLLROUNDTRIP` | yes | yes | yes | todo | yes | todo | todo | todo | todo |
+| `scroll-round-trip` | `EXPLORE:SCROLLROUNDTRIP` | yes | yes | yes | no | yes | yes | yes | yes | no |
 | `security` | `EXPLORE:SECURITY` | yes | yes | yes | no | no | no | no | no | no |
 | `stuck-keyboard` | `EXPLORE:STUCKKEYBOARD` | no | no | no | yes | yes | no | no | no | no |
 | `wakelock` | `EXPLORE:WAKELOCK` | no | no | no | yes | no | no | no | no | no |
 | `zero-contrast` | `EXPLORE:ZEROCONTRAST` | yes | yes | yes | no | no | no | no | no | yes |
 | `zoom-reflow` | `EXPLORE:ZOOMREFLOW` | yes | yes | yes | no | no | no | no | no | no |
 
-106 of 252 pairs are evaluated, 83 cannot be expressed by the platform, and 63 are unwritten.
+122 of 252 pairs are evaluated, 130 cannot be expressed by the platform, and 0 are unwritten.
 
 <!-- /generated:oracle-coverage -->
 

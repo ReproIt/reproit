@@ -16,17 +16,18 @@ test(
     const router = readFileSync(routerPath, 'utf8');
     const registry = readFileSync(resolve(cloud, 'src/backend_contract.rs'), 'utf8');
     const routes = [
-      ['post', '/auth/signup', 'SIGNUP'],
+      ['post', '/auth/link', 'SIGN_IN'],
       ['post', '/account/projects', 'CREATE_PROJECT'],
       ['post', '/v1/events', 'INGEST_EVENTS'],
+      ['post', '/v1/capture-batches', 'INGEST_CAPTURE_BATCHES'],
       ['get', '/v1/me', 'GET_ME'],
-      ['post', '/v1/apps/:app/buckets/:bucket/replay-results', 'RECORD_REPLAY'],
+      ['get', '/v1/occurrences/{occurrence}', 'GET_OCCURRENCE'],
+      ['post', '/v1/apps/{app}/buckets/{bucket}/replay-results', 'RECORD_REPLAY'],
     ];
     for (const [method, route, constant] of routes) {
-      const openapiRoute = route.replaceAll(':app', '{app}').replaceAll(':bucket', '{bucket}');
       assert.ok(
-        schema.paths[openapiRoute]?.[method],
-        `${method} ${openapiRoute} missing from Cloud artifact`,
+        schema.paths[route]?.[method],
+        `${method} ${route} missing from Cloud artifact`,
       );
       const escaped = route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       assert.match(registry, new RegExp(`router_path:\\s*"${escaped}"`));
@@ -37,9 +38,10 @@ test(
     }
 
     const sourceChecks = [
-      ['src/auth/mod.rs', ['"email"']],
+      ['src/auth/mod.rs', ['"ok"', '"expiresInMinutes"', '"mailed"']],
       ['src/auth/projects.rs', ['"appId"', '"apiKeyPrefix"', '"publishableKeyPrefix"']],
       ['src/ingest/mod.rs', ['"ingested"', '"deduped"', '"orgId"', '"projects"']],
+      ['src/ingest/capture_batch.rs', ['"occurrenceId"', '"bucketId"', '"capture"']],
       ['src/ingest/replay.rs', ['"localReproId"']],
     ];
     for (const [relative, tokens] of sourceChecks) {

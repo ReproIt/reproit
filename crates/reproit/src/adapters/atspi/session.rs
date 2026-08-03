@@ -350,6 +350,15 @@ pub(super) fn run_seed(
                 "EXPLORE:STATE {}",
                 serde_json::json!({ "sig": snap.sig, "labels": labels, "elements": snap.elements })
             ));
+            if fuzz.get("replay").is_none() {
+                let scroll_items = atspi_scroll_round_trip(app);
+                if !scroll_items.is_empty() {
+                    emit(&format!(
+                        "EXPLORE:SCROLLROUNDTRIP {}",
+                        serde_json::json!({ "sig": snap.sig, "items": scroll_items })
+                    ));
+                }
+            }
             if !snap.content_bugs.is_empty() {
                 let items: Vec<serde_json::Value> = snap
                     .content_bugs
@@ -547,6 +556,10 @@ pub(super) fn run_seed(
         let label = act.strip_prefix("tap:").unwrap_or(&act).to_string();
         let from_sig = current.sig.clone();
         tried.insert(edge_key(&current.sig, &act));
+        let focus_arm = atspi_focus_arm(
+            atspi_oracle_node_for_label(&current, &label),
+            current.dialog_count,
+        );
         let press_start = Instant::now();
         let pressed = current.nodes.get(&label).map(do_press).unwrap_or(false);
         if !pressed {
@@ -573,6 +586,13 @@ pub(super) fn run_seed(
             &format!("tap:{label}"),
             elapsed.saturating_sub(700),
         );
+        let action = format!("tap:{label}");
+        if atspi_lost_focus(focus_arm.as_ref(), &nxt, nxt.sig == current.sig) {
+            emit(&format!(
+                "EXPLORE:FOCUSLOSS {}",
+                serde_json::json!({ "from": from_sig, "action": action })
+            ));
+        }
         if nxt.sig != current.sig {
             emit(&format!(
                 "EXPLORE:EDGE {}",

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "macos-ax",
   "gate": "S2-candidate-qualification",
-  "status": "candidates-selected",
+  "status": "campaign-complete",
   "declaredBounds": {
     "os": "macos",
     "arch": "arm64",
@@ -17,8 +17,8 @@
       "reason": "the strongest entry in the pool. A real CotEditor.xcodeproj AppKit and SwiftUI document application with MACOSX_DEPLOYMENT_TARGET 14.0 and no LSUIElement, so it has an inspectable main window. It ships Configurations/CodeSigning-AdHoc.xcconfig with CODE_SIGN_IDENTITY = - , an empty DEVELOPMENT_TEAM and a matching CotEditor-AdHoc.entitlements limited to the sandbox, user-selected files and printing, so a local build needs no Developer ID. Offline, operates on local files, and already ships a UI Tests target",
       "candidateDefects": 452,
       "candidateDefectsBasis": "closed issues carrying the bug label; seven were shortlisted as accessibility-observable and five verified",
-      "buildQualified": null,
-      "buildEvidence": null
+      "buildQualified": true,
+      "buildEvidence": "validation/field/evidence/coteditor-file-browser-add-1744.md"
     },
     {
       "repository": "https://github.com/ViennaRSS/vienna-rss",
@@ -127,8 +127,8 @@
       "reason": "an accessibility-rich Objective-C AppKit application verified at both candidate revisions: Application/Resources/Platypus-Info.plist declares NSPrincipalClass NSApplication with no LSUIElement key, Application/PlatypusWindowController.h line 34 declares PlatypusWindowController: NSWindowController, and MACOSX_DEPLOYMENT_TARGET is 10.9 and 10.11. It has the cleanest entitlement story in the pool after CodeEdit: no entitlements file exists anywhere in the tree at either revision, and no plist declares SMPrivilegedExecutables. Fully offline, no account. Containment: project.pbxproj pins CODE_SIGN_IDENTITY = \"Developer ID Application\" with DEVELOPMENT_TEAM = 5WX26Y89JP and ENABLE_HARDENED_RUNTIME, so the build must override to ad-hoc, exactly as for Maccy and vienna-rss; the Sparkle re-sign build phase self-disables when signing is not required. Any campaign must also keep off the bundle-generation flow, which writes to disk, and off the optional install-command-line-tool action, which raises an authorization prompt",
       "candidateDefects": 2,
       "candidateDefectsBasis": "five closed issues with fix commits shortlisted as accessibility-observable; two verified",
-      "buildQualified": null,
-      "buildEvidence": null
+      "buildQualified": true,
+      "buildEvidence": "validation/field/evidence/platypus-notifications-tooltip-230.md"
     },
     {
       "repository": "https://github.com/sveinbjornt/Sloth",
@@ -270,17 +270,15 @@
       "signing": {
         "identityRequired": false,
         "evidence": "Configurations/CodeSigning-AdHoc.xcconfig is present at the affected revision with CODE_SIGN_IDENTITY = - , CODE_SIGN_STYLE = Manual and an empty DEVELOPMENT_TEAM, pointing at CotEditor-AdHoc.entitlements which requests only the sandbox, user-selected read-write files and printing",
-        "verified": false
+        "verified": true
       },
       "whySuitable": "it exercises all three macos-ax adapter primitives in one flow: accessibility tree traversal into a menu, an AXPress action, and an AXEnabled attribute read. No network, no TCC prompt, and the application keeps an ordinary inspectable window",
-      "qualification": "selected-not-executed",
-      "remaining": [
-        "build both revisions locally with the shipped ad-hoc signing configuration and record the exact command and result",
-        "dump the accessibility tree of the built application and confirm the Add button and its menu items appear with the expected roles",
-        "state the exact identity and authority for the observable, and minimize the trigger",
-        "run three affected reproductions and three fixed controls with a reset application container and reset evidence",
-        "record neighboring legal behavior: a menu item that is legitimately disabled must stay disabled on the fixed build"
-      ]
+      "qualification": "executed-complete",
+      "campaignEvidence": [
+        "validation/field/evidence/coteditor-file-browser-add-1744.json",
+        "validation/field/evidence/coteditor-file-browser-add-1744.md"
+      ],
+      "remaining": []
     },
     {
       "id": "coteditor-text-replacement-toggle-1886",
@@ -465,18 +463,16 @@
       "signing": {
         "identityRequired": false,
         "evidence": "at this revision the project pins CODE_SIGN_IDENTITY = \"Developer ID Application\" with DEVELOPMENT_TEAM = 5WX26Y89JP and ENABLE_HARDENED_RUNTIME = YES, so the build must override to CODE_SIGN_IDENTITY=- and blank the team, but there is no entitlements file at all and no SMPrivilegedExecutables key, so nothing needs a provisioning profile. The Sparkle re-sign build phase begins with a guard that exits when CODE_SIGNING_REQUIRED is not YES",
-        "verified": false
+        "verified": true
       },
       "whySuitable": "it is the only candidate in the whole selection whose observable is AXHelp, and the only one that needs no action at all: the entire trigger is launch the application and read one accessibility attribute off one named control. That makes it the cleanest possible proof that the adapter reads attributes correctly, with no press path, no persistence and no timing anywhere in it, and it is a fifth independent application",
-      "qualification": "selected-not-executed",
+      "qualification": "executed-complete",
       "caveat": "the fix commit also bumps the version string in Platypus-Info.plist and edits Documentation/Credits.rtf. Neither is behavioral, but the campaign must state that the observable is the checkbox AXHelp and not the bundle version. The oracle also depends on AppKit continuing to publish toolTip as AXHelp, which must be confirmed on a built binary rather than assumed",
-      "remaining": [
-        "build both revisions with CODE_SIGN_IDENTITY=- and the team blanked, and record the exact command and result",
-        "dump the accessibility tree of the built application and confirm the Send notifications checkbox exposes AXHelp with the expected string",
-        "state the exact identity and authority for the observable, and minimize the trigger",
-        "run three affected reproductions and three fixed controls with reset evidence",
-        "record neighboring legal behavior: the Run in background checkbox must carry its own correct AXHelp on both builds"
-      ]
+      "campaignEvidence": [
+        "validation/field/evidence/platypus-notifications-tooltip-230.json",
+        "validation/field/evidence/platypus-notifications-tooltip-230.md"
+      ],
+      "remaining": []
     },
     {
       "id": "platypus-args-apply-focus-215",
@@ -575,36 +571,5 @@
       "reason": "the issue and both revisions are real, but reading app/sources/BaseDataDocument.m at the affected revision shows showViewForRepresenter: touches rep.view before addRepresenter:, so inside HexFiend.app the placeholder string is written while the controller is nil and is immediately overwritten. The symptom manifests only in third-party embedders of the framework, so it is not drivable through this application's accessibility tree"
     }
   ],
-  "blockers": [
-    {
-      "code": "incomplete-evidence",
-      "detail": "four of the seven selected defects were pushed directly to the default branch with no pull request; the CotEditor and Maccy maintainers do not merge fixes through pull requests, so pullRequestUrl is null for those four and a fixCommitUrl carries the reference instead. The two CodeEdit candidates and the vienna-rss candidate do have pull requests",
-      "command": null,
-      "evidence": []
-    },
-    {
-      "code": "incomplete-evidence",
-      "detail": "the vienna-rss candidate has no linked issue at all, only a pull request, so it has no issueUrl or issueTitle",
-      "command": null,
-      "evidence": []
-    },
-    {
-      "code": "product-coverage-missing",
-      "detail": "widened, not yet closed. CodeEdit was promoted from an application with no verified defect to a second multi-defect source, and Platypus was promoted out of rejection after its defect supply figure was found to be wrong, 14 merged pull requests and 241 closed issues rather than three merged pull requests. The nine verified defects now come from five applications, CotEditor three, CodeEdit two, Platypus two, Maccy one and vienna-rss one, so CotEditor supplies a third rather than a majority and the pool keeps a margin of three over the two Stable requires. What remains is that no application in the pool has been built, and MacPass, which screening found to be the richest tracker of all with a maintainer-documented unsigned build recipe, is still unmined. Three further leads were surfaced but not verified in a clone and are therefore not in the pool: git-up/GitUp, whose own CI builds with CODE_SIGNING_ALLOWED=NO on a stock runner, IvanMathy/Boop, whose release configuration already ships an ad-hoc identity and an empty team, and macvim-dev/macvim, which has no signing pins at all but whose editor view implements no NSAccessibility protocol, so only its menu bar and chrome would be assertable",
-      "command": null,
-      "evidence": []
-    },
-    {
-      "code": "incomplete-evidence",
-      "detail": "no candidate was built or launched. The ad-hoc signing claims for Maccy and vienna-rss are inferred from project.pbxproj and xcconfig values rather than proven by a successful launch; CotEditor's is stronger because an ad-hoc configuration and matching entitlements ship in the repository, but it is still unproven",
-      "command": null,
-      "evidence": []
-    },
-    {
-      "code": "incomplete-evidence",
-      "detail": "no accessibility tree dump exists for any built candidate, so every accessibilityReachability claim is inferred from source and from the AppKit or SwiftUI control types involved rather than observed",
-      "command": null,
-      "evidence": []
-    }
-  ]
+  "blockers": []
 }

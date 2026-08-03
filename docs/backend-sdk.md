@@ -140,46 +140,58 @@ can record an effect it considers significant:
 
 ## What it costs
 
-Measured, not estimated. Four benchmarks run on every push, so these numbers cannot quietly rot:
+Measured, not estimated. Every supported backend SDK has a gated middleware and dependency-capture
+benchmark, so these numbers cannot quietly rot:
 
 | adapter | mounted, request not traced | mounted, request traced | baseline request |
 | --- | --- | --- | --- |
-| Node (express) | below the measurement floor | ~25 µs | ~60 µs |
-| Go (net/http) | below the measurement floor | ~25 µs | ~55 µs |
-| Python (ASGI) | ~1-7 µs, at the measurement floor | ~75 µs | ~180 µs |
+| Node (express) | below the measurement floor | ~25-30 µs | ~90-115 µs |
+| Go (net/http) | below the measurement floor | ~25-30 µs | ~75-95 µs |
+| Python (ASGI) | below the floor to ~7 µs | ~75-85 µs | ~180-220 µs |
+| Rust (Axum) | below the measurement floor | ~160-185 µs | ~195-245 µs |
+| Java (Jetty servlet) | below the floor to ~7 µs | ~10-60 µs | ~140-150 µs |
+| .NET (Kestrel) | below the measurement floor | ~50-115 µs | ~330 µs |
+| PHP (`php -S`, vanilla adapter) | ~10-35 µs | ~20-115 µs | ~200-225 µs |
+| Ruby (WEBrick/Rack) | below the floor to ~70 µs | ~130 µs | ~245-310 µs |
 
 | trace primitive alone | cost per call |
 | --- | --- |
 | Inactive | 0.08 µs |
 | Active | 3.5 µs |
 
+| captured dependency exchange | cost per exchange |
+| --- | --- |
+| Node | 2.33 µs |
+| Go | 2.69 µs |
+| Python | 11.11 µs |
+| Rust | 17.69 µs |
+| Java | 0.83 µs |
+| .NET | 1.02 µs |
+| PHP | 3.90 µs |
+| Ruby | 12.34 µs |
+
 The untraced column is the one that matters in production, because a request only carries trace
 context when something asked for it. For Node and Go it reads "below the measurement floor"
 rather than a number because that is the honest result: driving a real HTTP server, the
-difference between having the adapter mounted and not having it is smaller than the run-to-run
-noise of the method itself (about 1-2 µs). The primitive benchmark puts it at 80 nanoseconds,
-which is consistent with being invisible at HTTP scale. Python's untraced cost lands at the floor
-rather than under it: across three runs it measured -21 µs, +1.4 µs and +6.5 µs, so it is single
-digits at most and the sign is not resolvable.
+difference between having the adapter mounted and not having it can be smaller than the run-to-run
+noise of the method itself. The primitive benchmark puts Node's inactive path at about 80
+nanoseconds, which is consistent with being invisible at HTTP scale. A negative delta is reported
+as below the floor, never as a speedup.
 
-The traced column is a real cost, per traced request, and Python's is about three times the other
-two. All figures are single-threaded on an Apple M1 Ultra with no I/O in the handler, so treat
-them as an order of magnitude rather than a promise about your hardware; Python's run-to-run
-spread is the widest of the three (a noisy run put its traced cost at 42 µs and its baseline at
-237 µs), which is the interpreter, not the adapter.
+The traced column is a real cost per traced request. Local figures are single-threaded on an Apple
+M1 Ultra with no I/O in the handler, so treat them as an order of magnitude rather than a promise
+about your hardware. The .NET row was measured natively on the workspace's x86_64 Windows VM. The
+snapshot above is intentionally separate from the ceilings: CI ceilings are wider, bounded
+regression limits sized not to flap under ordinary shared-runner contention.
 
-Three benchmarks drive the real middleware over a real socket and report the delta against an
-unmounted baseline, by one method: alternating rounds, medians, and a second baseline per round
-whose gap from the first is the method's own noise floor.
-`validation/backend/adapter-benchmark.mjs` (express), `validation/backend/adapter-benchmark-go`
-(net/http) and `validation/backend/adapter-benchmark.py` (ASGI).
-`validation/backend/benchmark.mjs` measures the primitive underneath. All four fail the build if
-a cost crosses its ceiling.
-
-**Not yet measured, and worth knowing:** the per-dependency capture path (each outbound HTTP call
-and database query recorded onto a trace), and the Rust, Java, .NET, PHP and Ruby adapters. The
-adapters share a design but not an implementation, so no number here transfers to one that has
-not been run.
+The middleware benchmarks drive real framework middleware over a real socket and report the delta
+against an unmounted baseline by one method: alternating rounds, medians, and a second baseline per
+round whose gap from the first is the method's own noise floor. The dependency benchmarks use the
+same interleaving and report the incremental cost of appending a bounded, representative outbound
+HTTP exchange after subtracting trace construction. Node, Go, and Python live under
+`validation/backend/adapter-benchmark*` and `validation/backend/dependency-benchmark*`; the other
+five live with their SDK suites. `validation/backend/benchmark.mjs` measures the Node primitive
+underneath. Every benchmark fails the build if its noise or cost crosses its explicit ceiling.
 
 ## Next
 

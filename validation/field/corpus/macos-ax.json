@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "target": "macos-ax",
+  "worker": {
+    "image": "macos-26.1-xcode-26.2:arm64-permissioned-ax",
+    "platform": "macos/arm64",
+    "network": "none"
+  },
+  "cleanCases": 2,
+  "adversarialCases": 2,
+  "confirmedFalsePositives": 0,
+  "unreachedObservations": 0,
+  "containersRemaining": 0,
+  "cases": [
+    {
+      "id": "platypus-fixed-notifications-help-clean",
+      "kind": "clean",
+      "application": "Platypus",
+      "repository": "https://github.com/sveinbjornt/Platypus",
+      "revision": "ddcb7912d56df4dda3c2be11dc7ef8913a2556b9",
+      "fixture": "validation/field/apple/macos_ax_campaign.py",
+      "variant": "fixed revision, exact checkbox and AXHelp observation",
+      "why": "The fixed control exercises the exact element and attribute without the copied help identity.",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "sendNotificationsHelp": "Check this if your app sends system notifications",
+        "identity": null,
+        "observationReached": true
+      }
+    },
+    {
+      "id": "coteditor-fixed-focused-add-clean",
+      "kind": "clean",
+      "application": "CotEditor",
+      "repository": "https://github.com/coteditor/CotEditor",
+      "revision": "53329f1bf776fdc03358ac834e66adc27ff7ce84",
+      "fixture": "validation/field/apple/macos_ax_campaign.py",
+      "variant": "fixed revision, focused document, exact Add menu",
+      "why": "The fixed application follows the exact focus and menu path and keeps New File enabled.",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "documentFocused": true,
+        "newFileEnabled": true,
+        "identity": null,
+        "observationReached": true
+      }
+    },
+    {
+      "id": "platypus-affected-neighbor-help-adversarial",
+      "kind": "adversarial",
+      "application": "Platypus",
+      "repository": "https://github.com/sveinbjornt/Platypus",
+      "revision": "726175ad41da530d7e482f945811b54004530662",
+      "fixture": "validation/field/apple/macos_ax_campaign.py",
+      "variant": "affected revision, same help text on its rightful checkbox",
+      "why": "The defect text is legal on Run in background, so text matching without the element owner must stay silent.",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "element": "Run in background",
+        "help": "Check this if you don't want your app to show up in the Dock",
+        "identity": null,
+        "observationReached": true
+      }
+    },
+    {
+      "id": "coteditor-affected-folder-only-adversarial",
+      "kind": "adversarial",
+      "application": "CotEditor",
+      "repository": "https://github.com/coteditor/CotEditor",
+      "revision": "7937b62585bd0f7621160efacbbcd97d77135e11",
+      "fixture": "validation/field/apple/macos_ax_campaign.py",
+      "variant": "affected revision and same menu without a focused document",
+      "why": "The affected binary and Add menu superficially match, but without document focus New File is legally enabled.",
+      "observationReached": true,
+      "identity": null,
+      "falsePositive": false,
+      "observation": {
+        "documentFocused": false,
+        "newFileEnabled": true,
+        "identity": null,
+        "observationReached": true
+      }
+    }
+  ]
+}

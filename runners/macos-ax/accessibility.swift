@@ -11,6 +11,8 @@ struct Snapshot {
   var elements: [[String: Any]]
   var tappables: [String]
   var nodeByLabel: [String: AXUIElement]
+  var oracleNodes: [String: AXOracleNode]
+  var dialogCount: Int
   // CONTENT-BUG items: a label carrying a stringify/template artifact.
   var contentBugs: [(key: String, reason: String, text: String)] = []
   // BROKEN-ASSET items: a rendered U+FFFD (tofu) in a label or live value.
@@ -22,6 +24,9 @@ func snapshot(_ app: AXUIElement, _ valueNodeSelectors: [String]) -> Snapshot {
   var tappables: [String] = []
   var elements: [[String: Any]] = []
   var nodeByLabel: [String: AXUIElement] = [:]
+  var oracleNodes: [String: AXOracleNode] = [:]
+  var duplicateOracleKeys = Set<String>()
+  var dialogCount = 0
   // Oracle accumulators, filled during the single canonical tree walk below.
   var contentBugs: [(String, String, String)] = []
   var contentBugSeen = Set<String>()
@@ -48,6 +53,13 @@ func snapshot(_ app: AXUIElement, _ valueNodeSelectors: [String]) -> Snapshot {
     let id = axIdentifierOf(el)
     let actionable = axActions(el).contains(kAXPressAction as String)
     let label = labelOf(el).trimmingCharacters(in: .whitespacesAndNewlines)
+    if role == "dialog" { dialogCount += 1 }
+    if let id = id, !id.isEmpty {
+      let key = "id:" + id
+      if oracleNodes[key] != nil { duplicateOracleKeys.insert(key) }
+      oracleNodes[key] = AXOracleNode(
+        key: key, element: el, role: role)
+    }
     if role == "textfield", let id = id, !id.isEmpty {
       let sel = "key:\(id)"
       var purpose: String? = nil
@@ -183,6 +195,7 @@ func snapshot(_ app: AXUIElement, _ valueNodeSelectors: [String]) -> Snapshot {
   // run (the finding id keys off key+kind/reason, never walk order).
   contentBugs.sort { $0.0 != $1.0 ? $0.0 < $1.0 : $0.1 < $1.1 }
   brokenAssets.sort { $0.0 < $1.0 }
+  for key in duplicateOracleKeys { oracleNodes.removeValue(forKey: key) }
 
   return Snapshot(
     sig: sig,
@@ -193,6 +206,8 @@ func snapshot(_ app: AXUIElement, _ valueNodeSelectors: [String]) -> Snapshot {
     elements: elements,
     tappables: Array(Set(tappables)),
     nodeByLabel: nodeByLabel,
+    oracleNodes: oracleNodes,
+    dialogCount: dialogCount,
     contentBugs: contentBugs.map { (key: $0.0, reason: $0.1, text: $0.2) },
     brokenAssets: brokenAssets.map { (key: $0.0, detail: $0.1) }
   )
@@ -275,7 +290,56 @@ func runSelfTest() -> Bool {
   // the selftest gates it without a live app or Accessibility permission.
   if !runTofuChecks() { ok = false }
   if !runInvariantChecks() { ok = false }
+  if !runNativeOracleChecks() { ok = false }
   emit(ok ? "SELFTEST PASS \(arr.count) vectors" : "SELFTEST FAIL")
+  return ok
+}
+
+func runNativeOracleChecks() -> Bool {
+  var ok = true
+  func check(_ condition: Bool, _ message: String) {
+    if !condition {
+      ok = false
+      FileHandle.standardError.write(
+        "selftest native-oracle FAIL: \(message)\n".data(using: .utf8)!)
+    }
+  }
+  check(axFocusLossDecision(
+    complete: true, role: "button", sameIdentity: true, sameDialogs: true, sameScreen: true,
+    focusedTarget: false, focusIsWindow: true),
+    "retained button losing focus to its window must flag")
+  check(!axFocusLossDecision(
+    complete: true, role: "button", sameIdentity: true, sameDialogs: true, sameScreen: true,
+    focusedTarget: true, focusIsWindow: false), "retained focus must stay silent")
+  check(!axFocusLossDecision(
+    complete: true, role: "button", sameIdentity: true, sameDialogs: false, sameScreen: true,
+    focusedTarget: false, focusIsWindow: true),
+    "a new dialog is expected focus movement")
+  check(!axFocusLossDecision(
+    complete: false, role: "button", sameIdentity: true, sameDialogs: true, sameScreen: true,
+    focusedTarget: false, focusIsWindow: true),
+    "missing focused-element evidence must abstain")
+
+  func scroll(_ offset: Int, _ text: String?) -> AXScrollSample {
+    AXScrollSample(
+      offset: offset,
+      points: [text.map {
+        AXScrollPoint(position: "y=2", text: $0, shape: "listitem|100|20")
+      }])
+  }
+  let scrollBefore = scroll(0, "row a")
+  let scrollAway = scroll(1000, "row z")
+  let scrollChanged = scroll(0, "row b")
+  check(axScrollRoundTripItems(
+    scrollBefore, scrollAway, scrollChanged, scrollChanged).count == 1,
+    "changed content at an exactly restored offset must flag")
+  check(axScrollRoundTripItems(scrollBefore, scrollAway, scrollBefore, scrollBefore).isEmpty,
+    "a stable round trip must stay silent")
+  check(axScrollRoundTripItems(
+    scrollBefore, scrollAway, scroll(1, "row b"), scroll(1, "row b")).isEmpty,
+    "a nearby but different offset must abstain")
+  check(axScrollRoundTripItems(scrollBefore, nil, scrollChanged, scrollChanged).isEmpty,
+    "an incomplete scroll observation must abstain")
   return ok
 }
 
@@ -700,4 +764,3 @@ func moveOnscreen(_ app: AXUIElement) {
     AXUIElementSetAttributeValue(w, kAXPositionAttribute as CFString, value)
   }
 }
-

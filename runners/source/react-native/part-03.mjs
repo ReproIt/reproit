@@ -435,12 +435,11 @@ async function startClipCapture(driver, clip) {
   }
   clip.startAt = Date.now();
   if (isAndroid()) {
-    try {
-      await driver.startRecordingScreen({ forceRestart: true });
-      clip.recording = 'android';
-    } catch {
-      clip.recording = null;
-    }
+    // Android capture is deliberately unavailable. MediaProjection, Appium
+    // screenshots, guest screencap, and the emulator framebuffer all terminated
+    // or destabilized UiAutomator2 during native controls. Without a frame source
+    // that preserves the action authority, a FLICKER marker would not be valid.
+    clip.recording = null;
     return;
   }
   const udid = bootedUdid();
@@ -469,15 +468,6 @@ async function startClipCapture(driver, clip) {
 // flushes+closes the .mov (bounded wait for exit). Android: stopRecordingScreen
 // returns base64 mp4 which we write to clip.mov. Never throws.
 async function stopClipCapture(driver, clip) {
-  if (clip.recording === 'android') {
-    try {
-      const b64 = await driver.stopRecordingScreen();
-      if (b64) writeFileSync(clip.mov, Buffer.from(b64, 'base64'));
-    } catch {
-      /* leave whatever exists */
-    }
-    return;
-  }
   if (clip.recording === 'ios' && clip.proc) {
     try {
       clip.proc.kill('SIGINT');
@@ -496,6 +486,55 @@ async function stopClipCapture(driver, clip) {
       clip.proc.on('error', finish);
       setTimeout(finish, 8000); // never hang the run on a stuck finalize
     });
+  }
+}
+
+async function settleTransitionFlicker(driver) {
+  const started = Date.now();
+  const remaining = 800 - (Date.now() - started);
+  if (remaining > 0) await driver.pause(remaining);
+}
+
+const FLICKER_PIXELS = process.env.REPROIT_FLICKER_PIXELS === '1';
+
+// Screen recording is the only presented-frame authority exposed uniformly by
+// XCUITest and UiAutomator2. Capture one bounded action under the explicit
+// pixel gate, and never contend with a replay evidence recording.
+async function startTransitionFlicker(driver) {
+  if (!FLICKER_PIXELS) return null;
+  let dir;
+  try {
+    dir = mkdtempSync(resolve(tmpdir(), 'reproit-appium-flicker-'));
+    const capture = {
+      dir,
+      mov: resolve(dir, 'transition.mov'),
+      recording: null,
+      proc: null,
+      startAt: 0,
+    };
+    await startClipCapture(driver, capture);
+    if (!capture.recording) {
+      rmSync(dir, { recursive: true, force: true });
+      return null;
+    }
+    return capture;
+  } catch (_) {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    return null;
+  }
+}
+
+async function finishTransitionFlicker(driver, capture) {
+  if (!capture) return null;
+  try {
+    await stopClipCapture(driver, capture);
+    return classifyVideoFile(capture.mov);
+  } catch (_) {
+    return null;
+  } finally {
+    try {
+      rmSync(capture.dir, { recursive: true, force: true });
+    } catch (_) {}
   }
 }
 

@@ -60,3 +60,7 @@ required-features = ["axum", "instrument"]
 [[example]]
 name = "replay_parity_probe"
 required-features = ["instrument"]
+
+[[example]]
+name = "adapter_benchmark"
+required-features = ["axum"]

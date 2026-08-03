@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 3,
+  "target": "macos-ax",
+  "status": "complete",
+  "applications": [
+    {
+      "id": "platypus-notifications-tooltip-230",
+      "repository": "https://github.com/sveinbjornt/Platypus",
+      "issueUrl": "https://github.com/sveinbjornt/Platypus/issues/230",
+      "affectedRevision": "726175ad41da530d7e482f945811b54004530662",
+      "fixedRevision": "ddcb7912d56df4dda3c2be11dc7ef8913a2556b9",
+      "authority": "authored-contract",
+      "expectedIdentity": "send-notifications-help-copies-run-in-background",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "send-notifications-help-copies-run-in-background",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "send-notifications-help-copies-run-in-background",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "send-notifications-help-copies-run-in-background",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 18,
+        "replaySecondsP95": 1.5,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/platypus-notifications-tooltip-230.json",
+        "validation/field/evidence/platypus-notifications-tooltip-230.md"
+      ]
+    },
+    {
+      "id": "coteditor-file-browser-add-1744",
+      "repository": "https://github.com/coteditor/CotEditor",
+      "issueUrl": "https://github.com/coteditor/CotEditor/issues/1744",
+      "affectedRevision": "7937b62585bd0f7621160efacbbcd97d77135e11",
+      "fixedRevision": "53329f1bf776fdc03358ac834e66adc27ff7ce84",
+      "authority": "authored-contract",
+      "expectedIdentity": "file-browser-new-file-disabled-while-document-focused",
+      "affectedReproductions": [
+        {
+          "status": "reproduced",
+          "identity": "file-browser-new-file-disabled-while-document-focused",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "file-browser-new-file-disabled-while-document-focused",
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "reproduced",
+          "identity": "file-browser-new-file-disabled-while-document-focused",
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "fixedReproductions": [
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        },
+        {
+          "status": "not_reproduced",
+          "identity": null,
+          "cleanLaunch": true,
+          "observationReached": true
+        }
+      ],
+      "minimized": true,
+      "controls": [
+        "fixed-revision",
+        "neighboring-legal-behavior"
+      ],
+      "manualReview": "confirmed-target-bug",
+      "metrics": {
+        "setupSeconds": 42,
+        "replaySecondsP95": 2.485,
+        "peakMemoryMiB": null,
+        "memoryMeasurement": "unavailable"
+      },
+      "evidence": [
+        "validation/field/evidence/coteditor-file-browser-add-1744.json",
+        "validation/field/evidence/coteditor-file-browser-add-1744.md"
+      ]
+    }
+  ]
+}

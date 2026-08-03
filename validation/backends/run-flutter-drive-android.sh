@@ -45,6 +45,10 @@ FLUTTER_DRIVE_ARGS=(
   --driver=test_driver/integration_driver.dart
   --target=integration_test/journey_explore.dart
   -d "$ANDROID_UDID"
+  # On the API 36 emulator, DDS disappeared during VM-service negotiation in
+  # two consecutive clean installs. Connect the driver directly to the app's
+  # VM service, matching the bounded iOS retry path.
+  --no-dds
   --dart-define=REPROIT_FUZZ_CONFIG="$WORK/fuzz.json"
   --dart-define=REPROIT_DEVICE=a
 )

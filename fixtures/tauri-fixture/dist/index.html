@@ -6,13 +6,31 @@
   </head>
   <body>
     <button data-testid="toggle" type="button">Toggle</button>
+    <button data-testid="flicker-positive" type="button">Flash control</button>
+    <button data-testid="flicker-fixed" type="button">Fixed control</button>
+    <button data-testid="flicker-one-way" type="button">One-way control</button>
     <section data-testid="detail" hidden>Detail revealed</section>
+    <section data-testid="fixed-detail" hidden>Fixed transition complete</section>
     <section id="bounded-card" data-reproit-contain style="width:80px">
       <span id="overflow-message" style="white-space:nowrap">Overflow proof fixture</span>
     </section>
     <script>
       document.querySelector('[data-testid="toggle"]').addEventListener('click', () => {
         document.querySelector('[data-testid="detail"]').hidden = false;
+      });
+      document.querySelector('[data-testid="flicker-positive"]').addEventListener('click', () => {
+        const flash = document.createElement('div');
+        flash.style.cssText =
+          'position:fixed;inset:0;background:#000;z-index:2147483647;pointer-events:none';
+        document.body.append(flash);
+        setTimeout(() => flash.remove(), 400);
+      });
+      document.querySelector('[data-testid="flicker-fixed"]').addEventListener('click', () => {
+        document.querySelector('[data-testid="fixed-detail"]').hidden = false;
+      });
+      document.querySelector('[data-testid="flicker-one-way"]').addEventListener('click', () => {
+        document.body.style.background = '#000';
+        document.body.style.color = '#fff';
       });
     </script>
   </body>

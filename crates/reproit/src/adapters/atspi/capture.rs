@@ -141,6 +141,10 @@ pub(super) struct Snapshot {
     pub(super) elements: Vec<serde_json::Value>,
     pub(super) tappables: Vec<String>,
     pub(super) nodes: HashMap<String, Acc>,
+    pub(super) oracle_nodes: BTreeMap<String, OracleNode>,
+    pub(super) dialog_count: usize,
+    pub(super) focused_identity: Option<u64>,
+    pub(super) focus_is_window: bool,
     pub(super) content_bugs: Vec<(String, &'static str, String)>,
     pub(super) broken_assets: Vec<(String, String)>,
 }
@@ -165,6 +169,10 @@ pub(super) fn snapshot(app: &Acc, value_selectors: &[String], cap: &mut ValueCap
         elements: acc.elements,
         tappables: dedup(acc.tappables),
         nodes: acc.nodes,
+        oracle_nodes: acc.oracle_nodes,
+        dialog_count: acc.dialog_count,
+        focused_identity: acc.focused_identity,
+        focus_is_window: acc.focus_is_window,
         content_bugs: acc.content_bugs,
         broken_assets: acc.broken_assets,
     }
@@ -176,6 +184,11 @@ struct Accum {
     pub(super) elements: Vec<serde_json::Value>,
     pub(super) tappables: Vec<String>,
     nodes: HashMap<String, Acc>,
+    oracle_nodes: BTreeMap<String, OracleNode>,
+    duplicate_oracle_keys: BTreeSet<String>,
+    dialog_count: usize,
+    focused_identity: Option<u64>,
+    focus_is_window: bool,
     content_bugs: Vec<(String, &'static str, String)>,
     content_bug_seen: HashSet<String>,
     broken_assets: Vec<(String, String)>,
@@ -194,6 +207,28 @@ fn visit(acc: &Acc, depth: usize, a: &mut Accum) {
     };
     let is_tap = TAPPABLE_ROLE_NAMES.contains(&rn.as_str());
     let label = acc_name(acc);
+    if crole == "dialog" && depth > 0 {
+        a.dialog_count += 1;
+    }
+    if has_state(acc, ATSPI_STATE_FOCUSED) == Some(true) {
+        a.focused_identity = acc_object_id(acc);
+        a.focus_is_window = crole == "screen" || crole == "dialog";
+    }
+    if let Some(observation) = atspi_oracle_node(acc, crole) {
+        let key = observation.key.clone();
+        if a.oracle_nodes
+            .insert(
+                key.clone(),
+                OracleNode {
+                    observation,
+                    accessible: acc.dup(),
+                },
+            )
+            .is_some()
+        {
+            a.duplicate_oracle_keys.insert(key);
+        }
+    }
     if crole == "textfield" {
         if let Some(id) = acc_id(acc).filter(|id| !id.is_empty()) {
             let sel = format!("key:{id}");
@@ -237,6 +272,11 @@ fn visit(acc: &Acc, depth: usize, a: &mut Accum) {
     for child in acc_children(acc) {
         if is_showing(&child) {
             visit(&child, depth + 1, a);
+        }
+    }
+    if depth == 0 {
+        for key in std::mem::take(&mut a.duplicate_oracle_keys) {
+            a.oracle_nodes.remove(&key);
         }
     }
 }

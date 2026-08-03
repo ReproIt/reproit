@@ -45,8 +45,9 @@ use windows::Win32::System::Com::{
 };
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationLegacyIAccessiblePattern,
-    IUIAutomationRangeValuePattern, IUIAutomationValuePattern, TreeScope_Children,
-    UIA_LegacyIAccessiblePatternId, UIA_RangeValuePatternId, UIA_ValuePatternId,
+    IUIAutomationRangeValuePattern, IUIAutomationScrollPattern, IUIAutomationValuePattern,
+    TreeScope_Children, UIA_LegacyIAccessiblePatternId, UIA_RangeValuePatternId,
+    UIA_ScrollPatternId, UIA_ValuePatternId,
 };
 // windows-rs 0.58 groups PrintWindow + PRINT_WINDOW_FLAGS under the Xps module
 // namespace (the metadata's home for the API), not WindowsAndMessaging.
@@ -69,6 +70,7 @@ mod capture;
 mod config;
 mod exploration;
 mod oracle;
+mod roles;
 mod scenario;
 
 use action::{
@@ -80,7 +82,11 @@ use exploration::{
     edge_key, first_untried_action, has_frontier, load_fuzz, path_to_frontier, remember_actions,
     remember_edge, Rng,
 };
-use oracle::{content_bug_reason, tofu_detail, InvariantScrape};
+use oracle::{
+    arm_focus, content_bug_reason, lost_focus, native_node, scroll_round_trip, tofu_detail,
+    InvariantScrape, OracleNode,
+};
+use roles::{is_caption_button, is_titlebar_root, uia_role, TAPPABLE_CONTROL_TYPES};
 use scenario::{run_scenario_actor, window_for_pid};
 
 #[cfg(test)]
@@ -89,107 +95,6 @@ use oracle::{parse_invariant_marker, InvariantState};
 fn emit(s: &str) {
     println!("{s}");
     let _ = std::io::stdout().flush();
-}
-
-// UIA ControlType id -> canonical role vocabulary.
-// windows-rs exposes the control-type ids as `UIA_<X>ControlTypeId` (i32
-// newtype). We match on the raw i32 so the table is a plain lookup. Roles
-// outside the fixed vocabulary fall through to `node` at normalize time inside
-// crate::domain::signature.
-fn uia_role(control_type: i32) -> &'static str {
-    // The UIA control-type ids are stable public constants (winuser UIA_*). We
-    // inline the numeric ids so the table needs no per-constant import.
-    match control_type {
-        50000 => "button",    // Button
-        50001 => "group",     // Calendar
-        50002 => "checkbox",  // CheckBox
-        50003 => "textfield", // ComboBox
-        50004 => "textfield", // Edit
-        50005 => "link",      // Hyperlink
-        50006 => "image",     // Image
-        50007 => "listitem",  // ListItem
-        50008 => "list",      // List
-        50009 => "menu",      // Menu
-        50010 => "menu",      // MenuBar
-        50011 => "menuitem",  // MenuItem
-        50012 => "progress",  // ProgressBar (transient -> dropped, promoted if RangeValue)
-        50013 => "radio",     // RadioButton
-        50014 => "node",      // ScrollBar
-        50015 => "slider",    // Slider
-        50016 => "spinner",   // Spinner (transient -> dropped)
-        50017 => "text",      // StatusBar
-        50018 => "tab",       // Tab
-        50019 => "tab",       // TabItem
-        50020 => "text",      // Text
-        50021 => "group",     // ToolBar
-        50022 => "tooltip",   // ToolTip (transient -> dropped)
-        50023 => "list",      // Tree
-        50024 => "listitem",  // TreeItem
-        50025 => "group",     // Custom
-        50026 => "group",     // Group
-        50027 => "node",      // Thumb
-        50028 => "list",      // DataGrid
-        50029 => "listitem",  // DataItem
-        50030 => "textfield", // Document
-        50031 => "button",    // SplitButton
-        50032 => "screen",    // Window
-        50033 => "group",     // Pane
-        50034 => "header",    // Header
-        50035 => "header",    // HeaderItem
-        50036 => "list",      // Table
-        50037 => "header",    // TitleBar
-        50038 => "node",      // Separator
-        _ => "node",
-    }
-}
-
-// Control-type ids that respond to an Invoke/press (the tappable set).
-const TAPPABLE_CONTROL_TYPES: &[i32] = &[
-    50000, // Button
-    50011, // MenuItem
-    50019, // TabItem
-    50007, // ListItem
-    50005, // Hyperlink
-    50002, // CheckBox
-    50013, // RadioButton
-];
-
-const TITLEBAR_CONTROL_TYPE: i32 = 50037;
-const BUTTON_CONTROL_TYPE: i32 = 50000;
-
-// AutomationId a WinUI/UWP app assigns to the WindowControl that holds its
-// caption strip (system menu + Minimize/Maximize/Close). Win32 apps instead
-// nest the same affordances under a TitleBarControl (TITLEBAR_CONTROL_TYPE), so
-// the two skips in is_titlebar_root cover both shapes.
-const TITLEBAR_AUTOMATION_ID: &str = "TitleBar";
-
-// The window-manager caption/system button AutomationIds. These are fixed ids
-// the OS / XAML caption generator emits (not localized display names like
-// "Close Calculator"), so matching them is language-independent. A Button
-// carrying one is window chrome the fuzzer must never tap: pressing it would
-// close, minimize, or reparent the app under test.
-const CAPTION_BUTTON_AUTOMATION_IDS: &[&str] = &["Close", "Minimize", "Maximize", "Restore"];
-
-// True when this element roots the window-manager caption subtree the fuzzer
-// must not enter. Two shapes carry it: a Win32 TitleBarControl (control type
-// 50037, holding the system MenuBar + Close), and a WinUI/UWP WindowControl
-// whose AutomationId is 'TitleBar' (Calculator: holding plain Buttons
-// id='Close'/ 'Minimize'/'Maximize'). Skipping the whole subtree keeps every
-// window-manager affordance out of the tappable set, so the fuzzer can never
-// destroy the app by tapping Close and then mistake the vanished window for a
-// crash.
-fn is_titlebar_root(control_type: i32, automation_id: Option<&str>) -> bool {
-    control_type == TITLEBAR_CONTROL_TYPE || automation_id == Some(TITLEBAR_AUTOMATION_ID)
-}
-
-// True when a control is a window caption/system button that must stay out of
-// the tappable set even when it is not inside a recognised title-bar subtree
-// (the belt-and-suspenders complement to is_titlebar_root): a Button whose
-// AutomationId is a documented caption id. Structural id match, never the
-// English name, so no localized name list is needed.
-fn is_caption_button(control_type: i32, automation_id: Option<&str>) -> bool {
-    control_type == BUTTON_CONTROL_TYPE
-        && automation_id.is_some_and(|id| CAPTION_BUTTON_AUTOMATION_IDS.contains(&id))
 }
 
 // small UIA accessors (each best-effort; a failure yields the empty/None).
@@ -424,6 +329,8 @@ struct Snapshot {
     elements: Vec<serde_json::Value>,
     tappables: Vec<String>,
     nodes: HashMap<String, IUIAutomationElement>,
+    oracle_nodes: BTreeMap<String, OracleNode>,
+    dialog_count: usize,
     content_bugs: Vec<(String, &'static str, String)>,
     broken_assets: Vec<(String, String)>,
 }
@@ -448,6 +355,9 @@ fn snapshot(
     let mut elements: Vec<serde_json::Value> = Vec::new();
     let mut tappables: Vec<String> = Vec::new();
     let mut nodes: HashMap<String, IUIAutomationElement> = HashMap::new();
+    let mut oracle_nodes: BTreeMap<String, OracleNode> = BTreeMap::new();
+    let mut duplicate_oracle_keys = BTreeSet::new();
+    let mut dialog_count = 0usize;
     let mut content_bugs: Vec<(String, &'static str, String)> = Vec::new();
     let mut content_bug_seen: HashSet<String> = HashSet::new();
     let mut broken_assets: Vec<(String, String)> = Vec::new();
@@ -474,12 +384,30 @@ fn snapshot(
             continue;
         }
         let role = el_role_live(&el, ct);
+        if role == "dialog" && depth > 0 {
+            dialog_count += 1;
+        }
         // A caption/system Button that escaped the subtree skip (its AutomationId is
         // a documented caption id) is chrome too: keep it out of the tappable set so
         // it is never pressed and can never be misread as a crash when the window
         // vanishes.
         let is_tap = TAPPABLE_CONTROL_TYPES.contains(&ct) && !is_caption_button(ct, aid.as_deref());
         let label = label_of(&el);
+        if let Some(observation) = native_node(&el, role) {
+            let key = observation.key.clone();
+            if oracle_nodes
+                .insert(
+                    key.clone(),
+                    OracleNode {
+                        observation,
+                        element: el.clone(),
+                    },
+                )
+                .is_some()
+            {
+                duplicate_oracle_keys.insert(key);
+            }
+        }
         if role == "textfield" {
             if let Some(id) = aid.as_deref().filter(|id| !id.is_empty()) {
                 let sel = format!("key:{id}");
@@ -530,6 +458,9 @@ fn snapshot(
     let uniq_labels: Vec<String> = dedup(labels);
     content_bugs.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(b.1)));
     broken_assets.sort_by(|a, b| a.0.cmp(&b.0));
+    for key in duplicate_oracle_keys {
+        oracle_nodes.remove(&key);
+    }
     Snapshot {
         sig,
         content,
@@ -537,6 +468,8 @@ fn snapshot(
         elements,
         tappables: dedup(tappables),
         nodes,
+        oracle_nodes,
+        dialog_count,
         content_bugs,
         broken_assets,
     }
@@ -702,6 +635,15 @@ pub fn run() -> Result<()> {
                 "EXPLORE:STATE {}",
                 serde_json::json!({ "sig": snap.sig, "labels": labels, "elements": snap.elements })
             ));
+            if fuzz.replay.is_none() {
+                let scroll_items = scroll_round_trip(automation, window);
+                if !scroll_items.is_empty() {
+                    emit(&format!(
+                        "EXPLORE:SCROLLROUNDTRIP {}",
+                        serde_json::json!({ "sig": snap.sig, "items": scroll_items })
+                    ));
+                }
+            }
             if !snap.content_bugs.is_empty() {
                 let items: Vec<serde_json::Value> = snap
                     .content_bugs
@@ -878,6 +820,19 @@ pub fn run() -> Result<()> {
         let label = act.strip_prefix("tap:").unwrap_or(&act).to_string();
         let from_sig = current.sig.clone();
         tried.insert(edge_key(&current.sig, &act));
+        let focus_arm = arm_focus(
+            current.nodes.get(&label).and_then(|_| {
+                current.oracle_nodes.values().find(|node| {
+                    current.nodes.get(&label).is_some_and(|target| unsafe {
+                        automation
+                            .CompareElements(target, &node.element)
+                            .map(|same| same.as_bool())
+                            .unwrap_or(false)
+                    })
+                })
+            }),
+            current.dialog_count,
+        );
         // --record-video: the tap on the finding's element is the moment to box. Grab the
         // freshest element handle and capture-relative timestamp now, before the
         // press may mutate the tree (post-loop resolution can fall back to this).
@@ -904,6 +859,20 @@ pub fn run() -> Result<()> {
         let nxt = emit_state(&automation, &window, &mut cap, &mut seen);
         if let Some(iv) = invariant_scrape.as_mut() {
             iv.flush_for(&nxt.sig);
+        }
+        let action = format!("tap:{label}");
+        if lost_focus(
+            &automation,
+            &window,
+            focus_arm.as_ref(),
+            &nxt.oracle_nodes,
+            nxt.dialog_count,
+            nxt.sig == current.sig,
+        ) {
+            emit(&format!(
+                "EXPLORE:FOCUSLOSS {}",
+                serde_json::json!({ "from": from_sig, "action": action })
+            ));
         }
         if nxt.sig != current.sig {
             emit(&format!(

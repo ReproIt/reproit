@@ -60,6 +60,16 @@ fn reproit_cloud_schema_and_trace_contracts_catch_json_drift() {
             "response-shape",
             3,
         ),
+        (
+            include_str!("../../../../../../validation/backend/cloud-broken-tenant.ndjson"),
+            "tenant-isolation",
+            11,
+        ),
+        (
+            include_str!("../../../../../../validation/backend/cloud-broken-missing-effect.ndjson"),
+            "missing-effect",
+            12,
+        ),
     ] {
         let violations = evaluate(&config, &parse_events(log));
         assert_eq!(

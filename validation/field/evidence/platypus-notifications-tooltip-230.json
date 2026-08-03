@@ -1,0 +1,73 @@
+{
+  "issue": "https://github.com/sveinbjornt/Platypus/issues/230",
+  "affectedRevision": "726175ad41da530d7e482f945811b54004530662",
+  "fixedRevision": "ddcb7912d56df4dda3c2be11dc7ef8913a2556b9",
+  "identity": "send-notifications-help-copies-run-in-background",
+  "memoryMeasurement": "unavailable",
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 1.5,
+      "observationReached": true,
+      "sendNotificationsHelp": "Check this if you don't want your app to show up in the Dock",
+      "neighborHelp": "Check this if you don't want your app to show up in the Dock"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 1.325,
+      "observationReached": true,
+      "sendNotificationsHelp": "Check this if you don't want your app to show up in the Dock",
+      "neighborHelp": "Check this if you don't want your app to show up in the Dock"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 1.359,
+      "observationReached": true,
+      "sendNotificationsHelp": "Check this if you don't want your app to show up in the Dock",
+      "neighborHelp": "Check this if you don't want your app to show up in the Dock"
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 1.329,
+      "observationReached": true,
+      "sendNotificationsHelp": "Check this if your app sends system notifications",
+      "neighborHelp": "Check this if you don't want your app to show up in the Dock"
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 1.343,
+      "observationReached": true,
+      "sendNotificationsHelp": "Check this if your app sends system notifications",
+      "neighborHelp": "Check this if you don't want your app to show up in the Dock"
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 1.335,
+      "observationReached": true,
+      "sendNotificationsHelp": "Check this if your app sends system notifications",
+      "neighborHelp": "Check this if you don't want your app to show up in the Dock"
+    }
+  ],
+  "neighboringLegalBehavior": "The Run in background checkbox retains the Dock help text at both revisions.",
+  "minimizedAction": "Launch the main window and read AXHelp from the Send notifications AXCheckBox."
+}

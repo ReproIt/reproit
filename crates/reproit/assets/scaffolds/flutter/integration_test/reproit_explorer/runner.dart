@@ -483,6 +483,7 @@ void registerExplorer({
         final sel = a.substring('tap:'.length);
         triedEdges.add('${sigOf(current)}|$sel');
         final fromSig = sigOf(current);
+        await runtime.beginTransitionFrames(tester);
         final ok = await tapSelector(sel);
         if (!ok) {
           runtime.emit('FUZZ:MISS $act');
@@ -498,6 +499,28 @@ void registerExplorer({
             "action": "tap:$sel",
             "bucket": hangBucket,
           });
+        }
+        final jank = runtime.finishTransitionJank();
+        if (jank != null && hangBucket == null) {
+          emitJson('EXPLORE:JANK', {
+            "from": fromSig,
+            "action": "tap:$sel",
+            "bucket": jank['bucket'],
+            "count": jank['count'],
+          });
+        }
+        final flicker = runtime.finishTransitionFlicker();
+        if (flicker != null) {
+          emitJson('EXPLORE:FLICKER', {
+            "from": fromSig,
+            "action": "tap:$sel",
+            "peak": flicker['peak'],
+            "frames": flicker['frames'],
+          });
+        }
+        final overflows = runtime.finishTransitionOverflows();
+        if (overflows.isNotEmpty) {
+          emitJson('EXPLORE:OVERFLOW', {"sig": fromSig, "items": overflows});
         }
         final next = await observe();
         if (sigOf(next) != sigOf(current)) {

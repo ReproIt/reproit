@@ -74,7 +74,7 @@ pub(super) fn run_scenario_actor(cmdline: &str, base: &str) -> Result<()> {
     }
     emit(&format!("JOURNEY claimed role={role}"));
 
-    let (_master, mut child, parser, writer, _erases, _mouse) = spawn_session(cmdline)?;
+    let (_master, mut child, parser, writer, _erases, _mouse, _timeline) = spawn_session(cmdline)?;
     std::thread::sleep(Duration::from_millis(900));
     let mut seen: BTreeSet<String> = BTreeSet::new();
     let mut cur_sig = observe_scenario(&parser, &mut seen);

@@ -221,6 +221,12 @@ func observe() -> Snapshot {
         "labels": Array(snap.labels.prefix(maxLabelsPerState)),
         "elements": snap.elements,
       ])
+    if fuzz.replay == nil {
+      let scrollItems = axScrollRoundTrip(appEl, nsApp.isActive)
+      if !scrollItems.isEmpty {
+        emitJSON("EXPLORE:SCROLLROUNDTRIP", ["sig": snap.sig, "items": scrollItems])
+      }
+    }
     // CONTENT-BUG for this newly-seen state, keyed by the SAME sig. Only
     // emitted when a broken-content artifact is actually rendered.
     if !snap.contentBugs.isEmpty {
@@ -414,6 +420,7 @@ while i < budget && stuck < 3 {
   let hangFrom = current.sig
   let pressStart = Date()
   let pressedEl = current.nodeByLabel[label]
+  let focusArm = axFocusArm(current, pressedEl)
   // --record: the tap on the finding's element is the moment to box. Grab the
   // freshest element handle and the capture-relative timestamp now, before the
   // press may mutate the tree (post-loop resolution can fall back to this).
@@ -464,6 +471,10 @@ while i < budget && stuck < 3 {
   // Blocking time = total elapsed minus the fixed 0.7s settle sleep, so only a
   // genuine main-thread freeze (not the deliberate settle) can cross the floor.
   maybeEmitHang(hangFrom, "tap:\(label)", Int(Date().timeIntervalSince(pressStart) * 1000) - 700)
+  let action = "tap:\(label)"
+  if axFocusWasLost(focusArm, next, appEl, next.sig == current.sig) {
+    emitJSON("EXPLORE:FOCUSLOSS", ["from": hangFrom, "action": action])
+  }
   // Layer-1 effect detection: an effective action (signature OR content
   // fingerprint changed) resets the stall counter; only a true no-op (a dead
   // key, a disabled control) leaves both unchanged. A value-only change emits

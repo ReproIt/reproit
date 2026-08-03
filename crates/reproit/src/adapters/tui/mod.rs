@@ -40,8 +40,8 @@ use interaction::{
 use interaction::{mouse_probe, Groundtruth};
 use scenario::run_scenario_actor;
 #[cfg(test)]
-use session::count_full_erases;
-use session::{looks_crashed, spawn_session};
+use session::{count_full_erases, update_synchronized_output};
+use session::{coverage_is_incomplete, looks_crashed, sample_rss, spawn_session};
 
 const ROWS: u16 = 40;
 const COLS: u16 = 120;
@@ -135,53 +135,6 @@ fn cursor_of(parser: &Arc<Mutex<vt100::Parser>>) -> Option<(u16, u16)> {
         Some(s.cursor_position())
     }
 }
-/// The target child's resident set size (RSS) in BYTES, or None on failure. RSS
-/// is the OS process analogue of the web runner's v8 `heap_used`: the soak
-/// oracle (modes/soak.rs) reads first-vs-last to compute the per-cycle slope.
-fn rss_bytes(pid: u32) -> Option<u64> {
-    #[cfg(target_os = "linux")]
-    {
-        let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
-        for line in status.lines() {
-            if let Some(rest) = line.strip_prefix("VmRSS:") {
-                let kb: u64 = rest.split_whitespace().next()?.parse().ok()?;
-                return Some(kb * 1024);
-            }
-        }
-        None
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let out = std::process::Command::new("ps")
-            .args(["-o", "rss=", "-p", &pid.to_string()])
-            .output()
-            .ok()?;
-        let kib: u64 = String::from_utf8_lossy(&out.stdout).trim().parse().ok()?;
-        Some(kib * 1024)
-    }
-}
-
-/// Emit one `MEMORY:SAMPLE {"t_ms","heap_used"}` for the target child, the SAME
-/// shape every desktop/web runner emits and the soak oracle parses (heap_used
-/// carries RSS bytes). No-op when the pid is gone or RSS can't be read.
-fn sample_rss(pid: u32, t_ms: u64) {
-    if let Some(rss) = rss_bytes(pid) {
-        emit(&format!(
-            "MEMORY:SAMPLE {}",
-            serde_json::json!({ "t_ms": t_ms, "heap_used": rss })
-        ));
-    }
-}
-
-fn coverage_is_incomplete(
-    failed: bool,
-    actions_attempted: usize,
-    actions_effective: usize,
-    nonzero_exits: u32,
-) -> bool {
-    !failed && actions_attempted > 0 && actions_effective == 0 && nonzero_exits > 0
-}
-
 /// The visible screen as (signature, fingerprint, labels).
 ///
 /// SIGNATURE: built from the LAYOUT SKELETON (`skeleton_of`) PLUS a bounded
@@ -458,14 +411,15 @@ pub fn run() -> Result<()> {
     // stops the run.
     'fuzz: while i < budget {
         sessions += 1;
-        let (master, mut child, parser, writer, erases, _mouse) = match spawn_session(&cmdline) {
-            Ok(s) => s,
-            Err(e) => {
-                launch_failures += 1;
-                emit(&format!("JOURNEY[a] step: launch failed: {e}"));
-                break;
-            }
-        };
+        let (master, mut child, parser, writer, erases, _mouse, timeline) =
+            match spawn_session(&cmdline) {
+                Ok(s) => s,
+                Err(e) => {
+                    launch_failures += 1;
+                    emit(&format!("JOURNEY[a] step: launch failed: {e}"));
+                    break;
+                }
+            };
         let launch_settle_ms = if map_mode {
             if sessions == 1 {
                 450
@@ -682,8 +636,10 @@ pub fn run() -> Result<()> {
             // and snapshot the full-erase count so the re-render oracle can tell
             // whether this action triggered a full clear+redraw.
             let pre_grid = grid_of(&parser);
+            let pre_screen = parser.lock().unwrap().screen().contents();
             let pre_cursor = cursor_of(&parser);
             let erases_before = erases.load(Ordering::Relaxed);
+            timeline.lock().unwrap().clear();
             if !bytes.is_empty() {
                 if let Ok(mut w) = writer.lock() {
                     let _ = w.write_all(&bytes);
@@ -830,6 +786,33 @@ pub fn run() -> Result<()> {
             // operable (feeds the mouse-only test).
             keyboard_reached.insert(next_sig.clone());
             let post_grid = grid_of(&parser);
+            let post_screen = parser.lock().unwrap().screen().contents();
+            let now = Instant::now();
+            let observed: Vec<(u64, String)> = {
+                let mut frames = timeline.lock().unwrap();
+                let raw: Vec<(Instant, String)> = frames.drain(..).collect();
+                raw.iter()
+                    .enumerate()
+                    .map(|(index, (at, frame))| {
+                        let until = raw.get(index + 1).map_or(now, |next| next.0);
+                        (
+                            until.saturating_duration_since(*at).as_millis() as u64,
+                            frame.clone(),
+                        )
+                    })
+                    .collect()
+            };
+            if let Some((peak, frame_count)) =
+                terminal_flicker(&pre_screen, &post_screen, &observed)
+            {
+                let payload = serde_json::json!({
+                    "from": cur_sig,
+                    "action": act,
+                    "peak": peak,
+                    "frames": frame_count,
+                });
+                emit(&format!("EXPLORE:FLICKER {payload}"));
+            }
             // RE-RENDER FLICKER (EXPLORE:RERENDER, TUI analogue of the web
             // node-identity churn). This action made the app emit a FULL-SCREEN
             // erase (it cleared and repainted everything), yet the persistent
@@ -842,7 +825,8 @@ pub fn run() -> Result<()> {
             // re-confirms on replay. An empty churn list (no surviving chrome) is
             // dropped, mirroring the web runner.
             let erased = erases.load(Ordering::Relaxed) > erases_before;
-            if effective && erased {
+            let erase_was_presented = presented_full_erase(&pre_screen, &post_screen, &observed);
+            if effective && erased && erase_was_presented {
                 let churned = churned_chrome_rows(&pre_grid, &post_grid, 16);
                 if !churned.is_empty() {
                     let payload = serde_json::json!({

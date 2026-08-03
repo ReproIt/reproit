@@ -58,6 +58,7 @@ cp "$ROOT/fixtures/react-native-fixture/index.js" "$WORK/app/index.js"
 sed -i.bak 's/^newArchEnabled=true$/newArchEnabled=false/' "$WORK/app/android/gradle.properties"
 
 npm install --prefix "$WORK/app" --no-audit --no-fund
+npm ci --prefix "$ROOT/runners/rn" --no-audit --no-fund
 (cd "$WORK/app/android" && ./gradlew --no-daemon \
   -PreactNativeArchitectures="$DEVICE_ABI" :app:assembleRelease)
 
@@ -69,13 +70,14 @@ sleep 3
 adb_run wait-for-device
 test "$(adb_run shell getprop sys.boot_completed | tr -d '\r')" = "1"
 
-printf '{"budget":1}' > "$WORK/fuzz.json"
+printf '{"replay":["tap:key:toggle"],"budget":1}' > "$WORK/fuzz.json"
 export REPROIT_APPIUM_URL="$APPIUM_URL"
 export REPROIT_APPIUM_CAPS
 printf -v REPROIT_APPIUM_CAPS '%s%s%s%s%s' \
   '{"platformName":"Android","appium:automationName":"UiAutomator2",' \
   "\"appium:udid\":\"$ANDROID_UDID\",\"appium:noReset\":true," \
   '"appium:forceAppLaunch":true,' \
+  '"appium:ignoreHiddenApiPolicyError":true,' \
   '"appium:newCommandTimeout":600,"appium:appPackage":"com.reproitrnfixture",' \
   '"appium:appActivity":".MainActivity"}'
 export REPROIT_FUZZ_CONFIG="$WORK/fuzz.json"
@@ -91,4 +93,25 @@ grep -q '^All tests passed$' "$WORK/run.log"
 if grep -q 'EXCEPTION CAUGHT BY RN RUNNER' "$WORK/run.log"; then
   exit 1
 fi
-echo 'Appium backend passed native React Native Android runtime'
+
+# The first session installs and verifies Appium's device-side support. Reusing
+# that support for the three pixel controls avoids resetting hidden-API policy
+# between back-to-back sessions, which can terminate UiAutomator2 on API 36.
+REPROIT_APPIUM_CAPS="${REPROIT_APPIUM_CAPS%?},\"appium:skipDeviceInitialization\":true}"
+export REPROIT_APPIUM_CAPS
+
+printf '{"replay":["tap:key:flicker-positive"],"budget":1}' > "$WORK/flicker-positive.json"
+REPROIT_FUZZ_CONFIG="$WORK/flicker-positive.json" REPROIT_FLICKER_PIXELS=1 \
+  node "$ROOT/runners/rn/runner.mjs" | tee "$WORK/flicker-positive.log"
+! grep -q '^EXPLORE:FLICKER ' "$WORK/flicker-positive.log"
+
+printf '{"replay":["tap:key:flicker-fixed"],"budget":1}' > "$WORK/flicker-fixed.json"
+REPROIT_FUZZ_CONFIG="$WORK/flicker-fixed.json" REPROIT_FLICKER_PIXELS=1 \
+  node "$ROOT/runners/rn/runner.mjs" | tee "$WORK/flicker-fixed.log"
+! grep -q '^EXPLORE:FLICKER ' "$WORK/flicker-fixed.log"
+
+printf '{"replay":["tap:key:flicker-one-way"],"budget":1}' > "$WORK/flicker-one-way.json"
+REPROIT_FUZZ_CONFIG="$WORK/flicker-one-way.json" REPROIT_FLICKER_PIXELS=1 \
+  node "$ROOT/runners/rn/runner.mjs" | tee "$WORK/flicker-one-way.log"
+! grep -q '^EXPLORE:FLICKER ' "$WORK/flicker-one-way.log"
+echo 'Appium backend passed native React Native Android runtime with fail-closed flicker abstention'

@@ -215,13 +215,16 @@ function resolveTauriPid(appPath) {
     if (pids.length !== 1 || !Number.isFinite(pids[0]) || pids[0] <= 0) return null;
     return pids[0];
   }
-  const out = hostExec('ps', ['-axww', '-o', 'pid=,comm=']);
+  const out = hostExec('ps', ['-axww', '-o', 'pid=,args=']);
   if (out == null) return null;
   const pids = [];
   for (const line of out.split('\n')) {
     const m = line.match(/^\s*(\d+)\s+(.*)$/);
     if (!m) continue;
-    if (m[2].trim() === appPath) pids.push(parseInt(m[1], 10));
+    const command = m[2].trim();
+    if (command === appPath || command.startsWith(appPath + ' ')) {
+      pids.push(parseInt(m[1], 10));
+    }
   }
   if (pids.length !== 1 || !Number.isFinite(pids[0]) || pids[0] <= 0) return null;
   return pids[0];
@@ -411,7 +414,7 @@ async function tap(browser, sel) {
   }
 }
 
-// ── --record clip capture (route B: host film + box-spec) ───────────────────
+// --record clip capture (route B: host film plus box-spec)
 // Tauri renders in the system webview driven over WebDriver -- there is NO CDP
 // and no Playwright recordVideo sink, so (unlike Electron) we cannot let the
 // driver film. We film the app WINDOW with a host screen recorder (window-only,
@@ -597,8 +600,53 @@ async function stopClipCapture(proc) {
   });
 }
 
-// ── Multi-actor scenario client (the conductor protocol) ────────────────────
+const FLICKER_PIXELS = process.env.REPROIT_FLICKER_PIXELS === '1';
+const FLICKER_DIAGNOSTICS = process.env.REPROIT_FLICKER_DIAGNOSTICS === '1';
+
+// Tauri has no compositor-frame protocol. Under the explicit pixel gate, film
+// only the target app window for one action using the same privacy-preserving
+// recorder as evidence clips. Unsupported hosts abstain instead of falling back
+// to a desktop recording.
+function startTransitionFlicker(pid) {
+  if (!FLICKER_PIXELS || !pid) return null;
+  let dir;
+  try {
+    dir = mkdtempSync(joinPath(tmpdir(), 'reproit-tauri-flicker-'));
+    const mov = joinPath(dir, 'transition.mov');
+    const proc = startClipCapture(pid, mov);
+    if (!proc) {
+      if (FLICKER_DIAGNOSTICS) log('REPROIT:FLICKER_CAPTURE unavailable');
+      rmSync(dir, { recursive: true, force: true });
+      return null;
+    }
+    if (FLICKER_DIAGNOSTICS) log('REPROIT:FLICKER_CAPTURE started');
+    return { dir, mov, proc };
+  } catch (_) {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    return null;
+  }
+}
+
+async function finishTransitionFlicker(capture) {
+  if (!capture) return null;
+  try {
+    await stopClipCapture(capture.proc);
+    const result = classifyVideoFile(capture.mov);
+    if (FLICKER_DIAGNOSTICS) {
+      const bytes = existsSync(capture.mov) ? readFileSync(capture.mov).length : 0;
+      log(`REPROIT:FLICKER_CAPTURE frames=${result?.frames || 0} bytes=${bytes}`);
+    }
+    return result;
+  } catch (_) {
+    return null;
+  } finally {
+    try {
+      rmSync(capture.dir, { recursive: true, force: true });
+    } catch (_) {}
+  }
+}
+
+// Multi-actor scenario client (the conductor protocol)
 // Same wire protocol as the web/electron runners, the flutter explorer and the
 // tui backend: the host conductor owns identity (`GET /claim`) and ordering
 // (`GET /next` + `POST /done`); this process plays ONE actor.
-

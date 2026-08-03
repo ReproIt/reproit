@@ -1,0 +1,73 @@
+{
+  "issue": "https://github.com/coteditor/CotEditor/issues/1744",
+  "affectedRevision": "7937b62585bd0f7621160efacbbcd97d77135e11",
+  "fixedRevision": "53329f1bf776fdc03358ac834e66adc27ff7ce84",
+  "identity": "file-browser-new-file-disabled-while-document-focused",
+  "memoryMeasurement": "unavailable",
+  "affected": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 2.447,
+      "observationReached": true,
+      "documentFocused": true,
+      "newFileEnabled": false
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 2.485,
+      "observationReached": true,
+      "documentFocused": true,
+      "newFileEnabled": false
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 2.479,
+      "observationReached": true,
+      "documentFocused": true,
+      "newFileEnabled": false
+    }
+  ],
+  "fixed": [
+    {
+      "run": 1,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 2.483,
+      "observationReached": true,
+      "documentFocused": true,
+      "newFileEnabled": true
+    },
+    {
+      "run": 2,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 2.497,
+      "observationReached": true,
+      "documentFocused": true,
+      "newFileEnabled": true
+    },
+    {
+      "run": 3,
+      "cleanLaunch": true,
+      "exceptions": [],
+      "jsHeapMiB": null,
+      "elapsedSeconds": 2.542,
+      "observationReached": true,
+      "documentFocused": true,
+      "newFileEnabled": true
+    }
+  ],
+  "neighboringLegalBehavior": "With the folder open but no document selected, New File is enabled on both revisions.",
+  "minimizedAction": "Open a folder, focus its document, open the file-browser Add menu, and read AXEnabled on New File."
+}

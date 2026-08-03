@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "capability-validation-gaps",
+  "changeType": "feature",
+  "detail": "Adds new capability and measurements; no released defect is repaired.",
+  "evidence": [
+    {
+      "path": "validation/oracles/coverage.json",
+      "sha256": "sha256:799362a38bfd9a38b3f4edc32ef857edbd0059869edbf1a4911815c39d838f04"
+    },
+    {
+      "path": "validation/field/macos-ax.json",
+      "sha256": "sha256:faa00809a464a0dde684f6cbf775ea13afab7f02325b2cbe8fbb81d758cfdf0b"
+    },
+    {
+      "path": "docs/backend-sdk.md",
+      "sha256": "sha256:26c7edf0f3744f615fe8a8bef2495817ed74676819a0b0912f534f696404d97d"
+    }
+  ]
+}

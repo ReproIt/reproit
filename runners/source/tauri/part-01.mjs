@@ -17,7 +17,14 @@
 // webdriverio is imported dynamically inside main() so this module stays
 // import-safe (the parity test imports the host-pure signature functions
 // below without needing the heavy runtime dependency installed).
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import {
+  readFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { resolve as resolvePath, join as joinPath } from 'node:path';
 // Canonical signature + scenario plumbing shared with the Electron runner.
 // The specifiers are OUTPUT-relative (this file ships as runners/tauri.mjs
@@ -39,7 +46,8 @@ import {
   DETECT_CONTENT_BUGS_SRC,
 } from './shared/dom-walk.mjs';
 import { execFileSync, spawn } from 'node:child_process';
-import { platform as osPlatform } from 'node:os';
+import { platform as osPlatform, tmpdir } from 'node:os';
+import { classifyVideoFile } from './shared/video-flicker.mjs';
 // CHOICE-ANOMALY oracle, shared with the web + electron runners. We inject the
 // SAME self-contained in-page pass into the webview via executeAsync() (the way
 // every other oracle is injected on Tauri, which has no CDP); it works over WebKit
@@ -56,6 +64,8 @@ import {
 import {
   occlusionScan,
   confirmOcclusions,
+  indicatorRelationshipScan,
+  confirmRelationshipViolations,
   securityScan,
   focusLossArm,
   focusLossCheck,
@@ -67,6 +77,15 @@ import {
 } from './web/hygiene-oracles.mjs';
 import { layoutOverflowScan, confirmLayoutOverflow } from './web/overflow-oracle.mjs';
 import { zeroContrastScan } from './web/zero-contrast-oracle.mjs';
+import {
+  deadInputScrollCandidates,
+  deadInputPointOwner,
+  deadInputArm,
+  deadInputRead,
+  classifyWheelProbe,
+  classifyKeyProbe,
+  DEAD_INPUT_MAX_SCROLLABLES,
+} from './web/dead-input-oracle.mjs';
 import { inspectPlatformStep } from './inspect-control.mjs';
 
 // Hygiene oracles NOT ported to this runner, deliberately (no probe beats a
@@ -106,6 +125,124 @@ const SCROLLROUNDTRIP_ASYNC_JS = `
   Promise.resolve(__srtFn()).then(function (items) { __srtDone(items || []); })
     .catch(function () { __srtDone([]); });
 `;
+
+// WebDriver's wheel and keyboard actions are trusted platform input. The
+// recorder and verdict functions are shared with the browser runner, including
+// their preventDefault, modal, visible-interceptor, and two-sample guards.
+async function tauriDeadInputProbe(browser) {
+  const findings = [];
+  const candidates = await browser.execute(deadInputScrollCandidates).catch(() => []);
+  for (const candidate of (candidates || []).slice(0, DEAD_INPUT_MAX_SCROLLABLES)) {
+    const owner = await browser.execute(deadInputPointOwner, candidate).catch(() => null);
+    if (!owner || ['gone', 'visible-interceptor', 'dialog'].includes(owner.owner)) continue;
+    await browser.execute(deadInputArm, candidate).catch(() => false);
+    try {
+      await browser
+        .action('wheel')
+        .scroll({ x: Math.round(candidate.x), y: Math.round(candidate.y), deltaX: 0, deltaY: 120 })
+        .perform();
+    } catch (_) {
+      await browser.execute(deadInputRead, candidate).catch(() => null);
+      continue;
+    }
+    await browser.pause(150);
+    const read = await browser.execute(deadInputRead, candidate).catch(() => null);
+    const verdict = classifyWheelProbe(owner, read);
+    if (verdict) {
+      await browser.pause(1500);
+      const ownerAgain = await browser.execute(deadInputPointOwner, candidate).catch(() => null);
+      await browser.execute(deadInputArm, candidate).catch(() => false);
+      try {
+        await browser
+          .action('wheel')
+          .scroll({
+            x: Math.round(candidate.x),
+            y: Math.round(candidate.y),
+            deltaX: 0,
+            deltaY: 120,
+          })
+          .perform();
+      } catch (_) {}
+      await browser.pause(150);
+      const second = await browser.execute(deadInputRead, candidate).catch(() => null);
+      if (classifyWheelProbe(ownerAgain, second) === verdict) {
+        findings.push({
+          key: candidate.key,
+          input: 'wheel:down',
+          context: candidate.context + ' blocked by ' + (owner.desc || 'overlay'),
+        });
+      }
+    } else if (read && (read.topDelta || read.winDelta)) {
+      await browser
+        .execute(
+          (arg) => {
+            const element = document.querySelector(
+              '[data-reproit-deadinput="' + arg.idx + '"]',
+            );
+            if (element) element.scrollTop -= arg.topDelta;
+            if (arg.winDelta) window.scrollBy(0, -arg.winDelta);
+          },
+          { idx: candidate.idx, topDelta: read.topDelta, winDelta: read.winDelta },
+        )
+        .catch(() => {});
+    }
+  }
+  await browser
+    .execute(() => {
+      for (const element of document.querySelectorAll('[data-reproit-deadinput]')) {
+        element.removeAttribute('data-reproit-deadinput');
+      }
+    })
+    .catch(() => {});
+
+  const editable = await browser
+    .execute(() => {
+      for (const element of document.querySelectorAll('input, textarea')) {
+        const type = (element.getAttribute('type') || 'text').toLowerCase();
+        const supported =
+          element.tagName === 'TEXTAREA' ||
+          (element.tagName === 'INPUT' && /^(text|search|email|url|tel)$/.test(type));
+        const rect = element.getBoundingClientRect();
+        if (
+          !supported || element.disabled || element.readOnly || element.value !== '' ||
+          rect.width < 40 || rect.height < 12 || rect.bottom < 0 || rect.top > innerHeight
+        ) continue;
+        element.setAttribute('data-reproit-deadinput', 'key');
+        const testId =
+          element.getAttribute('data-testid') || element.getAttribute('data-test-id');
+        return {
+          key: testId ? 'testid:' + testId : element.name ? 'name:' + element.name : 'editable#0',
+          context: element.tagName.toLowerCase() + (element.id ? '#' + element.id : ''),
+        };
+      }
+      return null;
+    })
+    .catch(() => null);
+  if (editable) {
+    const target = await browser.$('[data-reproit-deadinput="key"]');
+    await target.click().catch(() => {});
+    await browser.execute(deadInputArm, { idx: 'key' }).catch(() => false);
+    await browser.keys(['a']).catch(() => {});
+    await browser.pause(150);
+    const valueAfter = await browser
+      .execute(() => document.querySelector('[data-reproit-deadinput="key"]')?.value ?? null)
+      .catch(() => null);
+    const read = await browser.execute(deadInputRead, { idx: 'key' }).catch(() => null);
+    if (classifyKeyProbe(read, '', valueAfter == null ? '' : valueAfter)) {
+      findings.push({ key: editable.key, input: 'key:a', context: editable.context });
+    } else if (valueAfter) {
+      await browser.keys(['Backspace']).catch(() => {});
+    }
+    await browser
+      .execute(() => {
+        const element = document.querySelector('[data-reproit-deadinput="key"]');
+        if (element) element.removeAttribute('data-reproit-deadinput');
+        document.activeElement?.blur?.();
+      })
+      .catch(() => {});
+  }
+  return findings.slice(0, 6);
+}
 
 const APP = process.env.REPROIT_APP;
 const WD_URL = process.env.REPROIT_WEBDRIVER_URL || 'http://127.0.0.1:4444';

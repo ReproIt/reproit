@@ -34,10 +34,16 @@ Stated precisely, because "encrypted at rest" is usually stated imprecisely:
 | Traffic to and from Cloud | TLS |
 | Integration credentials and tenant connection strings | ChaCha20-Poly1305 AEAD, keyed per deployment, fresh nonce per write |
 | Session and API tokens | stored hashed, never recoverable |
-| Evidence blobs | the storage provider's own at-rest encryption. There is no application-layer envelope encryption and no per-workspace key today |
+| Evidence blobs | ChaCha20-Poly1305 application-layer envelope encryption, with a data key derived for each workspace and a fresh nonce per write; the workspace scope and full object key are authenticated |
 
-That last row is a real limit and we would rather write it down than imply more. If your threat
-model requires a key you hold, the local path already supports it: capsules are AES-256-GCM
+Cloud encrypts evidence before local storage or R2 receives it. R2 downloads are proxied through
+Cloud so every read verifies and decrypts the authenticated envelope. Hosted deployments keep the
+deployment master key in `REPROIT_BLOB_ENC_KEY`; workspaces do not share derived data keys. The
+rotation path accepts one previous master key for reads and uses a bounded operator command to
+rewrite verified blobs under the current key. Legacy plaintext is never served and can be admitted
+only by the separately named, migration-only operator flag.
+
+If your threat model requires a key you hold, the local path supports it: capsules are AES-256-GCM
 encrypted under a key you can supply with `REPROIT_CAPSULE_KEY`, and a capture can stay on your
 machine entirely with `reproit capture --local-only`.
 

@@ -54,10 +54,19 @@
 // driver installed, including the host-pure signatureOf/descriptorOf exports
 // that runners/signature_test.mjs imports; that broke the parity gate, whose
 // job installs no npm packages at all.
-import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+} from 'node:fs';
 import { resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { execFileSync, spawn } from 'node:child_process';
 import { inspectPlatformStep } from './inspect-control.mjs';
+import { classifyVideoFile } from '../shared/video-flicker.mjs';
 
 const APPIUM = process.env.REPROIT_APPIUM_URL || 'http://127.0.0.1:4723';
 const CAPS = JSON.parse(process.env.REPROIT_APPIUM_CAPS || '{}');

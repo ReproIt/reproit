@@ -188,11 +188,11 @@ def render(ledger):
     runners = list(ledger["runners"])
     header = "| Oracle | Marker | " + " | ".join(runners) + " |"
     lines = [
-        "Coverage is enforced by `validation/oracles/check.py` against"
-        " `validation/oracles/coverage.json`; this table is generated from it."
-        " `yes` means that runner emits the marker, `no` means the platform"
-        " cannot express the oracle (the ledger carries the reason), and `todo`"
-        " means it could be written and has not been.",
+        "Coverage is enforced by `validation/oracles/check.py` against",
+        "`validation/oracles/coverage.json`; this table is generated from it.",
+        "`yes` means that runner emits the marker.",
+        "`no` means the platform cannot express the oracle; the ledger carries the reason.",
+        "`todo` means it could be written and has not been.",
         "",
         header,
         "|" + "---|" * (len(runners) + 2),

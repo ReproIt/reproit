@@ -16,6 +16,8 @@ pub(crate) mod invariants;
 pub(crate) mod json_path;
 pub(crate) mod locale;
 pub(crate) mod map;
+#[cfg(any(test, windows, all(target_os = "linux", feature = "linux-atspi")))]
+pub(crate) mod native_oracle;
 pub(crate) mod observation;
 pub(crate) mod oracle;
 pub(crate) mod overflow;

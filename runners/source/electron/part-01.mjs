@@ -73,6 +73,8 @@ import {
 import {
   occlusionScan,
   confirmOcclusions,
+  indicatorRelationshipScan,
+  confirmRelationshipViolations,
   securityScan,
   dupSubmitEligible,
   focusLossArm,
@@ -85,6 +87,7 @@ import {
   installListenerLeakCounter,
   listenerLeakSample,
 } from './web/hygiene-oracles.mjs';
+import { scanAccessibilityStateParity } from './web/accessibility-state-oracle.mjs';
 import { layoutOverflowScan, confirmLayoutOverflow } from './web/overflow-oracle.mjs';
 import { zeroContrastScan } from './web/zero-contrast-oracle.mjs';
 import { deadInputProbe } from './web/dead-input-oracle.mjs';

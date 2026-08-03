@@ -43,6 +43,7 @@ Future<int?> settleWatchdog(WidgetTester t, int budgetMs) async {
   for (var i = 0; i < steps; i++) {
     try {
       await t.pump(const Duration(milliseconds: hangPumpStepMs));
+      await _captureTransitionFrame(t);
     } catch (_) {
       // A pump that throws (e.g. a handler error) is drained by the caller; do
       // not treat it as a hang on its own.

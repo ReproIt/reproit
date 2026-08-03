@@ -395,3 +395,61 @@ pub(super) fn churned_chrome_rows(
     }
     out
 }
+
+/// A full-screen erase was actually visible between two settled frames. Raw
+/// `CSI 2J` output is insufficient because DEC synchronized output can carry an
+/// erase and repaint atomically. The PTY timeline already suppresses those
+/// atomic chunks, so a persisted blank sample here is presentation authority.
+pub(super) fn presented_full_erase(before: &str, after: &str, timeline: &[(u64, String)]) -> bool {
+    if before.trim().is_empty() || after.trim().is_empty() {
+        return false;
+    }
+    timeline
+        .iter()
+        .any(|(duration_ms, frame)| *duration_ms >= 34 && frame.trim().is_empty())
+}
+
+fn cell_difference(left: &str, right: &str) -> f64 {
+    let left: Vec<char> = left.chars().collect();
+    let right: Vec<char> = right.chars().collect();
+    let total = left.len().max(right.len());
+    if total == 0 {
+        return 0.0;
+    }
+    let changed = (0..total)
+        .filter(|&index| left.get(index) != right.get(index))
+        .count();
+    changed as f64 / total as f64
+}
+
+/// Presented-frame flicker over a PTY transition. `frames` contains only
+/// distinct terminal grids observed outside DEC synchronized-output mode, with
+/// how long each grid remained current before the next update. Updates shorter
+/// than two terminal refresh intervals are coalesced and cannot become findings.
+/// A finding requires an intermediate grid to diverge from the final grid by
+/// both at least 4% of cells and 1.35x more than the legitimate start-to-final
+/// transition. This is the same overshoot contract as the browser pixel oracle.
+pub(super) fn terminal_flicker(
+    start: &str,
+    end: &str,
+    frames: &[(u64, String)],
+) -> Option<(f64, usize)> {
+    const MIN_PRESENTED_MS: u64 = 34;
+    const FLOOR: f64 = 0.04;
+    const FACTOR: f64 = 1.35;
+
+    let start_difference = cell_difference(start, end);
+    let mut peak = 0.0f64;
+    let mut presented = 2usize;
+    for (duration_ms, frame) in frames.iter().take(256) {
+        if *duration_ms < MIN_PRESENTED_MS || frame == start || frame == end {
+            continue;
+        }
+        presented += 1;
+        peak = peak.max(cell_difference(frame, end));
+    }
+    if presented < 3 || peak <= FLOOR || peak <= start_difference.max(FLOOR) * FACTOR {
+        return None;
+    }
+    Some(((peak * 1000.0).round() / 1000.0, presented))
+}

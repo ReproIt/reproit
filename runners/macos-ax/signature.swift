@@ -493,6 +493,12 @@ func axFrameOf(_ el: AXUIElement) -> CGRect? {
   return CGRect(origin: origin, size: size)
 }
 
+func axBool(_ el: AXUIElement, _ attr: String) -> Bool? {
+  guard let value = axCopy(el, attr) else { return nil }
+  if CFGetTypeID(value) != CFBooleanGetTypeID() { return nil }
+  return CFBooleanGetValue((value as! CFBoolean))
+}
+
 // ---- CONTENT-BUG oracle (deterministic, label-based) --------------------
 // Mirrors runners/web/runner.mjs detectContentBugs: a rendered label that is
 // clearly broken CONTENT (a stringify/template artifact leaked to the screen).
@@ -712,4 +718,3 @@ func axIsTransient(_ el: AXUIElement, _ role: String) -> Bool {
   }
   return false
 }
-

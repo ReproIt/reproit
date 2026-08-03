@@ -26,27 +26,30 @@ driver, so application JavaScript does not need access to it.
 
 ## ReproIt Cloud dogfood boundary
 
-ReproIt Cloud owns a checked-in OpenAPI 3.1 artifact for five dogfooded JSON operations. One Cloud
+ReproIt Cloud owns a checked-in OpenAPI 3.1 artifact for seven dogfooded JSON operations. One Cloud
 endpoint registry supplies the Axum route aliases and trace operation ids, and refuses to emit the
 artifact if its method, path, or operation id drifts. `cloud-openapi.yaml` and `cloud-contract.yaml`
 are pinned CLI evaluator fixtures; `cloud-schema-parity.test.mjs` checks the sibling Cloud artifact,
 registry, actual route registration, and critical response keys.
 
 Cloud's `validation/backend-contract-live.sh` starts disposable Postgres and an opt-in local Cloud
-process, then exercises actual signup, create-project, get-me, ingest, and replay-result handlers.
+process, then exercises the actual sign-in, create-project, get-me, event-ingest, capture-ingest,
+occurrence-read, and replay-result handlers.
 It feeds the captured adapter events back through the CLI schema importer/evaluator and requires a
 clean result. The script never targets or mutates a production Cloud instance.
 
 The dogfood boundary remains explicit:
 
 - `sdk/reproit-backend-rs` is the canonical bounded Rust adapter. Cloud vendors that source exactly,
-  enforces source parity, and wires it into the five routes only when
+  enforces source parity, and wires it into the seven routes only when
   `REPROIT_BACKEND_CONTRACTS=1`; individual requests must also carry `x-reproit-trace`.
   The default server path remains inert.
-- Cloud currently records request/response shape and status, but does not claim handler-observed
-  tenant or persistent-effect completeness. Every captured return therefore carries
-  `effectsComplete:false`; missing-effect and tenant findings stay silent. The adapter retains the
-  complete tenant, effect, idempotency, and GraphQL-selection API for later handler-level evidence.
+- Six tenant-resolved handlers publish their resolved organization and contract-relevant durable
+  reads or writes into a bounded request-local ledger after the backing operation succeeds. They
+  explicitly close that ledger before `effectsComplete:true` is emitted. Missing tenant evidence,
+  an error path, or ledger overflow keeps completeness false. Sign-in remains shape/status-only
+  because no organization has been selected at that point. The entire ledger is absent unless both
+  the process opt-in and per-request trace header are present.
 - Secret fields retain only redacted type and length/item-count metadata. Those facts safely enforce
   type and size constraints; pattern, enum, format, nested object shape, and exact identity are
   deliberately not claimed after redaction.

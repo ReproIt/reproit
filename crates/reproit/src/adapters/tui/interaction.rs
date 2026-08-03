@@ -268,7 +268,8 @@ pub(super) fn mouse_probe(
     emit("JOURNEY[a] step: mouse probe (Signal B) enabled");
     // Find the start-screen hotspots once (from a throwaway session), then click
     // each from its own fresh relaunch so the click is the ONLY input.
-    let Ok((master0, mut child0, parser0, _w0, _e0, mouse0)) = spawn_session(cmdline) else {
+    let Ok((master0, mut child0, parser0, _w0, _e0, mouse0, _timeline0)) = spawn_session(cmdline)
+    else {
         return;
     };
     std::thread::sleep(Duration::from_millis(900));
@@ -281,7 +282,9 @@ pub(super) fn mouse_probe(
         return;
     }
     for hs in &hotspots {
-        let Ok((master, mut child, parser, writer, _erases, mouse)) = spawn_session(cmdline) else {
+        let Ok((master, mut child, parser, writer, _erases, mouse, _timeline)) =
+            spawn_session(cmdline)
+        else {
             continue;
         };
         std::thread::sleep(Duration::from_millis(900));

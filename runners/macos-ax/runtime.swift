@@ -2,6 +2,194 @@ import ApplicationServices
 import Cocoa
 import Foundation
 
+struct AXOracleNode {
+  let key: String
+  let element: AXUIElement
+  let role: String
+}
+
+struct AXFocusArm {
+  let key: String
+  let element: AXUIElement
+  let role: String
+  let dialogCount: Int
+}
+
+func axFocusLossDecision(
+  complete: Bool, role: String, sameIdentity: Bool, sameDialogs: Bool, sameScreen: Bool,
+  focusedTarget: Bool, focusIsWindow: Bool
+) -> Bool {
+  complete && role != "link" && sameIdentity && sameDialogs && sameScreen && !focusedTarget
+    && focusIsWindow
+}
+
+func axFocusArm(_ snapshot: Snapshot, _ target: AXUIElement?) -> AXFocusArm? {
+  guard let target = target, axBool(target, kAXFocusedAttribute as String) == true else {
+    return nil
+  }
+  guard let node = snapshot.oracleNodes.values.first(where: { CFEqual($0.element, target) }) else {
+    return nil
+  }
+  return AXFocusArm(
+    key: node.key, element: target, role: node.role, dialogCount: snapshot.dialogCount)
+}
+
+func axFocusWasLost(
+  _ arm: AXFocusArm?, _ after: Snapshot?, _ app: AXUIElement?, _ sameScreen: Bool
+) -> Bool {
+  guard let arm = arm, let after = after, let app = app, arm.role != "link", sameScreen,
+    arm.dialogCount == after.dialogCount, let target = after.oracleNodes[arm.key],
+    CFEqual(arm.element, target.element)
+  else { return false }
+  var focusedValue: CFTypeRef?
+  guard AXUIElementCopyAttributeValue(
+    app, kAXFocusedUIElementAttribute as CFString, &focusedValue) == .success,
+    let focusedValue = focusedValue, CFGetTypeID(focusedValue) == AXUIElementGetTypeID()
+  else { return false }
+  let focused = focusedValue as! AXUIElement
+  let focusedTarget = CFEqual(focused, target.element)
+  let role = axRoleOf(focused)
+  return axFocusLossDecision(
+    complete: true, role: arm.role, sameIdentity: true, sameDialogs: true, sameScreen: true,
+    focusedTarget: focusedTarget,
+    focusIsWindow: role == "dialog"
+      || axStr(focused, kAXRoleAttribute) == (kAXWindowRole as String))
+}
+
+func axPointIsPresented(_ point: CGPoint) -> Bool {
+  var count: UInt32 = 0
+  guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return false }
+  var displays = [CGDirectDisplayID](repeating: 0, count: Int(count))
+  guard CGGetActiveDisplayList(count, &displays, &count) == .success else { return false }
+  return displays.prefix(Int(count)).contains { CGDisplayBounds($0).contains(point) }
+}
+
+struct AXScrollPoint: Equatable {
+  let position: String
+  let text: String
+  let shape: String
+}
+
+struct AXScrollSample {
+  let offset: Int
+  let points: [AXScrollPoint?]
+}
+
+func normalizeAXScrollText(_ text: String) -> String {
+  var output = ""
+  var inNumber = false
+  for character in text.prefix(120) {
+    if character.isNumber || character == "." || character == "," || character == ":" {
+      if !inNumber { output.append("#") }
+      inNumber = true
+    } else {
+      inNumber = false
+      output.append(character)
+    }
+  }
+  return output.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+}
+
+func axNumber(_ element: AXUIElement, _ attribute: String) -> Double? {
+  (axCopy(element, attribute) as? NSNumber)?.doubleValue
+}
+
+func axScrollSample(
+  _ viewport: AXUIElement, _ scrollbar: AXUIElement, _ active: Bool
+) -> AXScrollSample? {
+  guard active, let frame = axFrameOf(viewport), frame.width >= 8, frame.height >= 8,
+    let value = axNumber(scrollbar, kAXValueAttribute as String),
+    let minimum = axNumber(scrollbar, kAXMinValueAttribute as String),
+    let maximum = axNumber(scrollbar, kAXMaxValueAttribute as String), maximum > minimum
+  else { return nil }
+  let system = AXUIElementCreateSystemWide()
+  var points: [AXScrollPoint?] = []
+  for fraction in [2, 5, 8] {
+    let point = CGPoint(x: frame.midX, y: frame.minY + frame.height * CGFloat(fraction) / 10)
+    guard axPointIsPresented(point) else { return nil }
+    var hit: AXUIElement?
+    let hitResult = AXUIElementCopyElementAtPosition(
+      system, Float(point.x), Float(point.y), &hit)
+    guard hitResult == .success,
+      let hit = hit
+    else { return nil }
+    let text = labelOf(hit).trimmingCharacters(in: .whitespacesAndNewlines)
+    if text.isEmpty || axFrameOf(hit) == nil {
+      points.append(nil)
+    } else {
+      let bounds = axFrameOf(hit)!
+      points.append(AXScrollPoint(
+        position: "y=\(fraction)", text: normalizeAXScrollText(text),
+        shape: "\(axRoleOf(hit))|\(Int(bounds.width))|\(Int(bounds.height))"))
+    }
+  }
+  return AXScrollSample(
+    offset: Int((((value - minimum) / (maximum - minimum)) * 1000).rounded()), points: points)
+}
+
+func axScrollRoundTripItems(
+  _ before: AXScrollSample?, _ away: AXScrollSample?, _ returned: AXScrollSample?,
+  _ confirmed: AXScrollSample?
+) -> [[String: String]] {
+  guard let before = before, let away = away, let returned = returned, let confirmed = confirmed,
+    before.points.count == away.points.count, before.points.count == returned.points.count,
+    before.points.count == confirmed.points.count, before.offset == returned.offset,
+    returned.offset == confirmed.offset, away.offset != before.offset
+  else { return [] }
+  var items: [[String: String]] = []
+  for index in before.points.indices {
+    guard let old = before.points[index], let moved = away.points[index],
+      let back = returned.points[index], let stable = confirmed.points[index],
+      old.position == back.position, back.position == stable.position, old.shape == back.shape,
+      back.shape == stable.shape, back.text == stable.text, old.text != back.text,
+      old.text != moved.text
+    else { continue }
+    items.append(["pos": old.position, "before": old.text, "after": back.text])
+  }
+  return items
+}
+
+func axScrollRoundTrip(_ app: AXUIElement, _ active: Bool) -> [[String: String]] {
+  guard active else { return [] }
+  var candidates: [(area: CGFloat, viewport: AXUIElement, scrollbar: AXUIElement)] = []
+  func walk(_ element: AXUIElement, _ depth: Int) {
+    if depth > 60 { return }
+    if axStr(element, kAXRoleAttribute) == (kAXScrollAreaRole as String),
+      let scrollbarValue = axCopy(element, kAXVerticalScrollBarAttribute as String),
+      CFGetTypeID(scrollbarValue) == AXUIElementGetTypeID(), let frame = axFrameOf(element)
+    {
+      candidates.append((frame.width * frame.height, element, scrollbarValue as! AXUIElement))
+    }
+    for child in axChildren(element) { walk(child, depth + 1) }
+  }
+  walk(app, 0)
+  guard let candidate = candidates.max(by: { $0.area < $1.area }),
+    let original = axNumber(candidate.scrollbar, kAXValueAttribute as String),
+    let minimum = axNumber(candidate.scrollbar, kAXMinValueAttribute as String),
+    let maximum = axNumber(candidate.scrollbar, kAXMaxValueAttribute as String), maximum > minimum
+  else { return [] }
+  var settable = DarwinBoolean(false)
+  guard AXUIElementIsAttributeSettable(
+    candidate.scrollbar, kAXValueAttribute as CFString, &settable) == .success,
+    settable.boolValue
+  else { return [] }
+  let before = axScrollSample(candidate.viewport, candidate.scrollbar, active)
+  let awayValue = original < (minimum + maximum) / 2 ? maximum : minimum
+  guard AXUIElementSetAttributeValue(
+    candidate.scrollbar, kAXValueAttribute as CFString, NSNumber(value: awayValue)) == .success
+  else { return [] }
+  Thread.sleep(forTimeInterval: 0.12)
+  let away = axScrollSample(candidate.viewport, candidate.scrollbar, active)
+  guard AXUIElementSetAttributeValue(
+    candidate.scrollbar, kAXValueAttribute as CFString, NSNumber(value: original)) == .success
+  else { return [] }
+  Thread.sleep(forTimeInterval: 0.12)
+  let returned = axScrollSample(candidate.viewport, candidate.scrollbar, active)
+  Thread.sleep(forTimeInterval: 0.12)
+  let confirmed = axScrollSample(candidate.viewport, candidate.scrollbar, active)
+  return axScrollRoundTripItems(before, away, returned, confirmed)
+}
+
 enum InspectionControlError: Error {
   case stopped
   case timedOut

@@ -26,7 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential pkg-config ca-certificates curl \
     libssl-dev libwebkit2gtk-4.1-dev webkit2gtk-driver \
     libayatana-appindicator3-dev librsvg2-dev \
-    xvfb dbus dbus-x11 at-spi2-core \
+    xvfb dbus dbus-x11 at-spi2-core ffmpeg xdotool \
     && rm -rf /var/lib/apt/lists/*
 RUN cargo install tauri-driver --locked
 EOF
@@ -64,6 +64,28 @@ grep -q 'key:id:overflow-message' /tmp/run.log
 grep -q '^JOURNEY DONE$' /tmp/run.log
 grep -q '^All tests passed$' /tmp/run.log
 ! grep -q 'EXCEPTION CAUGHT BY REPROIT' /tmp/run.log
+
+printf '{"replay":["tap:key:testid:flicker-positive"],"budget":1}' > /tmp/flicker-positive.json
+REPROIT_APP=/tmp/fixture/src-tauri/target/debug/reproit-tauri-fixture \
+REPROIT_FUZZ_CONFIG=/tmp/flicker-positive.json \
+REPROIT_FLICKER_PIXELS=1 \
+REPROIT_FLICKER_DIAGNOSTICS=1 \
+node /tmp/runners/tauri.mjs | tee /tmp/flicker-positive.log
+grep -q '^EXPLORE:FLICKER ' /tmp/flicker-positive.log
+
+printf '{"replay":["tap:key:testid:flicker-fixed"],"budget":1}' > /tmp/flicker-fixed.json
+REPROIT_APP=/tmp/fixture/src-tauri/target/debug/reproit-tauri-fixture \
+REPROIT_FUZZ_CONFIG=/tmp/flicker-fixed.json \
+REPROIT_FLICKER_PIXELS=1 \
+node /tmp/runners/tauri.mjs | tee /tmp/flicker-fixed.log
+! grep -q '^EXPLORE:FLICKER ' /tmp/flicker-fixed.log
+
+printf '{"replay":["tap:key:testid:flicker-one-way"],"budget":1}' > /tmp/flicker-one-way.json
+REPROIT_APP=/tmp/fixture/src-tauri/target/debug/reproit-tauri-fixture \
+REPROIT_FUZZ_CONFIG=/tmp/flicker-one-way.json \
+REPROIT_FLICKER_PIXELS=1 \
+node /tmp/runners/tauri.mjs | tee /tmp/flicker-one-way.log
+! grep -q '^EXPLORE:FLICKER ' /tmp/flicker-one-way.log
 echo 'WebCdp backend passed native Tauri/WebKit runtime'
 EOF
 
@@ -80,3 +102,4 @@ EOF
 bash "$ROOT/validation/backends/docker-build-retry.sh" -t "$IMAGE" "$WORK"
 docker run --rm -v "$ROOT:/repo:ro$VOLUME_LABEL" -v "$WORK:/work:ro$VOLUME_LABEL" \
   "$IMAGE" bash /work/entry.sh
+exit 0

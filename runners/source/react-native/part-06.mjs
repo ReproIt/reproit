@@ -693,6 +693,8 @@
       // WAKELOCK: the locks held ON this screen, sampled before the tap (outside the
       // HANG timing window below so it doesn't inflate the blocked-time measure).
       const wlBefore = await sampleWakelocks(driver, pkg);
+      const flickerCapture = clip ? null : await startTransitionFlicker(driver);
+      if (flickerCapture) await driver.pause(500);
       // HANG: time the action's blocking wall-clock. We measure tap + settle only
       // (NOT the subsequent observe, which is a page-source round-trip whose latency
       // is unrelated to the app's responsiveness), so the floor reflects the app
@@ -700,12 +702,27 @@
       const tHang0 = Date.now();
       const ok = await tap(driver, sel, current);
       if (!ok) {
+        await finishTransitionFlicker(driver, flickerCapture);
         log('FUZZ:MISS ' + act);
         stuck++;
         continue;
       }
-      await driver.pause(800);
-      const blockedMs = Date.now() - tHang0 - 800; // subtract the fixed settle pause
+      const settleStarted = Date.now();
+      await settleTransitionFlicker(driver);
+      const settleMs = Date.now() - settleStarted;
+      const blockedMs = Date.now() - tHang0 - settleMs;
+      const flicker = await finishTransitionFlicker(driver, flickerCapture);
+      if (flicker) {
+        log(
+          'EXPLORE:FLICKER ' +
+            JSON.stringify({
+              from: before,
+              action: 'tap:' + sel,
+              peak: flicker.peak,
+              frames: flicker.frames,
+            }),
+        );
+      }
       // Crash oracle: if the target app left the foreground after this tap, the app
       // crashed (uncaught exception -> process died -> launcher).
       if (await appCrashed(driver)) {

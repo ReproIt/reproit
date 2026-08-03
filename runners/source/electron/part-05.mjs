@@ -459,6 +459,65 @@
             }),
         );
       }
+      // Explicit indicator relationships are application-authored. Missing,
+      // ambiguous, hidden, transformed, or animating relationships abstain.
+      // A violation must be byte-identical in two settled samples.
+      const relation1 = await page.evaluate(indicatorRelationshipScan).catch(() => null);
+      let relation2 = null;
+      if (relation1?.outcome === 'VIOLATION') {
+        await page.waitForTimeout(120);
+        relation2 = await page.evaluate(indicatorRelationshipScan).catch(() => null);
+        const relations = confirmRelationshipViolations(relation1, relation2);
+        if (relations.length) {
+          log(
+            'EXPLORE:RELATION ' +
+              JSON.stringify({
+                sig: snap.sig,
+                ...(snap.anchor ? { route: snap.anchor } : {}),
+                items: relations,
+              }),
+          );
+        }
+      }
+      const relationStatus = relation2 || relation1;
+      if (relationStatus) {
+        log(
+          'EXPLORE:RELATIONSTATUS ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              outcome: relationStatus.outcome,
+              checks: relationStatus.checks,
+            }),
+        );
+      }
+      // Chromium's computed accessibility tree is independent of the live
+      // native DOM property channel. The shared scanner samples both twice and
+      // turns every missing, changing, or authored-ARIA case into ABSTAIN.
+      const a11yState = await scanAccessibilityStateParity(page).catch(() => ({
+        outcome: 'ABSTAIN',
+        checks: [],
+        items: [],
+      }));
+      log(
+        'EXPLORE:A11YSTATESTATUS ' +
+          JSON.stringify({
+            sig: snap.sig,
+            ...(snap.anchor ? { route: snap.anchor } : {}),
+            outcome: a11yState.outcome,
+            checks: a11yState.checks,
+          }),
+      );
+      if (a11yState.items.length) {
+        log(
+          'EXPLORE:A11YSTATE ' +
+            JSON.stringify({
+              sig: snap.sig,
+              ...(snap.anchor ? { route: snap.anchor } : {}),
+              items: a11yState.items,
+            }),
+        );
+      }
       const sec = await page.evaluate(securityScan).catch(() => null);
       if (sec && sec.length) {
         log(

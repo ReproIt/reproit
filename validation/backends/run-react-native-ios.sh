@@ -26,6 +26,7 @@ npx --yes @react-native-community/cli@15.1.3 init ReproitRnFixture \
 cp "$ROOT/fixtures/react-native-fixture/App.tsx" "$WORK/app/App.tsx"
 cp "$ROOT/fixtures/react-native-fixture/index.js" "$WORK/app/index.js"
 npm install --prefix "$WORK/app" --no-audit --no-fund
+npm ci --prefix "$ROOT/runners/rn" --no-audit --no-fund
 
 export RCT_NEW_ARCH_ENABLED=0
 (cd "$WORK/app/ios" && pod install)
@@ -76,7 +77,7 @@ raise SystemExit("no free WebDriverAgent port in bounded range 18201-18232")
 ')"
 echo "React Native iOS runtime: iOS $IOS_VERSION, WebDriverAgent port: $WDA_PORT"
 
-printf '{"budget":1}' > "$WORK/fuzz.json"
+printf '{"replay":["tap:key:toggle"],"budget":1}' > "$WORK/fuzz.json"
 export REPROIT_APPIUM_URL="$APPIUM_URL"
 export REPROIT_APPIUM_CONNECT_TIMEOUT_MS=1200000
 export REPROIT_APPIUM_CAPS
@@ -102,5 +103,20 @@ grep -q "^All tests passed$" "$WORK/run.log"
 if grep -q "EXCEPTION CAUGHT BY RN RUNNER" "$WORK/run.log"; then
   exit 1
 fi
+
+printf '{"replay":["tap:key:flicker-positive"],"budget":1}' > "$WORK/flicker-positive.json"
+REPROIT_FUZZ_CONFIG="$WORK/flicker-positive.json" REPROIT_FLICKER_PIXELS=1 \
+  node "$ROOT/runners/rn/runner.mjs" | tee "$WORK/flicker-positive.log"
+grep -q '^EXPLORE:FLICKER ' "$WORK/flicker-positive.log"
+
+printf '{"replay":["tap:key:flicker-fixed"],"budget":1}' > "$WORK/flicker-fixed.json"
+REPROIT_FUZZ_CONFIG="$WORK/flicker-fixed.json" REPROIT_FLICKER_PIXELS=1 \
+  node "$ROOT/runners/rn/runner.mjs" | tee "$WORK/flicker-fixed.log"
+! grep -q '^EXPLORE:FLICKER ' "$WORK/flicker-fixed.log"
+
+printf '{"replay":["tap:key:flicker-one-way"],"budget":1}' > "$WORK/flicker-one-way.json"
+REPROIT_FUZZ_CONFIG="$WORK/flicker-one-way.json" REPROIT_FLICKER_PIXELS=1 \
+  node "$ROOT/runners/rn/runner.mjs" | tee "$WORK/flicker-one-way.log"
+! grep -q '^EXPLORE:FLICKER ' "$WORK/flicker-one-way.log"
 
 echo "Appium backend passed native React Native iOS simulator runtime"

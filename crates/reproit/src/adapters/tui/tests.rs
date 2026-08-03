@@ -166,6 +166,26 @@ fn count_full_erases_counts_only_full_screen_clears() {
 }
 
 #[test]
+fn rerender_requires_a_persisted_presented_erase() {
+    let visible_blank = vec![(80, String::new()), (200, "┌──┐\n│B │\n└──┘".to_string())];
+    assert!(presented_full_erase(
+        "┌──┐\n│A │\n└──┘",
+        "┌──┐\n│B │\n└──┘",
+        &visible_blank,
+    ));
+    assert!(!presented_full_erase(
+        "┌──┐\n│A │\n└──┘",
+        "┌──┐\n│B │\n└──┘",
+        &[(10, String::new())],
+    ));
+    assert!(!presented_full_erase(
+        "┌──┐\n│A │\n└──┘",
+        "┌──┐\n│B │\n└──┘",
+        &[(200, "┌──┐\n│B │\n└──┘".to_string())],
+    ));
+}
+
+#[test]
 fn mouse_click_uses_the_protocol_requested_by_the_app() {
     let protocol = AtomicU8::new(0);
     observe_mouse_protocol(b"\x1b[?1000h", &protocol);
@@ -247,6 +267,31 @@ fn churned_chrome_rows_flags_unchanged_box_rows_only() {
     // Cap bounds the output.
     let wide = grid(&["\u{2500}", "\u{2500}", "\u{2500}"]);
     assert_eq!(churned_chrome_rows(&wide, &wide, 2).len(), 2, "capped");
+}
+
+#[test]
+fn terminal_flicker_requires_a_persisted_overshoot() {
+    let start = "AAAABBBB";
+    let end = "AAAACCCC";
+    let flash = "        ";
+    assert_eq!(
+        terminal_flicker(start, end, &[(60, flash.into())]),
+        Some((1.0, 3))
+    );
+    assert_eq!(terminal_flicker(start, end, &[(20, flash.into())]), None);
+    assert_eq!(terminal_flicker(start, end, &[(60, end.into())]), None);
+}
+
+#[test]
+fn synchronized_output_tracking_suppresses_unpresented_frames() {
+    let mut tail = Vec::new();
+    let mut active = false;
+    update_synchronized_output(b"\x1b[?20", &mut tail, &mut active);
+    assert!(!active);
+    update_synchronized_output(b"26hpartial", &mut tail, &mut active);
+    assert!(active);
+    update_synchronized_output(b"paint\x1b[?2026l", &mut tail, &mut active);
+    assert!(!active);
 }
 
 #[test]

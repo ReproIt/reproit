@@ -304,11 +304,11 @@
       "releaseGates": {
         "macos-ax": "macos"
       },
-      "fieldBenchmark": null,
+      "fieldBenchmark": "validation/field/macos-ax.json",
       "evidence": {
-        "cleanCorpus": "missing",
-        "adversarialCorpus": "missing",
-        "packageInstall": "missing",
+        "cleanCorpus": "evidence",
+        "adversarialCorpus": "evidence",
+        "packageInstall": "ci-gate",
         "manualReview": "field-benchmark"
       },
       "bounds": {

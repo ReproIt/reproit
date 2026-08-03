@@ -403,15 +403,19 @@
         "macos-ax": "macos"
       },
       "evidence": {
-        "fieldBenchmark": null,
+        "fieldBenchmark": "validation/field/macos-ax.json",
         "cleanCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/macos-ax.json"
         },
         "adversarialCorpus": {
-          "kind": "missing"
+          "kind": "evidence",
+          "path": "validation/field/corpus/macos-ax.json"
         },
         "packageInstall": {
-          "kind": "missing"
+          "kind": "ci-gate",
+          "job": "rust",
+          "step": "Package every platform SDK release archive"
         },
         "manualReview": {
           "kind": "field-benchmark"

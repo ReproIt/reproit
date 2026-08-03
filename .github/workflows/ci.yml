@@ -84,12 +84,14 @@ jobs:
           # which is the number people actually ask about.
           node validation/backend/benchmark.mjs
           node validation/backend/adapter-benchmark.mjs
+          node validation/backend/dependency-benchmark.mjs
           python3 validation/capabilities/check.py
           python3 -m unittest discover \
             -s validation/capabilities -p 'test_*.py'
           python3 validation/oracles/check.py --check-generated
           python3 -m unittest discover \
             -s validation/oracles -p 'test_*.py'
+          node --test validation/oracles/*.test.mjs
       - name: Test production-to-local chain retention and redaction
         run: node --test validation/cloud/retain-production-chain.test.mjs
       - name: Test native release evidence validation
@@ -346,7 +348,14 @@ jobs:
         run: python3 sdk/check-behavior-coverage.py
       - name: node (reproit-backend-node)
         working-directory: sdk/reproit-backend-node
-        run: node --test test/trace.test.js test/capture.test.js test/ci.test.js test/instrument.test.js test/replay.test.js test/behavior-vectors.test.js
+        run: |
+          node --test \
+            test/trace.test.js \
+            test/capture.test.js \
+            test/ci.test.js \
+            test/instrument.test.js \
+            test/replay.test.js \
+            test/behavior-vectors.test.js
       # e2e stands up a real express and a real fastify app, so it needs the
       # devDependencies. It was the one file in test/ that CI never ran.
       - name: node e2e (reproit-backend-node)
@@ -365,11 +374,20 @@ jobs:
       - name: go adapter cost (reproit-backend-go)
         working-directory: validation/backend/adapter-benchmark-go
         run: go run .
+      - name: go dependency capture cost (reproit-backend-go)
+        working-directory: validation/backend/dependency-benchmark-go
+        run: go run .
       - name: python (reproit-backend-py)
         working-directory: sdk/reproit-backend-py
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          uv run --group test -m pytest tests/test_trace.py tests/test_capture.py tests/test_instrument.py tests/test_replay.py tests/test_behavior_vectors.py tests/test_ci.py
+          uv run --group test -m pytest \
+            tests/test_trace.py \
+            tests/test_capture.py \
+            tests/test_instrument.py \
+            tests/test_replay.py \
+            tests/test_behavior_vectors.py \
+            tests/test_ci.py
       # The sixth file under tests/, which CI never ran: a real uvicorn-served
       # FastAPI app with a planted 500 against a stub ingest.
       - name: python e2e (reproit-backend-py)
@@ -384,14 +402,18 @@ jobs:
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           uv run --group e2e python ../../validation/backend/adapter-benchmark.py
+          uv run python ../../validation/backend/dependency-benchmark.py
       # The instrument feature carries the whole hermetic capture and replay
       # path and was never compiled by the workspace jobs, which build default
       # features only. A feature that CI never builds is a feature nothing
       # gates.
       - name: rust (reproit-backend-rs, all features)
         run: |
-          cargo clippy -p reproit-backend --features axum,actix,instrument,pg --all-targets -- -D warnings
+          cargo clippy -p reproit-backend \
+            --features axum,actix,instrument,pg \
+            --all-targets -- -D warnings
           cargo test -p reproit-backend --features instrument,pg
+          cargo run -p reproit-backend --example adapter_benchmark --features axum
 
   # The other four backend SDKs. Until this job they had no mention in ci.yml at
   # all: their suites existed, passed, and gated nothing, which is what the
@@ -440,6 +462,7 @@ jobs:
           ruby sdk/reproit-backend-rb/test/behavior_vectors_test.rb
           ruby sdk/reproit-backend-rb/test/ci_test.rb
           ruby sdk/reproit-backend-rb/test/e2e_test.rb
+          ruby sdk/reproit-backend-rb/test/adapter_benchmark.rb
       - name: php (reproit-backend-php)
         run: |
           php sdk/reproit-backend-php/test/trace_test.php
@@ -449,6 +472,7 @@ jobs:
           php sdk/reproit-backend-php/test/psr15_test.php
           php sdk/reproit-backend-php/test/behavior_vectors_test.php
           php sdk/reproit-backend-php/test/e2e_test.php
+          php sdk/reproit-backend-php/test/adapter_benchmark.php
 
   # The Tauri plugin and the source-neutral recorder. Both shipped with a suite
   # and no CI job at all, so a regression in either was a release problem rather
