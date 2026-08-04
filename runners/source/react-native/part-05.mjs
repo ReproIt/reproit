@@ -407,4 +407,48 @@ async function runScenarioActor(driver, valueNodeSelectors) {
 
 export { runScenarioActor, execScenarioAction, locatorsFor };
 
+const SESSION_DELETE_TIMEOUT_MS = 10_000;
+const SESSION_DELETE_GRACE_MS = 250;
+
+// Session creation can need a long timeout while XCUITest builds WDA. Reusing
+// that timeout for DELETE /session can strand an otherwise complete journey
+// until the outer native gate is killed. The Appium and simulator wrappers own
+// final process cleanup, so a bounded delete failure is recorded and handed
+// back to those owners instead of being mistaken for an application failure.
+export async function closeDriverSession(driver) {
+  if (driver.options && typeof driver.options === 'object') {
+    driver.options.connectionRetryTimeout = SESSION_DELETE_TIMEOUT_MS;
+    driver.options.connectionRetryCount = 0;
+  }
+
+  let timeout;
+  const deleteOutcome = Promise.resolve()
+    .then(() => driver.deleteSession())
+    .then(
+      () => 'deleted',
+      () => 'fallback',
+    );
+  const boundedOutcome = new Promise((resolve) => {
+    timeout = setTimeout(
+      () => resolve('fallback'),
+      SESSION_DELETE_TIMEOUT_MS + SESSION_DELETE_GRACE_MS,
+    );
+  });
+  const outcome = await Promise.race([deleteOutcome, boundedOutcome]);
+  clearTimeout(timeout);
+  if (outcome === 'fallback') {
+    log(
+      'REPROIT:CLEANUP ' +
+        JSON.stringify({
+          session: 'appium',
+          outcome,
+          reason: 'delete-session-unavailable',
+          timeoutMs: SESSION_DELETE_TIMEOUT_MS,
+          owner: 'appium-and-target-wrapper',
+        }),
+    );
+  }
+  return outcome;
+}
+
 async function main() {

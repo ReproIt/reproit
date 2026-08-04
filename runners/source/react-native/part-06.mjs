@@ -102,7 +102,7 @@
   if (process.env.REPROIT_SCENARIO_BARRIER) {
     log('JOURNEY[a] step: scenario actor=' + (process.env.REPROIT_DEVICE || 'a'));
     await runScenarioActor(driver, loadValueNodes());
-    await driver.deleteSession();
+    await closeDriverSession(driver);
     return;
   }
 
@@ -793,7 +793,7 @@
 
   log('JOURNEY DONE');
   log(anyCrashed ? 'Some tests failed' : 'All tests passed');
-  await driver.deleteSession();
+  await closeDriverSession(driver);
 }
 
 // Only auto-run when invoked directly (not when imported by the parity test).
