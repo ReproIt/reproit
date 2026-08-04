@@ -333,8 +333,29 @@ fn backend_config(schema_relative: &str, target: Option<&str>, dir: &Path) -> Re
     };
     Ok(format!(
         "# Reproit backend config. The schema owns structural contracts.\nbackend:\n  enabled: \
-         true\n  schemas:\n    - {relative}\n{target}{exec}"
+         true\n  schemas:\n    - {relative}\n{target}{exec}\n{}",
+        execution_provider_template()
     ))
+}
+
+fn execution_provider_template() -> &'static str {
+    "# Imported failures execute only checkout-owned, bounded argv providers.\n\
+     # Review and uncomment this example after replacing the command and exact identity.\n\
+     # A server boot command must daemonize, prove readiness, and exit before its timeout.\n\
+     # See docs/execution-providers.md for reset, seed, launch, trigger, and cleanup phases.\n\
+     # execution:\n\
+     #   version: 1\n\
+     #   providers:\n\
+     #     reproduce-known-failure:\n\
+     #       authority: trusted-checkout\n\
+     #       phase: trigger\n\
+     #       argv: [\"./scripts/reproduce-known-failure\"]\n\
+     #       timeoutMs: 30000\n\
+     #       cleanExitCodes: [0]\n\
+     #       observation:\n\
+     #         identity: \"replace-with-exact-failure-signature\"\n\
+     #         kind: exit-code\n\
+     #         code: 17\n"
 }
 
 /// Persist a schema fetched from a URL (`reproit init <schema-url>`): snapshot

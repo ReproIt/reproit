@@ -16,19 +16,19 @@ shown by ReproIt Cloud:
 
 ```sh
 mkdir -p src/vendor
-curl -fsSLo src/vendor/reproit-web-v1.0.0.js \
-  https://github.com/ReproIt/reproit/releases/download/v1.0.0/reproit-web-v1.0.0.js
-curl -fsSLo src/vendor/reproit-web-v1.0.0.js.sha256 \
-  https://github.com/ReproIt/reproit/releases/download/v1.0.0/reproit-web-v1.0.0.js.sha256
-(cd src/vendor && shasum -a 256 -c reproit-web-v1.0.0.js.sha256)
-cp src/vendor/reproit-web-v1.0.0.js src/vendor/reproit-web.js
+curl -fsSLo src/vendor/reproit-web-v1.0.1.js \
+  https://github.com/ReproIt/reproit/releases/download/v1.0.1/reproit-web-v1.0.1.js
+curl -fsSLo src/vendor/reproit-web-v1.0.1.js.sha256 \
+  https://github.com/ReproIt/reproit/releases/download/v1.0.1/reproit-web-v1.0.1.js.sha256
+(cd src/vendor && shasum -a 256 -c reproit-web-v1.0.1.js.sha256)
+cp src/vendor/reproit-web-v1.0.1.js src/vendor/reproit-web.js
 ```
 
 For a package-manager install without relying on a registry:
 
 ```sh
 npm install \
-  https://github.com/ReproIt/reproit/releases/download/v1.0.0/reproit-web-v1.0.0.tgz
+  https://github.com/ReproIt/reproit/releases/download/v1.0.1/reproit-web-v1.0.1.tgz
 ```
 
 ```html

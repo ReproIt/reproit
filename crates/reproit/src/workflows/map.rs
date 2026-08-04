@@ -321,6 +321,13 @@ pub(super) async fn debug_map(
             Ok(ExitCode::SUCCESS)
         }
         MapAction::SuggestContracts => {
+            if let Some(project) = super::backend_target::find_configured(config_path)? {
+                ctx.emit(&super::backend_contracts::suggestion_report(
+                    &project.root,
+                    &project.config,
+                )?);
+                return Ok(ExitCode::SUCCESS);
+            }
             let loaded = config::load(config_path)?;
             ensure_app_map(ctx, &loaded, "explore").await?;
             let (app_map, _) = map::load_snapshot(&loaded.root, &loaded.config)?;

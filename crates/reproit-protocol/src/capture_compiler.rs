@@ -6,10 +6,10 @@
 use crate::{
     AssessmentStatus, CapabilityAssessment, CaptureBatch, CaptureCapabilityKind,
     CaptureCompleteness, CaptureDefect, CaptureDefectKind, CaptureEventKind, CapturedValue,
-    CollectionMethod, DependencyKind, EvidenceSource, FailureObservation, OccurrenceEnvelope,
-    ProtocolError, ReasonCode, ReproductionRequirement, RequirementKind, RequirementLevel,
-    StateKind, SubjectIdentity, TriggerKind, UnresolvedRequirement, UnresolvedRequirementReason,
-    OCCURRENCE_VERSION,
+    CollectionMethod, DependencyKind, EnvironmentKind, EvidenceSource, FailureObservation,
+    OccurrenceEnvelope, ProtocolError, ReasonCode, ReproductionRequirement, RequirementKind,
+    RequirementLevel, StateKind, SubjectIdentity, TriggerKind, UnresolvedRequirement,
+    UnresolvedRequirementReason, OCCURRENCE_VERSION,
 };
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -243,6 +243,43 @@ fn assess(
                     unresolved.push(missing_capability(id, state_capability(*state)));
                 }
             }
+            CaptureEventKind::EnvironmentRead {
+                environment,
+                subject,
+                value,
+            } => {
+                let key = format!("environment:{environment:?}:{subject}");
+                if !seen.insert(key) {
+                    continue;
+                }
+                let id = requirement_id(requirement_number, "environment");
+                requirement_number += 1;
+                let artifact = value.as_ref().and_then(artifact_id);
+                requirements.push(ReproductionRequirement {
+                    id: id.clone(),
+                    level: RequirementLevel::Required,
+                    requirement: RequirementKind::Environment {
+                        environment: *environment,
+                        required_value: deterministic_required_value(subject, value.as_ref()),
+                    },
+                    evidence_artifact_ids: artifact.clone().into_iter().collect(),
+                });
+                if value.is_none() {
+                    unresolved.push(missing_evidence(id, "deterministic environment value"));
+                } else if value.as_ref().is_some_and(structural_only) {
+                    unresolved.push(missing_evidence(id, "replayable deterministic value"));
+                } else if requires_stream_artifact(*environment) && artifact.is_none() {
+                    unresolved.push(missing_evidence(id, "artifact-backed deterministic stream"));
+                } else if value
+                    .as_ref()
+                    .is_some_and(|value| environment_bound(value, scope))
+                {
+                    unresolved.push(environment_bound_requirement(id));
+                } else if !capability_complete(&capabilities, environment_capability(*environment))
+                {
+                    unresolved.push(missing_capability(id, environment_capability(*environment)));
+                }
+            }
             CaptureEventKind::Dependency {
                 system,
                 subject,
@@ -255,7 +292,12 @@ fn assess(
                 }
                 let id = requirement_id(requirement_number, "dependency");
                 requirement_number += 1;
-                let dependency = if value
+                let open_telemetry_topology = batch.emitter.kind
+                    == crate::CaptureEmitterKind::TelemetryAdapter
+                    && capabilities.contains_key(&CaptureCapabilityKind::OpenTelemetry);
+                let dependency = if open_telemetry_topology {
+                    DependencyKind::DistributedSystem
+                } else if value
                     .as_ref()
                     .is_some_and(|value| environment_bound(value, scope))
                 {
@@ -358,6 +400,32 @@ fn structural_only(value: &CapturedValue) -> bool {
     matches!(value, CapturedValue::Structural { .. })
 }
 
+fn deterministic_required_value(subject: &str, value: Option<&CapturedValue>) -> Option<String> {
+    match value {
+        Some(CapturedValue::Artifact { artifact_id, .. }) => {
+            Some(format!("artifact:{artifact_id}"))
+        }
+        Some(CapturedValue::Replayable { value, .. })
+            if value.is_string() || value.is_number() || value.is_boolean() =>
+        {
+            let encoded = value.to_string();
+            (encoded.len() <= crate::MAX_TEXT_BYTES).then(|| format!("{subject}:{encoded}"))
+        }
+        _ => Some(subject.to_string()),
+    }
+}
+
+fn requires_stream_artifact(environment: EnvironmentKind) -> bool {
+    matches!(
+        environment,
+        EnvironmentKind::Clock
+            | EnvironmentKind::WallClock
+            | EnvironmentKind::MonotonicClock
+            | EnvironmentKind::Randomness
+            | EnvironmentKind::RandomBytes
+    )
+}
+
 fn capability_complete(
     capabilities: &BTreeMap<CaptureCapabilityKind, CaptureCompleteness>,
     required: CaptureCapabilityKind,
@@ -394,6 +462,18 @@ fn state_capability(state: StateKind) -> CaptureCapabilityKind {
         StateKind::ObjectStore => CaptureCapabilityKind::ObjectStore,
         StateKind::ApplicationStorage => CaptureCapabilityKind::Filesystem,
         StateKind::Device => CaptureCapabilityKind::Device,
+    }
+}
+
+fn environment_capability(environment: EnvironmentKind) -> CaptureCapabilityKind {
+    match environment {
+        EnvironmentKind::Clock | EnvironmentKind::WallClock | EnvironmentKind::MonotonicClock => {
+            CaptureCapabilityKind::Clock
+        }
+        EnvironmentKind::Randomness
+        | EnvironmentKind::RandomSeed
+        | EnvironmentKind::RandomBytes => CaptureCapabilityKind::Randomness,
+        _ => CaptureCapabilityKind::Environment,
     }
 }
 
@@ -624,5 +704,94 @@ mod tests {
             compiled.assessment.status,
             AssessmentStatus::EnvironmentBound
         );
+    }
+
+    #[test]
+    fn deterministic_inputs_compile_with_typed_clock_and_randomness_requirements() {
+        let mut batch = command_failure();
+        batch.capabilities.push(CaptureCapability {
+            capability: CaptureCapabilityKind::Clock,
+            completeness: CaptureCompleteness::Complete,
+            detail: None,
+        });
+        batch.capabilities.push(CaptureCapability {
+            capability: CaptureCapabilityKind::Randomness,
+            completeness: CaptureCompleteness::Complete,
+            detail: None,
+        });
+        batch.events.push(CaptureEvent {
+            id: "evt_5".into(),
+            sequence: 5,
+            monotonic_ns: 5,
+            wall_time: None,
+            process_id: Some(7),
+            thread_id: None,
+            actor: None,
+            causal_parent_ids: vec![],
+            trace_id: None,
+            span_id: None,
+            event: CaptureEventKind::EnvironmentRead {
+                environment: EnvironmentKind::RandomSeed,
+                subject: "seed".into(),
+                value: Some(CapturedValue::Replayable {
+                    value: serde_json::json!(42),
+                    redaction: crate::RedactionState::NotRequired,
+                }),
+            },
+        });
+        batch.events.push(CaptureEvent {
+            id: "evt_6".into(),
+            sequence: 6,
+            monotonic_ns: 6,
+            wall_time: None,
+            process_id: Some(7),
+            thread_id: None,
+            actor: None,
+            causal_parent_ids: vec![],
+            trace_id: None,
+            span_id: None,
+            event: CaptureEventKind::EnvironmentRead {
+                environment: EnvironmentKind::WallClock,
+                subject: "wall-clock-read-stream".into(),
+                value: Some(CapturedValue::Structural {
+                    shape: serde_json::json!({"reads": 3}),
+                }),
+            },
+        });
+
+        let compiled = compile_capture_failure(
+            &batch,
+            "2026-07-27T12:01:00Z",
+            CaptureAssessmentScope::Portable,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(compiled
+            .assessment
+            .requirements
+            .iter()
+            .any(|requirement| matches!(
+                &requirement.requirement,
+                RequirementKind::Environment {
+                    environment: EnvironmentKind::RandomSeed,
+                    required_value: Some(value),
+                } if value == "seed:42"
+            )));
+        assert!(compiled
+            .assessment
+            .requirements
+            .iter()
+            .any(|requirement| matches!(
+                requirement.requirement,
+                RequirementKind::Environment {
+                    environment: EnvironmentKind::WallClock,
+                    ..
+                }
+            )));
+        assert!(compiled
+            .assessment
+            .unresolved
+            .iter()
+            .any(|item| item.detail.contains("replayable deterministic value")));
     }
 }

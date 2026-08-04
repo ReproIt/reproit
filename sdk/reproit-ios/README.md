@@ -56,7 +56,7 @@ app target.
 
 ```sh
 git submodule add https://github.com/ReproIt/reproit Vendor/reproit
-git -C Vendor/reproit checkout v1.0.0
+git -C Vendor/reproit checkout v1.0.1
 ```
 
 Or in `Package.swift`:

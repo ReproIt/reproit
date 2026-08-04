@@ -114,6 +114,7 @@ mod tests {
     /// these racing would set the key out from under each other.
     #[test]
     fn a_supplied_capsule_key_is_shared_verbatim_refused_when_malformed_and_never_stored() {
+        let _environment = super::super::capsule_environment_lock();
         // Used verbatim, and never written: reproit does not own a key it was
         // handed, so it must not leave a copy behind for the next run.
         let dir = scratch("supplied");

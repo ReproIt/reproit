@@ -6,9 +6,9 @@
 
 use crate::{
     validate_optional_text, validate_optional_token, validate_text, validate_token, validate_value,
-    ArtifactPolicy, CaptureDefectKind, DeploymentIdentity, Event, EventBatch, EvidenceArtifact,
-    EvidencePolicy, ObservationAuthority, ObservationKind, ProtocolError, ReasonCode,
-    RedactionState, StateKind, TriggerKind, MAX_CONTEXT_BYTES, MAX_TEXT_BYTES,
+    ArtifactPolicy, CaptureDefectKind, DeploymentIdentity, EnvironmentKind, Event, EventBatch,
+    EvidenceArtifact, EvidencePolicy, ObservationAuthority, ObservationKind, ProtocolError,
+    ReasonCode, RedactionState, StateKind, TriggerKind, MAX_CONTEXT_BYTES, MAX_TEXT_BYTES,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -307,6 +307,12 @@ pub enum CaptureEventKind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         value: Option<CapturedValue>,
     },
+    EnvironmentRead {
+        environment: EnvironmentKind,
+        subject: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<CapturedValue>,
+    },
     Dependency {
         system: String,
         operation: DependencyOperation,
@@ -365,7 +371,9 @@ impl CaptureEventKind {
                 }
                 Ok(())
             }
-            Self::Trigger { subject, value, .. } | Self::StateAccess { subject, value, .. } => {
+            Self::Trigger { subject, value, .. }
+            | Self::StateAccess { subject, value, .. }
+            | Self::EnvironmentRead { subject, value, .. } => {
                 validate_text(subject, MAX_TEXT_BYTES)?;
                 if subject.is_empty() {
                     return Err(ProtocolError::new(ReasonCode::InvalidEvent));

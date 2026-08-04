@@ -6,11 +6,10 @@ use crate::adapters::execution::{
 use crate::interface::cli::context::Ctx;
 use anyhow::{Context, Result};
 use reproit_protocol::{
-    compile_capture_failure, ArtifactPolicy, CaptureAssessmentScope, CaptureCapability,
-    CaptureCapabilityKind, CaptureCompleteness, CaptureEmitter, CaptureEmitterKind,
-    CaptureEventKind, CapturedValue, CollectionMethod, ConsentClass, EvidenceArtifact,
-    EvidencePolicy, FailureRecord, ObservationAuthority, ObservationKind, OperationOutcome,
-    ProcessIdentity, RedactionState, TriggerKind,
+    compile_capture_failure, ArtifactPolicy, CaptureAssessmentScope, CaptureEmitter,
+    CaptureEmitterKind, CaptureEventKind, CapturedValue, CollectionMethod, ConsentClass,
+    EvidenceArtifact, EvidencePolicy, FailureRecord, ObservationAuthority, ObservationKind,
+    OperationOutcome, ProcessIdentity, RedactionState, TriggerKind,
 };
 use reproit_recorder::{EventContext, Recorder, RecorderConfig};
 use serde::Serialize;
@@ -21,6 +20,13 @@ use std::path::{Path, PathBuf};
 use std::process::{ExitCode, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt};
+
+mod capabilities;
+mod platform;
+mod platform_command;
+mod process_tree;
+
+pub(crate) use platform_command::{collect_platform, PlatformCollectArgs};
 
 const MAX_TIMEOUT_MS: u64 = 10 * 60 * 1000;
 const MAX_STREAM_BYTES: usize = 1024 * 1024;
@@ -142,7 +148,12 @@ pub(crate) async fn run(ctx: &Ctx, args: CommandCaptureArgs) -> Result<ExitCode>
         "application/json",
         "argv.json",
     )?;
-    let capabilities = initial_capabilities(args.include_output);
+    let capabilities = capabilities::initial(args.include_output);
+    let platform_collection = platform::collect(&component).await;
+    let deployment = deployment_from_environment(
+        platform_collection.evidence,
+        platform_collection.gaps.clone(),
+    );
     let mut recorder = Recorder::new(RecorderConfig {
         batch_id: batch_id.clone(),
         project_id: project,
@@ -154,7 +165,7 @@ pub(crate) async fn run(ctx: &Ctx, args: CommandCaptureArgs) -> Result<ExitCode>
             runtime: Some(std::env::consts::OS.to_string()),
             parent_id: None,
         },
-        deployment: deployment_from_environment(),
+        deployment,
         observed_at: observed_at.clone(),
         policy: EvidencePolicy {
             consent: ConsentClass::LocalAnalysis,
@@ -165,6 +176,16 @@ pub(crate) async fn run(ctx: &Ctx, args: CommandCaptureArgs) -> Result<ExitCode>
         max_artifacts: reproit_protocol::MAX_CAPTURE_ARTIFACTS,
     })?;
     recorder.add_artifact(argv_artifact.clone())?;
+    for gap in platform_collection.gaps {
+        recorder.record(
+            EventContext::default(),
+            CaptureEventKind::Defect {
+                defect: reproit_protocol::CaptureDefectKind::Unavailable,
+                detail: gap,
+                artifact_id: None,
+            },
+        );
+    }
 
     let mut command = tokio::process::Command::new(&args.command[0]);
     command
@@ -219,7 +240,7 @@ pub(crate) async fn run(ctx: &Ctx, args: CommandCaptureArgs) -> Result<ExitCode>
     );
     let trigger = recorder.record(
         EventContext {
-            causal_parent_ids: vec![process_start],
+            causal_parent_ids: vec![process_start.clone()],
             ..event_context(started, process_id)
         },
         CaptureEventKind::Trigger {
@@ -232,7 +253,10 @@ pub(crate) async fn run(ctx: &Ctx, args: CommandCaptureArgs) -> Result<ExitCode>
         },
     );
 
+    let process_tree = process_tree::observe(process_id, started);
+
     let outcome = wait_for_command(&mut child, process_id, args.timeout_ms).await?;
+    let descendants = process_tree.finish().await;
     terminate_remaining_process_group(process_id);
     let stdout = join_stream_task(stdout_task, "stdout").await?;
     let stderr = join_stream_task(stderr_task, "stderr").await?;
@@ -268,6 +292,13 @@ pub(crate) async fn run(ctx: &Ctx, args: CommandCaptureArgs) -> Result<ExitCode>
             },
         );
     }
+    process_tree::record_observation(
+        &mut recorder,
+        descendants,
+        &process_start,
+        started,
+        process_id,
+    );
 
     let (exit_code, signal) = exit_details(&outcome);
     let process_exit = recorder.record(
@@ -497,50 +528,19 @@ fn capture_hash(root: &Path, argv: &[String], observed_at: &str) -> String {
     hex_digest(digest.finalize())
 }
 
-fn deployment_from_environment() -> Option<reproit_protocol::DeploymentIdentity> {
+fn deployment_from_environment(
+    platforms: Vec<reproit_protocol::PlatformEvidence>,
+    platform_gaps: Vec<String>,
+) -> Option<reproit_protocol::DeploymentIdentity> {
     let version = std::env::var("REPROIT_BUILD_VERSION").ok();
     let commit = std::env::var("REPROIT_BUILD_COMMIT").ok();
-    (version.is_some() || commit.is_some())
-        .then_some(reproit_protocol::DeploymentIdentity { version, commit })
-}
-
-fn initial_capabilities(include_output: bool) -> Vec<CaptureCapability> {
-    vec![
-        CaptureCapability {
-            capability: CaptureCapabilityKind::Commands,
-            completeness: CaptureCompleteness::Complete,
-            detail: None,
-        },
-        CaptureCapability {
-            capability: CaptureCapabilityKind::ProcessTree,
-            completeness: CaptureCompleteness::Partial,
-            detail: Some("root process owned; descendant enumeration is not installed".into()),
-        },
-        CaptureCapability {
-            capability: CaptureCapabilityKind::StandardStreams,
-            completeness: if include_output {
-                CaptureCompleteness::Complete
-            } else {
-                CaptureCompleteness::Partial
-            },
-            detail: (!include_output).then(|| "content was not retained".into()),
-        },
-        CaptureCapability {
-            capability: CaptureCapabilityKind::Filesystem,
-            completeness: CaptureCompleteness::Unavailable,
-            detail: Some("filesystem observation is not installed".into()),
-        },
-        CaptureCapability {
-            capability: CaptureCapabilityKind::Environment,
-            completeness: CaptureCompleteness::Partial,
-            detail: Some("only build identity variables were retained".into()),
-        },
-        CaptureCapability {
-            capability: CaptureCapabilityKind::CrashDiagnostics,
-            completeness: CaptureCompleteness::Partial,
-            detail: Some("exit status and signal only".into()),
-        },
-    ]
+    (version.is_some() || commit.is_some() || !platforms.is_empty() || !platform_gaps.is_empty())
+        .then_some(reproit_protocol::DeploymentIdentity {
+            version,
+            commit,
+            platforms,
+            platform_gaps,
+        })
 }
 
 fn event_context(started: Instant, process_id: u64) -> EventContext {

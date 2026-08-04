@@ -905,6 +905,7 @@ mod transport;
 #[cfg(test)]
 use transport::evaluate_invocation;
 use transport::{build_identity_pool, identity_count, install_identity_pool, invoke};
+pub(crate) use transport::{decode_adapter_trail, AdapterTrail};
 pub(crate) mod replay;
 #[cfg(test)]
 use replay::apply_request_bindings;

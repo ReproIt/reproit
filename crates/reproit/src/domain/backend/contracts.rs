@@ -232,7 +232,7 @@ pub enum BackendProofContract {
 }
 
 impl BackendProofContract {
-    pub(super) fn operation_ids(&self) -> Vec<&str> {
+    pub(crate) fn operation_ids(&self) -> Vec<&str> {
         match self {
             Self::AuthorizationMatrix { operation, .. }
             | Self::TransactionAtomicity { operation, .. }

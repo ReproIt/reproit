@@ -8,7 +8,9 @@ translate a production event into a test.
 
 Status: step 1's third-party connectors (Sentry, Datadog, OpenTelemetry) are
 PLANNED and not implemented; today the only production source is the ReproIt
-SDK's own capture mode. Steps 2 through 8 describe the shipped mechanism.
+SDK's own capture mode. The protocol crate has a bounded OpenTelemetry semantic
+bridge for topology and causality, but that bridge is not yet a customer-facing
+collector connection. Steps 2 through 8 describe the shipped mechanism.
 
 1. The customer connects Sentry, Datadog, OpenTelemetry, or another source to a
    ReproIt project. The connection maps projects, releases, and environments.
@@ -57,9 +59,9 @@ must show why execution is blocked when no exact trusted adapter is available.
 | --- | --- |
 | Eligible UI replay | Run the occurrence in the trusted app adapter. |
 | Eligible process plan | Run the plan selected by the checkout's provider catalog. |
-| Backend capture with recorded exchanges | Re-execute hermetically: `reproit check <capture.json>` boots the service with the SDK serving every recorded dependency exchange, and verdicts reproduced, fixed, diverged, or inconclusive from the live response. The boot command comes from `backend.exec` in reproit.yaml (recorded by `reproit init`), or from `--exec` as the override. Node SDK only today. |
+| Backend capture with recorded exchanges | Re-execute hermetically: `reproit check <capture.json>` boots the service with the SDK serving every recorded dependency exchange, and verdicts reproduced, fixed, diverged, or inconclusive from the live response. The boot command comes from `backend.exec` in reproit.yaml (recorded by `reproit init`), or from `--exec` as the override. Node, Python, Go, Rust, Java, .NET, PHP, and Ruby share the same replay contract. |
 | Backend capture without exchanges | Re-evaluate the recorded events offline; honest about not re-running code. |
-| CI test capture (flaky-CI wedge) | Same capsule, captured in CI instead of production: the test job records with `REPROIT_CI_CAPTURE=1`, a failing test spools the capsule, and the red job ships it as a job artifact with the repro command in the summary. `reproit check <capsule.json> --exec "<test command>"` re-executes the exact failing run locally with the recorded exchanges and envelope; a plain rerun passing outside the capsule stays flaky evidence, never Fixed. File-based and local-first; cloud ingest optional, never required. Node test runner (`node:test`) only today. Races the boundary cannot see are Inconclusive, never faked. |
+| CI test capture (flaky-CI wedge) | Same capsule, captured in CI instead of production: the test job records with `REPROIT_CI_CAPTURE=1`, a failing test spools the capsule, and the red job ships it as a job artifact with the repro command in the summary. `reproit check <capsule.json> --exec "<test command>"` re-executes the exact failing run locally with the recorded exchanges and envelope; a plain rerun passing outside the capsule stays flaky evidence, never Fixed. The eight SDKs integrate with node:test, pytest, Go test, cargo test, JUnit 5, .NET test runners, PHPUnit-style suites, and RSpec-style suites. File-based and local-first; cloud ingest optional, never required. Races the boundary cannot see are Inconclusive, never faked. |
 | Incomplete | Show the smallest missing fact and the action that can collect it. |
 | Environment-bound | Offer an approved disposable worker, simulator, or VM path. |
 | Unsupported | Preserve and link the evidence, with no false reproduce button. |

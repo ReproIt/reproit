@@ -12,7 +12,8 @@ pub(super) struct InspectTrace {
 /// The adapter effect trail of one live invocation. `Absent` and `Malformed`
 /// are distinguished so inspection can say why no trail is shown instead of
 /// treating a broken header as an empty one.
-pub(super) enum AdapterTrail {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AdapterTrail {
     Absent,
     /// The trail decoded and parsed as backend events (payload validated,
     /// then dropped: verdict fidelity only needs the proof it existed).
@@ -242,8 +243,9 @@ fn retry_after_ms(response: &reqwest::Response) -> Option<u64> {
 /// SDK adapters encode the finished trace as base64url (no padding) over the
 /// JSON event array, capped at 60 KB by the SDK. Decoding is bounded and a
 /// broken header is reported as `Malformed`, never silently emptied.
-fn decode_adapter_trail(header: Option<&HeaderValue>) -> AdapterTrail {
+pub(crate) fn decode_adapter_trail(header: Option<&HeaderValue>) -> AdapterTrail {
     const MAX_TRAIL_HEADER_BYTES: usize = 64 * 1024;
+    const MAX_TRAIL_EVENTS: usize = 256;
     let Some(header) = header else {
         return AdapterTrail::Absent;
     };
@@ -257,10 +259,32 @@ fn decode_adapter_trail(header: Option<&HeaderValue>) -> AdapterTrail {
     let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(encoded) else {
         return AdapterTrail::Malformed;
     };
-    match serde_json::from_slice::<Vec<BackendEvent>>(&bytes) {
-        Ok(_) => AdapterTrail::Events,
-        Err(_) => AdapterTrail::Malformed,
+    let Ok(events) = serde_json::from_slice::<Vec<BackendEvent>>(&bytes) else {
+        return AdapterTrail::Malformed;
+    };
+    if events.len() > MAX_TRAIL_EVENTS || !valid_adapter_sequence(&events) {
+        return AdapterTrail::Malformed;
     }
+    AdapterTrail::Events
+}
+
+fn valid_adapter_sequence(events: &[BackendEvent]) -> bool {
+    let (Some(first), Some(last)) = (events.first(), events.last()) else {
+        return false;
+    };
+    if !matches!(&first.event, BackendEventKind::Start { .. })
+        || !matches!(&last.event, BackendEventKind::Return { .. })
+    {
+        return false;
+    }
+    events
+        .windows(2)
+        .all(|pair| pair[0].sequence < pair[1].sequence)
+        && events.iter().all(|event| {
+            event.trace_id == first.trace_id
+                && event.operation == first.operation
+                && event.action_index == first.action_index
+        })
 }
 
 pub(super) fn evaluate_invocation(
@@ -728,5 +752,57 @@ mod auth_tests {
             resolve_header_template("u:{claim:sub}/r:{claim:role}", &token),
             "u:user-123/r:admin"
         );
+    }
+
+    #[test]
+    fn adapter_trail_requires_a_bounded_start_to_return_sequence() {
+        let events = vec![
+            BackendEvent {
+                sequence: 1,
+                trace_id: "doctor".into(),
+                span_id: "request".into(),
+                action_index: 1,
+                parent_span_id: None,
+                operation: "GET /health".into(),
+                build: None,
+                config_contract: None,
+                actor: None,
+                tenant: None,
+                idempotency_key: None,
+                selections: Vec::new(),
+                at: None,
+                mono_ns: None,
+                event: BackendEventKind::Start { input: json!({}) },
+            },
+            BackendEvent {
+                sequence: 2,
+                trace_id: "doctor".into(),
+                span_id: "request".into(),
+                action_index: 1,
+                parent_span_id: None,
+                operation: "GET /health".into(),
+                build: None,
+                config_contract: None,
+                actor: None,
+                tenant: None,
+                idempotency_key: None,
+                selections: Vec::new(),
+                at: None,
+                mono_ns: None,
+                event: BackendEventKind::Return {
+                    output: json!({}),
+                    status: Some(200),
+                    success: true,
+                    effects_complete: false,
+                },
+            },
+        ];
+        let bytes = serde_json::to_vec(&events).unwrap();
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
+        let header = HeaderValue::from_str(&encoded).unwrap();
+        assert_eq!(decode_adapter_trail(Some(&header)), AdapterTrail::Events);
+
+        let empty = HeaderValue::from_static("W10");
+        assert_eq!(decode_adapter_trail(Some(&empty)), AdapterTrail::Malformed);
     }
 }

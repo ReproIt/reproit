@@ -184,6 +184,9 @@ fn plan_run(verdict: ExecutionVerdict) -> PlanRun {
         verdict,
         phases: Vec::new(),
         provider_runs: Vec::new(),
+        cell_receipt: None,
+        diagnostic_receipt: None,
+        authoritative: true,
     }
 }
 

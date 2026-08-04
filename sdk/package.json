@@ -1,6 +1,6 @@
 {
   "name": "@reproit/web",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Privacy-preserving structural production capture for ReproIt web applications",
   "license": "Apache-2.0",
   "repository": {

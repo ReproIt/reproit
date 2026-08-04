@@ -1,0 +1,58 @@
+{
+  "name": "reproit-debug",
+  "displayName": "Reproit Debug",
+  "description": "Attach to a Reproit diagnostic cell and replay its captured trigger.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "reproit",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": ["Debuggers", "Testing"],
+  "activationEvents": [
+    "onCommand:reproit.debuggerAttached",
+    "onCommand:reproit.replayTrigger",
+    "onCommand:reproit.stopSession",
+    "onCommand:reproit.verifyAuthoritatively",
+    "onCommand:reproit.openEvidence"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "reproit.debuggerAttached",
+        "title": "Reproit: Mark Debugger Attached"
+      },
+      {
+        "command": "reproit.replayTrigger",
+        "title": "Reproit: Replay Captured Trigger"
+      },
+      {
+        "command": "reproit.stopSession",
+        "title": "Reproit: Stop and Clean Up"
+      },
+      {
+        "command": "reproit.verifyAuthoritatively",
+        "title": "Reproit: Verify Without Debugger"
+      },
+      {
+        "command": "reproit.openEvidence",
+        "title": "Reproit: Open Session Evidence"
+      }
+    ],
+    "configuration": {
+      "title": "Reproit",
+      "properties": {
+        "reproit.debugSession": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the private Reproit debug-session.json descriptor."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --test control.test.js"
+  },
+  "license": "SEE LICENSE IN ../../LICENSE"
+}

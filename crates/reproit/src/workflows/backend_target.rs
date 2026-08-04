@@ -44,6 +44,26 @@ impl BackendProject {
 /// Find the backend project configuration, if the effective reproit.yaml is a
 /// backend one. App-platform configs and missing configs return None.
 pub(crate) fn find(config_path: Option<&Path>) -> Result<Option<BackendProject>> {
+    find_with_scope(config_path, BackendProjectScope::BackendOnly)
+}
+
+/// Find an enabled backend section even when the same project also declares an
+/// app. Read-only backend reporting can safely coexist with app-map commands;
+/// execution routing continues to use [`find`] and remains backend-only.
+pub(crate) fn find_configured(config_path: Option<&Path>) -> Result<Option<BackendProject>> {
+    find_with_scope(config_path, BackendProjectScope::BackendSection)
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum BackendProjectScope {
+    BackendOnly,
+    BackendSection,
+}
+
+fn find_with_scope(
+    config_path: Option<&Path>,
+    scope: BackendProjectScope,
+) -> Result<Option<BackendProject>> {
     let path = match config_path {
         Some(path) if path.is_file() => Some(path.to_path_buf()),
         Some(path) => anyhow::bail!("config file {} does not exist", path.display()),
@@ -54,7 +74,7 @@ pub(crate) fn find(config_path: Option<&Path>) -> Result<Option<BackendProject>>
     };
     let raw = std::fs::read_to_string(&path)?;
     let mut document: serde_yaml::Value = serde_yaml::from_str(&raw)?;
-    if document.get("app").is_some() {
+    if scope == BackendProjectScope::BackendOnly && document.get("app").is_some() {
         return Ok(None);
     }
     if document.get("backend").is_none() {
@@ -315,6 +335,23 @@ mod tests {
         std::fs::create_dir_all(&directory).unwrap();
         let root = backend_project_root(Path::new("reproit.yaml"), &directory);
         assert_eq!(root, directory.canonicalize().unwrap());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn read_only_backend_reporting_supports_mixed_app_projects() {
+        let directory =
+            std::env::temp_dir().join(format!("reproit-mixed-backend-root-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("reproit.yaml");
+        std::fs::write(
+            &path,
+            "app:\n  platform: web\nbackend:\n  enabled: true\n  schemas: [openapi.yaml]\n",
+        )
+        .unwrap();
+        assert!(find(Some(&path)).unwrap().is_none());
+        let project = find_configured(Some(&path)).unwrap().unwrap();
+        assert_eq!(project.config.schemas, ["openapi.yaml"]);
         std::fs::remove_dir_all(directory).unwrap();
     }
 }

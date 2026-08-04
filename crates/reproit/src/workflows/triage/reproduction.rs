@@ -252,6 +252,94 @@ pub async fn report_tester_capture(
     Ok(())
 }
 
+pub(crate) async fn report_diagnostic_session(
+    cloud_base: &str,
+    app: &str,
+    bucket: &str,
+    occurrence_id: &str,
+    cell_receipt: &reproit_protocol::CellReceipt,
+    diagnostic_receipt: &reproit_protocol::DiagnosticReceipt,
+) -> Result<()> {
+    let (configured_cloud, key) = matching_cloud_origin(cloud_base)?;
+    let body = serde_json::json!({
+        "mode": "diagnostic",
+        "status": "stale",
+        "runs": 0,
+        "failures": 0,
+        "localReproId": occurrence_id,
+        "where": "local",
+        "cellReceipt": cell_receipt,
+        "diagnosticReceipt": diagnostic_receipt,
+    });
+    Cloud::new(Some(configured_cloud), key)
+        .post(
+            &format!("/v1/apps/{app}/buckets/{bucket}/replay-results"),
+            &body,
+        )
+        .await?;
+    Ok(())
+}
+
+pub(crate) async fn report_plan_run(
+    cloud_base: &str,
+    app: &str,
+    bucket: &str,
+    occurrence_id: &str,
+    run: &crate::adapters::execution::PlanRun,
+) -> Result<()> {
+    use crate::domain::execution::ExecutionVerdict;
+    let (status, runs, failures) = match run.verdict {
+        ExecutionVerdict::Reproduced => ("reproduced", 1, 1),
+        ExecutionVerdict::NotReproduced => ("not_reproduced", 1, 0),
+        ExecutionVerdict::Flaky => ("flaky", 1, 0),
+        ExecutionVerdict::Stale
+        | ExecutionVerdict::Incomplete
+        | ExecutionVerdict::Unsupported
+        | ExecutionVerdict::DifferentFailure
+        | ExecutionVerdict::InfrastructureFailed => ("stale", 0, 0),
+    };
+    if !run.authoritative {
+        anyhow::bail!("diagnostic plan run cannot be reported as authoritative");
+    }
+    if run
+        .cell_receipt
+        .as_ref()
+        .is_some_and(|receipt| receipt.cleanup != reproit_protocol::CleanupStatus::Verified)
+    {
+        anyhow::bail!("cell cleanup was not verified, so no authoritative result can be uploaded");
+    }
+    let (configured_cloud, key) = matching_cloud_origin(cloud_base)?;
+    let mut body = serde_json::json!({
+        "mode": "authoritative",
+        "status": status,
+        "runs": runs,
+        "failures": failures,
+        "localReproId": occurrence_id,
+        "where": "local",
+    });
+    if let Some(receipt) = &run.cell_receipt {
+        body["cellReceipt"] = serde_json::to_value(receipt)?;
+    }
+    Cloud::new(Some(configured_cloud), key)
+        .post(
+            &format!("/v1/apps/{app}/buckets/{bucket}/replay-results"),
+            &body,
+        )
+        .await?;
+    Ok(())
+}
+
+fn matching_cloud_origin(cloud_base: &str) -> Result<(String, Option<String>)> {
+    let (configured_cloud, key) = crate::workflows::cloud::cloud_creds(None, None);
+    let configured_cloud = configured_cloud.unwrap_or_else(|| "https://cloud.reproit.com".into());
+    if configured_cloud.trim_end_matches('/') != cloud_base.trim_end_matches('/') {
+        anyhow::bail!(
+            "occurrence came from a different Cloud origin; refusing to send credentials"
+        );
+    }
+    Ok((configured_cloud, key))
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn report_reproduction(
     root: &std::path::Path,

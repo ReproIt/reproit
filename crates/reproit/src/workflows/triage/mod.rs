@@ -36,6 +36,7 @@ pub use reproduction::{
 };
 #[cfg(test)]
 use reproduction::{classify_repro, materialize_pull};
+pub(crate) use reproduction::{report_diagnostic_session, report_plan_run};
 pub use setup::{git_toplevel, setup};
 use transport::Cloud;
 pub use transport::{

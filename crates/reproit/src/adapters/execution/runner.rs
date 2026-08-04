@@ -20,22 +20,29 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 
 mod automatic;
 mod catalog;
+mod cell;
+mod debug_control;
+mod host_debug;
 pub(crate) mod model;
 mod process;
 pub(crate) use automatic::{
-    compile_package_automatically, AutomaticCompilation, CompilationBlocker,
+    assess_package_readiness, compile_package_automatically, AutomaticCompilation,
+    CompilationBlocker,
 };
 use catalog::*;
 pub(crate) use catalog::{
-    persist_plan_catalog, pinned_provider_digest, repin_guard_providers, repin_package_mechanism,
-    source_digest,
+    inspect_project_catalog, persist_plan_catalog, pinned_provider_digest, repin_guard_providers,
+    repin_package_mechanism, source_digest,
 };
+pub(crate) use cell::ExecutionMode;
+pub(crate) use model::DebugLaunchOptions;
 pub(crate) use model::PlanRun;
 use model::*;
 use process::*;
 
 const CATALOG_VERSION: u16 = 1;
 const MAX_PROVIDERS: usize = 256;
+const MAX_CELLS: usize = 32;
 const MAX_COMMAND_ARGS: usize = 128;
 const MAX_ENVIRONMENT_ENTRIES: usize = 128;
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
@@ -85,6 +92,23 @@ fn candidate_roots(config_path: Option<&Path>) -> impl Iterator<Item = PathBuf> 
 }
 
 pub(crate) async fn execute(root: &Path, package: &ReproductionPackage) -> Result<PlanRun> {
+    execute_with_mode(root, package, ExecutionMode::Authoritative, None).await
+}
+
+pub(crate) async fn execute_diagnostic(
+    root: &Path,
+    package: &ReproductionPackage,
+    options: DebugLaunchOptions,
+) -> Result<PlanRun> {
+    execute_with_mode(root, package, ExecutionMode::Diagnostic, Some(options)).await
+}
+
+async fn execute_with_mode(
+    root: &Path,
+    package: &ReproductionPackage,
+    mode: ExecutionMode,
+    debug_options: Option<DebugLaunchOptions>,
+) -> Result<PlanRun> {
     package
         .validate()
         .map_err(|error| anyhow::anyhow!("invalid reproduction package: {error}"))?;
@@ -99,7 +123,15 @@ pub(crate) async fn execute(root: &Path, package: &ReproductionPackage) -> Resul
         Some(&package.occurrence.occurrence_id),
         Some(&plan.id),
     )?;
-    let providers = resolve_providers(plan, &package.assessment, &catalog)?;
+    let providers = resolve_providers(root, plan, &package.assessment, &catalog)?;
+    let cell = cell::CellSession::prepare(root, plan, &providers, &catalog, mode).await?;
+    let mut host_debug = if mode == ExecutionMode::Diagnostic && cell.is_none() {
+        Some(host_debug::HostDebugSession::prepare(
+            root, plan, &providers,
+        )?)
+    } else {
+        None
+    };
     state
         .finish(
             ExecutionPhase::Validate,
@@ -112,17 +144,59 @@ pub(crate) async fn execute(root: &Path, package: &ReproductionPackage) -> Resul
     let mut seen: Vec<ProviderVerdict> = Vec::new();
     let mut different_failure_seen = false;
     let mut infrastructure_failure_seen = false;
+    let mut diagnostic_receipt = None;
 
     for phase in ExecutionPhase::ORDER
         .into_iter()
         .filter(|phase| !matches!(phase, ExecutionPhase::Validate | ExecutionPhase::Cleanup))
     {
         state.start(phase).unwrap();
+        let cell_acted = match &cell {
+            Some(cell) => match cell.before_phase(phase).await {
+                Ok(acted) => acted,
+                Err(error) => {
+                    provider_runs.push(infrastructure_run(phase, "execution-cell", error));
+                    seen.push(ProviderVerdict::InfrastructureFailed);
+                    infrastructure_failure_seen = true;
+                    state
+                        .fail_and_advance_to_cleanup(phase, "execution cell phase failed")
+                        .unwrap();
+                    break;
+                }
+            },
+            None => false,
+        };
+        if phase == ExecutionPhase::Debug && mode == ExecutionMode::Diagnostic {
+            let receipt = match prepare_debugger(
+                root,
+                cell.as_ref(),
+                host_debug.as_mut(),
+                &plan.occurrence_id,
+                debug_options
+                    .as_ref()
+                    .expect("diagnostic options are present"),
+            )
+            .await
+            {
+                Ok(receipt) => receipt,
+                Err(error) => {
+                    provider_runs.push(infrastructure_run(phase, "debugger-attach", error));
+                    seen.push(ProviderVerdict::InfrastructureFailed);
+                    infrastructure_failure_seen = true;
+                    state
+                        .fail_and_advance_to_cleanup(phase, "debugger attachment failed")
+                        .unwrap();
+                    break;
+                }
+            };
+            diagnostic_receipt = Some(receipt);
+        }
         let phase_providers: Vec<_> = providers
             .iter()
             .filter(|(_, provider)| provider.phase == phase)
             .collect();
-        if phase_providers.is_empty() {
+        let diagnostic_pause = phase == ExecutionPhase::Debug && mode == ExecutionMode::Diagnostic;
+        if phase_providers.is_empty() && !cell_acted && !diagnostic_pause {
             state
                 .finish(phase, PhaseStatus::Skipped, "no provider")
                 .unwrap();
@@ -131,8 +205,18 @@ pub(crate) async fn execute(root: &Path, package: &ReproductionPackage) -> Resul
 
         let mut phase_failed = false;
         for (provider_id, provider) in phase_providers {
-            let execution =
-                execute_provider(root, provider_id, provider, &plan.observation.identity).await;
+            let execution = if host_debug
+                .as_ref()
+                .is_some_and(|session| session.owns(provider_id))
+            {
+                host_debug
+                    .as_mut()
+                    .expect("host debug ownership was checked")
+                    .finish_trigger(&plan.observation.identity)
+                    .await
+            } else {
+                execute_provider(root, provider_id, provider, &plan.observation.identity).await
+            };
             let (run, verdict) = match execution {
                 Ok(execution) => execution,
                 Err(error) => {
@@ -144,6 +228,9 @@ pub(crate) async fn execute(root: &Path, package: &ReproductionPackage) -> Resul
                         timed_out: false,
                         output_truncated: false,
                         observation_matched: false,
+                        expected_state_fingerprint: None,
+                        actual_state_fingerprint: None,
+                        state_verified: None,
                         error: Some(format!("{error:#}")),
                     });
                     seen.push(ProviderVerdict::InfrastructureFailed);
@@ -189,27 +276,133 @@ pub(crate) async fn execute(root: &Path, package: &ReproductionPackage) -> Resul
         .skip_until(ExecutionPhase::Cleanup, "no provider")
         .unwrap();
     state.start(ExecutionPhase::Cleanup).unwrap();
-    run_cleanup(root, &providers, &mut provider_runs).await;
-    state
-        .finish(
+    let state_fingerprints = verified_state_fingerprints(&provider_runs);
+    let host_cleanup = match &mut host_debug {
+        Some(session) => Some(session.cleanup(state_fingerprints.clone()).await),
+        None => None,
+    };
+    let cleanup_failures = run_cleanup(root, &providers, &mut provider_runs).await;
+    let (cell_receipt, cell_cleanup_error) = match &cell {
+        Some(cell) => {
+            let (receipt, error) = cell.cleanup(state_fingerprints).await;
+            (Some(receipt), error)
+        }
+        None => match host_cleanup {
+            Some(Ok(receipt)) => (Some(receipt), None),
+            Some(Err(error)) => (None, Some(error.context("cleaning up host debug executor"))),
+            None => (None, None),
+        },
+    };
+    let total_cleanup_failures = cleanup_failures + usize::from(cell_cleanup_error.is_some());
+    if let Some(error) = cell_cleanup_error {
+        infrastructure_failure_seen = true;
+        seen.push(ProviderVerdict::InfrastructureFailed);
+        provider_runs.push(infrastructure_run(
             ExecutionPhase::Cleanup,
-            PhaseStatus::Passed,
-            "owned cleanup attempted",
-        )
-        .unwrap();
+            "execution-cell-cleanup",
+            error,
+        ));
+    }
+    if total_cleanup_failures == 0 {
+        state
+            .finish(
+                ExecutionPhase::Cleanup,
+                PhaseStatus::Passed,
+                "owned cleanup commands exited cleanly",
+            )
+            .unwrap();
+    } else {
+        infrastructure_failure_seen = true;
+        seen.push(ProviderVerdict::InfrastructureFailed);
+        state
+            .finish(
+                ExecutionPhase::Cleanup,
+                PhaseStatus::Failed,
+                format!("{total_cleanup_failures} cleanup operation(s) failed"),
+            )
+            .unwrap();
+    }
     debug_assert_eq!(
         state.failed(),
         infrastructure_failure_seen || different_failure_seen
     );
 
-    let verdict = fold_provider_verdicts(&seen);
+    let verdict = if mode == ExecutionMode::Diagnostic {
+        ExecutionVerdict::Incomplete
+    } else {
+        fold_provider_verdicts(&seen)
+    };
+    if let Some(receipt) = &diagnostic_receipt {
+        debug_control::finish(root, receipt, total_cleanup_failures == 0)?;
+    }
     Ok(PlanRun {
         plan_id: plan.id.clone(),
         occurrence_id: plan.occurrence_id.clone(),
         verdict,
         phases: state.records().to_vec(),
         provider_runs,
+        cell_receipt,
+        diagnostic_receipt,
+        authoritative: mode == ExecutionMode::Authoritative,
     })
+}
+
+async fn prepare_debugger(
+    root: &Path,
+    cell: Option<&cell::CellSession>,
+    host: Option<&mut host_debug::HostDebugSession>,
+    occurrence_id: &str,
+    options: &DebugLaunchOptions,
+) -> Result<reproit_protocol::DiagnosticReceipt> {
+    let receipt = match (cell, host) {
+        (Some(cell), None) => cell
+            .debug_receipt(occurrence_id)
+            .await?
+            .context("diagnostic execution did not produce a debugger receipt")?,
+        (None, Some(host)) => host.start(occurrence_id).await?,
+        _ => anyhow::bail!("diagnostic execution resolved an ambiguous debug executor"),
+    };
+    let control = debug_control::DebugControl::start(root, &receipt).await?;
+    debug_control::open_ide(root, &control, &options.ide, options.open).await?;
+    match control.wait_for_trigger().await? {
+        debug_control::DebugDecision::ReplayTrigger => {}
+        debug_control::DebugDecision::Stop => {
+            anyhow::bail!("diagnostic session stopped before the recorded trigger")
+        }
+    }
+    Ok(receipt)
+}
+
+fn infrastructure_run(
+    phase: ExecutionPhase,
+    provider_id: &str,
+    error: anyhow::Error,
+) -> ProviderRun {
+    ProviderRun {
+        provider_id: provider_id.to_string(),
+        phase,
+        exit_code: None,
+        signal: None,
+        timed_out: false,
+        output_truncated: false,
+        observation_matched: false,
+        expected_state_fingerprint: None,
+        actual_state_fingerprint: None,
+        state_verified: None,
+        error: Some(format!("{error:#}")),
+    }
+}
+
+fn verified_state_fingerprints(runs: &[ProviderRun]) -> BTreeMap<String, String> {
+    runs.iter()
+        .filter(|run| run.state_verified == Some(true))
+        .filter_map(|run| {
+            run.actual_state_fingerprint
+                .as_deref()
+                .and_then(|digest| digest.strip_prefix("sha256:"))
+                .map(|digest| (run.provider_id.clone(), digest.to_string()))
+        })
+        .collect()
 }
 
 /// Fold the per-provider verdicts of one plan into the single `ExecutionVerdict`
@@ -310,6 +503,8 @@ pub(crate) fn compile_local_command_package(
         phase: ExecutionPhase::Trigger,
         capabilities: BTreeSet::new(),
         source: captured_provider_source(&root, &argv),
+        cell: None,
+        debug: None,
         argv,
         environment: BTreeMap::new(),
         working_directory: (!relative_working_directory.as_os_str().is_empty())
@@ -320,6 +515,7 @@ pub(crate) fn compile_local_command_package(
             identity: identity.to_string(),
             matcher,
         }),
+        state_fingerprint: None,
         cleanup: None,
     };
     validate_provider_id(&provider_id)?;
@@ -387,6 +583,7 @@ pub(crate) fn compile_local_command_package(
         .map_err(|error| anyhow::anyhow!("invalid local package: {error}"))?;
     let catalog = ProviderCatalog {
         version: CATALOG_VERSION,
+        cells: BTreeMap::new(),
         providers: BTreeMap::from([(provider_id, provider)]),
     };
     validate_catalog(&root, &catalog)?;
@@ -466,7 +663,7 @@ pub(crate) fn compile_automatic_package(
             requirement_id: requirement.id.clone(),
             provider_id: (*provider_id).clone(),
             mechanism_authority: provider.authority,
-            template_digest: provider_digest(provider)?,
+            template_digest: provider_binding_digest(root, &catalog, provider)?,
             evidence_artifact_ids: requirement.evidence_artifact_ids.clone(),
         });
     }
@@ -484,7 +681,7 @@ pub(crate) fn compile_automatic_package(
         id: String::new(),
         occurrence_id: occurrence.occurrence_id.clone(),
         target: "current-checkout".into(),
-        destination: ExecutionDestination::LocalProcess,
+        destination: destination_for_bindings(&catalog, &bindings)?,
         bindings,
         observation: ObservationTarget {
             observation: observation_kind,
@@ -582,7 +779,7 @@ pub(crate) fn compile_package(
             requirement_id: requirement.id.clone(),
             provider_id: provider_id.clone(),
             mechanism_authority: provider.authority,
-            template_digest: provider_digest(provider)?,
+            template_digest: provider_binding_digest(root, &catalog, provider)?,
             evidence_artifact_ids: requirement.evidence_artifact_ids.clone(),
         });
     }
@@ -613,7 +810,7 @@ pub(crate) fn compile_package(
         id: String::new(),
         occurrence_id: package.occurrence.occurrence_id.clone(),
         target: "current-checkout".into(),
-        destination: ExecutionDestination::LocalProcess,
+        destination: destination_for_bindings(&catalog, &bindings)?,
         bindings,
         observation: ObservationTarget {
             observation: observation_kind,
@@ -633,6 +830,34 @@ pub(crate) fn compile_package(
         .validate()
         .map_err(|error| anyhow::anyhow!("compiled package is invalid: {error}"))?;
     Ok(compiled)
+}
+
+fn destination_for_bindings(
+    catalog: &ProviderCatalog,
+    bindings: &[PlanBinding],
+) -> Result<ExecutionDestination> {
+    let mut cells = BTreeSet::new();
+    let mut host_bound = false;
+    for binding in bindings {
+        let provider = catalog
+            .providers
+            .get(&binding.provider_id)
+            .context("compiled binding lost its trusted provider")?;
+        match &provider.cell {
+            Some(cell) => {
+                cells.insert(cell.as_str());
+            }
+            None => host_bound = true,
+        }
+    }
+    if cells.len() > 1 || (!cells.is_empty() && host_bound) {
+        anyhow::bail!("all required providers must use the same execution cell");
+    }
+    Ok(if cells.is_empty() {
+        ExecutionDestination::LocalProcess
+    } else {
+        ExecutionDestination::LocalCompose
+    })
 }
 
 #[cfg(test)]

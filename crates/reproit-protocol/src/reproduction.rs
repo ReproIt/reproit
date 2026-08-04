@@ -78,7 +78,9 @@ pub enum DependencyKind {
     DistributedSystem,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Eq, JsonSchema, Ord, PartialEq, PartialOrd, Serialize,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum EnvironmentKind {
     OperatingSystem,
@@ -87,7 +89,11 @@ pub enum EnvironmentKind {
     Locale,
     Timezone,
     Clock,
+    WallClock,
+    MonotonicClock,
     Randomness,
+    RandomSeed,
+    RandomBytes,
     Network,
     Concurrency,
     Device,

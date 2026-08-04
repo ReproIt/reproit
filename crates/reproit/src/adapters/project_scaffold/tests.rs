@@ -65,8 +65,20 @@ fn backend_schema_wins_over_framework_files_and_needs_no_ui_config() {
     let config = std::fs::read_to_string(project.join("reproit.yaml")).unwrap();
     assert!(config.contains("backend:\n  enabled: true"));
     assert!(config.contains("openapi.yaml"));
+    assert!(config.contains("# execution:"));
+    assert!(config.contains("./scripts/reproduce-known-failure"));
     assert!(!config.contains("app:"));
     std::fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn backend_provider_template_is_disabled_and_names_the_honesty_boundary() {
+    let template = execution_provider_template();
+    assert!(template.contains("checkout-owned, bounded argv providers"));
+    assert!(template.contains("must daemonize, prove readiness, and exit"));
+    assert!(template
+        .lines()
+        .all(|line| line.is_empty() || line.starts_with('#')));
 }
 
 #[test]

@@ -35,6 +35,8 @@ fn occurrence() -> OccurrenceEnvelope {
         deployment: Some(DeploymentIdentity {
             version: Some("1.2.3".into()),
             commit: None,
+            platforms: Vec::new(),
+            platform_gaps: Vec::new(),
         }),
         observations: vec![FailureObservation {
             kind: ObservationKind::Exception,
@@ -115,6 +117,8 @@ fn capture_batch() -> CaptureBatch {
         deployment: Some(DeploymentIdentity {
             version: Some("1.2.3".into()),
             commit: Some("abc123".into()),
+            platforms: Vec::new(),
+            platform_gaps: Vec::new(),
         }),
         observed_at: "2026-07-27T12:00:00Z".into(),
         policy: EvidencePolicy {

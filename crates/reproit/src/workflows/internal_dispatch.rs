@@ -116,6 +116,18 @@ pub(super) async fn run(
         InternalCmd::Debug {
             action: DebugAction::ReplayCapture { file },
         } => backend_headless::replay_capture(ctx, &file),
+        InternalCmd::Debug {
+            action: DebugAction::Explain { reference },
+        } => bundle::explain_occurrence(ctx, &reference).await,
+        InternalCmd::Debug {
+            action:
+                DebugAction::Occurrence {
+                    reference,
+                    at,
+                    ide,
+                    no_open,
+                },
+        } => bundle::debug_occurrence(ctx, &reference, &at, &ide, no_open).await,
         InternalCmd::VitestContract {
             cwd,
             test_path,
@@ -205,6 +217,25 @@ pub(super) async fn run(
             };
             bundle::collect(ctx, args)?;
             Ok(ExitCode::SUCCESS)
+        }
+        InternalCmd::PlatformCollect {
+            project,
+            session,
+            component,
+            output,
+            local_only,
+        } => {
+            command_capture::collect_platform(
+                ctx,
+                command_capture::PlatformCollectArgs {
+                    project,
+                    session,
+                    component,
+                    output,
+                    local_only,
+                },
+            )
+            .await
         }
         InternalCmd::CaptureCommand {
             bundle: bundle_file,

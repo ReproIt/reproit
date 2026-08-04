@@ -18,16 +18,15 @@
     {
       "id": "clock",
       "capture": "modeled-only",
-      "compiler": "modeled-only",
-      "replay": "unavailable",
-      "provider": "none",
+      "compiler": "complete",
+      "replay": "command-provider",
+      "provider": "CommandProvider with environment authority",
       "evidence": [
         "crates/reproit-protocol/src/capture.rs",
         "crates/reproit-protocol/src/capture_compiler.rs"
       ],
       "blockers": [
-        "clock events do not compile into executable requirements",
-        "no deterministic clock collector or replay provider"
+        "no generic deterministic clock collector or virtual-clock replay provider"
       ]
     },
     {
@@ -200,15 +199,15 @@
     {
       "id": "open-telemetry",
       "capture": "adapter-specific",
-      "compiler": "modeled-only",
+      "compiler": "complete",
       "replay": "command-provider",
       "provider": "authored command adapter",
       "evidence": [
-        "crates/reproit-protocol/src/capture.rs",
+        "crates/reproit-protocol/src/open_telemetry.rs",
         "crates/reproit-protocol/src/capture_compiler.rs"
       ],
       "blockers": [
-        "OpenTelemetry evidence does not compile into a dedicated requirement"
+        "semantic spans prove topology but need replay payloads and effect-specific completion evidence"
       ]
     },
     {
@@ -219,11 +218,12 @@
       "provider": "CommandProvider",
       "evidence": [
         "crates/reproit/src/workflows/command_capture.rs",
+        "crates/reproit/src/workflows/command_capture/process_tree.rs",
         "crates/reproit-protocol/src/capture_compiler.rs"
       ],
       "blockers": [
-        "generic capture owns only the root process",
-        "descendant enumeration and structured process lifecycle replay are absent"
+        "100ms polling can miss short-lived descendants",
+        "IPC attribution and structured process lifecycle replay are absent"
       ]
     },
     {
@@ -243,16 +243,15 @@
     {
       "id": "randomness",
       "capture": "modeled-only",
-      "compiler": "modeled-only",
-      "replay": "unavailable",
-      "provider": "none",
+      "compiler": "complete",
+      "replay": "command-provider",
+      "provider": "CommandProvider with environment authority",
       "evidence": [
         "crates/reproit-protocol/src/capture.rs",
         "crates/reproit-protocol/src/capture_compiler.rs"
       ],
       "blockers": [
-        "randomness events do not compile into executable requirements",
-        "no deterministic randomness collector or replay provider"
+        "no generic seed or byte-stream collector and deterministic runtime replay provider"
       ]
     },
     {
@@ -339,14 +338,12 @@
       "unavailable": 1
     },
     "compiler": {
-      "complete": 16,
-      "modeled-only": 3,
+      "complete": 19,
       "partial": 3
     },
     "replay": {
       "adapter-specific": 4,
-      "command-provider": 16,
-      "unavailable": 2
+      "command-provider": 18
     }
   }
 }

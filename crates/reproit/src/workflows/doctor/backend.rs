@@ -221,8 +221,80 @@ pub(super) async fn doctor_backend(
             }
         }
     }
+    execution_provider_checks(&mut checks, &project.root);
     cloud_checks(&mut checks, Some("backend"));
     finish(ctx, checks)
+}
+
+fn execution_provider_checks(checks: &mut Vec<DoctorCheck>, project_root: &std::path::Path) {
+    match crate::adapters::execution::inspect_project_catalog(project_root) {
+        Ok(None) => doctor_push(
+            checks,
+            "execution providers",
+            false,
+            false,
+            "not configured: imported failures cannot compile into trusted local execution",
+            Some(
+                "review the execution provider template in reproit.yaml, then add bounded, \
+                 checkout-owned execution.providers"
+                    .into(),
+            ),
+        ),
+        Err(error) => doctor_push(
+            checks,
+            "execution providers",
+            false,
+            false,
+            format!("invalid catalog: {error:#}"),
+            Some(
+                "fix execution.providers; `reproit doctor` validates commands, paths, limits, \
+                 pinned sources, observations, and cleanup"
+                    .into(),
+            ),
+        ),
+        Ok(Some(catalog)) => {
+            doctor_push(
+                checks,
+                "execution providers",
+                true,
+                false,
+                format!(
+                    "{} provider(s), {} cell(s), {} debugger-ready, phases {}, {} state fingerprints, {} source-pinned, {} cleanup",
+                    catalog.provider_count,
+                    catalog.cell_count,
+                    catalog.debug_executor_count,
+                    format_phases(&catalog.phases),
+                    catalog.state_fingerprint_count,
+                    catalog.source_pinned_count,
+                    catalog.cleanup_count,
+                ),
+                None,
+            );
+            doctor_push(
+                checks,
+                "execution observations",
+                catalog.observation_count > 0,
+                false,
+                format!(
+                    "{} provider(s) define an exact failure identity and matcher",
+                    catalog.observation_count
+                ),
+                Some(
+                    "add observation.identity plus an exit-code, signal, stdout, stderr, or \
+                     timeout matcher to the provider that decides the verdict"
+                        .into(),
+                ),
+            );
+        }
+    }
+}
+
+fn format_phases(phases: &[crate::domain::execution::ExecutionPhase]) -> String {
+    phases
+        .iter()
+        .map(|phase| format!("{phase:?}").to_ascii_lowercase())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// One bounded read-only GET with the scan-time trace headers: reachability,
@@ -256,37 +328,54 @@ async fn adapter_checks(
                 format!("GET {url} -> {status}"),
                 None,
             );
-            if adapter {
-                doctor_push(
-                    checks,
-                    "adapter",
-                    true,
-                    false,
-                    "adapter detected: effect-level verdicts enabled",
-                    None,
-                );
-            } else {
-                let snippet =
-                    crate::adapters::project_scaffold::backend_detect::detect_backend_framework(
-                        project_root,
-                    )
-                    .map(|found| format!("{} ({})", found.adapter_snippet, found.name))
-                    .unwrap_or_else(|| {
-                        "mount the ReproIt backend adapter for your framework (see the sdk/ \
-                         READMEs)"
-                            .into()
-                    });
-                doctor_push(
-                    checks,
-                    "adapter",
-                    false,
-                    false,
-                    "no adapter response: black-box tier (response-level checks only)",
-                    Some(snippet),
-                );
-            }
+            report_adapter(checks, adapter, project_root);
         }
     }
+}
+
+fn report_adapter(
+    checks: &mut Vec<DoctorCheck>,
+    adapter: crate::workflows::backend_headless::AdapterTrail,
+    project_root: &std::path::Path,
+) {
+    use crate::workflows::backend_headless::AdapterTrail;
+    match adapter {
+        AdapterTrail::Events => doctor_push(
+            checks,
+            "adapter",
+            true,
+            false,
+            "adapter detected: bounded event trail decoded; effect-level verdicts enabled",
+            None,
+        ),
+        AdapterTrail::Malformed => doctor_push(
+            checks,
+            "adapter",
+            false,
+            false,
+            "adapter header was present but malformed: effect findings must abstain",
+            Some(
+                "check SDK and CLI version compatibility, middleware order, and proxy header limits"
+                    .into(),
+            ),
+        ),
+        AdapterTrail::Absent => doctor_push(
+            checks,
+            "adapter",
+            false,
+            false,
+            "no adapter response: black-box tier (response-level checks only)",
+            Some(adapter_install_hint(project_root)),
+        ),
+    }
+}
+
+fn adapter_install_hint(project_root: &std::path::Path) -> String {
+    crate::adapters::project_scaffold::backend_detect::detect_backend_framework(project_root)
+        .map(|found| format!("{} ({})", found.adapter_snippet, found.name))
+        .unwrap_or_else(|| {
+            "mount the ReproIt backend adapter for your framework (see the sdk/ READMEs)".into()
+        })
 }
 
 /// Check the declared contract against the routes the source actually serves.
@@ -401,7 +490,9 @@ fn doctor_schema_drift(
 
 /// Send one GET with `x-reproit-trace` and report (status, adapter present).
 /// The body is never read; only the response head matters here.
-async fn probe_traced(url: &str) -> Result<(u16, bool)> {
+async fn probe_traced(
+    url: &str,
+) -> Result<(u16, crate::workflows::backend_headless::AdapterTrail)> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .redirect(reqwest::redirect::Policy::limited(3))
@@ -412,7 +503,9 @@ async fn probe_traced(url: &str) -> Result<(u16, bool)> {
         .header("x-reproit-action", "1")
         .send()
         .await?;
-    let adapter = response.headers().contains_key("x-reproit-events");
+    let adapter = crate::workflows::backend_headless::decode_adapter_trail(
+        response.headers().get("x-reproit-events"),
+    );
     Ok((response.status().as_u16(), adapter))
 }
 

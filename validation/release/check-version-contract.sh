@@ -13,7 +13,7 @@ require_literal() {
 }
 
 for path in \
-  crates/llm/Cargo.toml \
+  crates/reproit-llm/Cargo.toml \
   crates/reproit/Cargo.toml \
   crates/reproit-protocol/Cargo.toml \
   crates/tui-sig/Cargo.toml \

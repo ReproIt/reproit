@@ -28,6 +28,7 @@ pub(crate) mod visual;
 
 mod auth;
 mod authored_contract;
+mod backend_contracts;
 mod backend_learn;
 /// The boot command `reproit init` records as `backend.exec`. Exposed so the
 /// scaffold writes the same recipe the live-enrichment boot already uses,

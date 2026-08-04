@@ -5,6 +5,27 @@ use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub(crate) enum DebugAction {
+    /// Reproduce an occurrence in its checkout-owned cell, attach a debugger,
+    /// then fire the recorded trigger. Diagnostic runs never issue verdicts.
+    Occurrence {
+        /// Local or Cloud occurrence id.
+        reference: String,
+        /// Causal pause point. The first implementation supports before-trigger.
+        #[arg(long, default_value = "before-trigger")]
+        at: String,
+        /// Debugger configuration format to write: vscode or json.
+        #[arg(long, default_value = "auto")]
+        ide: String,
+        /// Prepare the session without opening an IDE application.
+        #[arg(long)]
+        no_open: bool,
+    },
+    /// Explain capture, replay, debug, and verification readiness without
+    /// starting an execution environment.
+    Explain {
+        /// Local or Cloud occurrence id.
+        reference: String,
+    },
     /// Inspect or force maintenance of reproit's internal app model.
     Map {
         #[command(subcommand)]

@@ -6,12 +6,26 @@ const MAX_CLOUD_ARTIFACT_BYTES: usize = 25 * 1024 * 1024;
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CloudOccurrence {
+    #[serde(default)]
+    app_id: Option<String>,
+    #[serde(default)]
+    bucket_id: Option<String>,
     occurrence: OccurrenceEnvelope,
     assessment: CapabilityAssessment,
     #[serde(default)]
     package: Option<ReproductionPackage>,
     #[serde(default)]
     capture: Option<CaptureBatch>,
+    #[serde(default)]
+    readiness: Option<reproit_protocol::ReadinessAssessment>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct CloudProvenance {
+    pub(super) app_id: String,
+    pub(super) bucket_id: String,
+    pub(super) cloud_base: String,
 }
 
 struct DownloadedArtifact {
@@ -63,6 +77,19 @@ pub(super) async fn pull_cloud_occurrence(ctx: &Ctx, reference: &str) -> Result<
     }
     let downloaded: CloudOccurrence =
         serde_json::from_slice(&bytes).context("Cloud occurrence response was invalid")?;
+    let provenance = match (&downloaded.app_id, &downloaded.bucket_id) {
+        (Some(app_id), Some(bucket_id)) => {
+            validate_cloud_route_id(app_id, "app id")?;
+            validate_cloud_route_id(bucket_id, "bucket id")?;
+            Some(CloudProvenance {
+                app_id: app_id.clone(),
+                bucket_id: bucket_id.clone(),
+                cloud_base: cloud.trim_end_matches('/').to_string(),
+            })
+        }
+        (None, None) | (Some(_), None) => None,
+        (None, Some(_)) => anyhow::bail!("Cloud occurrence named a bucket without an app"),
+    };
     if downloaded.occurrence.occurrence_id != reference {
         anyhow::bail!("Cloud returned a different occurrence identity");
     }
@@ -77,6 +104,12 @@ pub(super) async fn pull_cloud_occurrence(ctx: &Ctx, reference: &str) -> Result<
             || package.assessment != downloaded.assessment
         {
             anyhow::bail!("Cloud package does not match its immutable occurrence");
+        }
+    }
+    if let Some(readiness) = &downloaded.readiness {
+        readiness.validate().map_err(protocol_error)?;
+        if readiness.occurrence_id != reference {
+            anyhow::bail!("Cloud readiness belongs to a different occurrence");
         }
     }
     if let Some(capture) = &downloaded.capture {
@@ -128,6 +161,9 @@ pub(super) async fn pull_cloud_occurrence(ctx: &Ctx, reference: &str) -> Result<
             }
         }
         write_json_atomically(&staging.join("package.json"), &localized.package)?;
+        if let Some(provenance) = &provenance {
+            write_json_atomically(&staging.join("cloud-provenance.json"), provenance)?;
+        }
         if !artifacts.is_empty() {
             let artifact_directory = staging.join("artifacts");
             std::fs::create_dir(&artifact_directory)?;
@@ -146,6 +182,46 @@ pub(super) async fn pull_cloud_occurrence(ctx: &Ctx, reference: &str) -> Result<
     }
     persist_result?;
     ctx.say(format!("Pulled occurrence {reference} from Cloud"));
+    Ok(())
+}
+
+pub(super) fn read_provenance(directory: &Path) -> Result<Option<CloudProvenance>> {
+    let path = directory.join("cloud-provenance.json");
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let bytes = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+    let provenance: CloudProvenance =
+        serde_json::from_slice(&bytes).with_context(|| format!("parsing {}", path.display()))?;
+    validate_cloud_route_id(&provenance.app_id, "app id")?;
+    validate_cloud_route_id(&provenance.bucket_id, "bucket id")?;
+    validate_cloud_base(&provenance.cloud_base)?;
+    Ok(Some(provenance))
+}
+
+fn validate_cloud_base(value: &str) -> Result<()> {
+    let url = reqwest::Url::parse(value).context("stored Cloud base URL is invalid")?;
+    let loopback = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "::1"));
+    if (url.scheme() != "https" && !(url.scheme() == "http" && loopback))
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        anyhow::bail!("stored Cloud base URL is not an HTTPS or loopback origin");
+    }
+    Ok(())
+}
+
+fn validate_cloud_route_id(value: &str, label: &str) -> Result<()> {
+    if value.is_empty()
+        || value.len() > 128
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+    {
+        anyhow::bail!("Cloud occurrence returned an invalid {label}");
+    }
     Ok(())
 }
 
@@ -240,6 +316,7 @@ fn localize_cloud_occurrence(
         mut assessment,
         package,
         capture,
+        ..
     } = downloaded;
     let package = if let Some(package) = package {
         package
@@ -316,4 +393,17 @@ fn validate_cloud_occurrence_id(reference: &str) -> Result<()> {
         return Ok(());
     }
     anyhow::bail!("invalid occurrence id `{reference}`")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stored_cloud_origin_cannot_redirect_credentials() {
+        assert!(validate_cloud_base("https://cloud.reproit.com").is_ok());
+        assert!(validate_cloud_base("http://127.0.0.1:8080").is_ok());
+        assert!(validate_cloud_base("http://attacker.example").is_err());
+        assert!(validate_cloud_base("https://user:secret@example.com").is_err());
+    }
 }

@@ -340,6 +340,7 @@ fn exchange_wire_format_requires_canonical_camel_case() {
 
 #[test]
 fn persisted_id_is_content_addressed_and_round_trips() {
+    let _environment = capsule_environment_lock();
     let root = std::env::temp_dir().join(format!("reproit-capsule-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let mut c = Capsule::new("app", finding());
@@ -399,6 +400,7 @@ fn retention_never_removes_referenced_or_inflight_capsules() {
 
 #[test]
 fn key_rotation_reencrypts_every_capsule_and_preserves_content() {
+    let _environment = capsule_environment_lock();
     let root = std::env::temp_dir().join(format!("reproit-cap-rotate-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let mut capsule = Capsule::new("app", finding());

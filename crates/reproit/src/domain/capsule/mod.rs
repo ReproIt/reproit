@@ -228,6 +228,10 @@ pub struct Capsule {
         skip_serializing_if = "Option::is_none"
     )]
     pub reproduction_plan: Option<reproit_protocol::ReproductionPlan>,
+    /// Independent capture, replay, debug, and verification readiness at the
+    /// point this capsule was assembled in a trusted checkout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readiness: Option<reproit_protocol::ReadinessAssessment>,
     /// The event class whose replay is required to reproduce this finding.
     /// Legacy capsules omit this field and are classified from their captured
     /// executable inputs when loaded or finalized.
@@ -267,6 +271,7 @@ impl Capsule {
             occurrence: None,
             assessment: None,
             reproduction_plan: None,
+            readiness: None,
             cause: CauseCategory::Unclassified,
             actions: Vec::new(),
             exchanges: Vec::new(),
@@ -460,6 +465,20 @@ impl Capsule {
             }
             _ => {
                 bail!("typed capsule execution requires occurrence, assessment, and plan together")
+            }
+        }
+        if let Some(readiness) = &self.readiness {
+            readiness
+                .validate()
+                .map_err(|error| anyhow::anyhow!("invalid capsule readiness: {error}"))?;
+            if readiness.occurrence_id
+                != self
+                    .occurrence
+                    .as_ref()
+                    .context("capsule readiness requires an occurrence")?
+                    .occurrence_id
+            {
+                bail!("capsule readiness belongs to a different occurrence");
             }
         }
         Ok(())
@@ -852,6 +871,14 @@ where
     }
     best.finalize_id()?;
     Ok(best)
+}
+
+#[cfg(test)]
+fn capsule_environment_lock() -> std::sync::MutexGuard<'static, ()> {
+    use std::sync::{Mutex, OnceLock};
+
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
 }
 
 #[cfg(test)]

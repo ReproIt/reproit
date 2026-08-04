@@ -17,7 +17,7 @@ Until the Maven package is published, use the Android library directly from the 
 
 ```sh
 git submodule add https://github.com/ReproIt/reproit vendor/reproit
-git -C vendor/reproit checkout v1.0.0
+git -C vendor/reproit checkout v1.0.1
 ```
 
 ```kotlin

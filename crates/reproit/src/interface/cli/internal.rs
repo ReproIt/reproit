@@ -153,6 +153,26 @@ pub(crate) enum InternalCmd {
         #[arg(long, default_value = "support-30d")]
         retention_class: String,
     },
+    /// Collect deployment metadata independently from an application SDK and
+    /// join it to the SDK capture through a shared session id.
+    #[command(name = "platform-collect", hide = true)]
+    PlatformCollect {
+        /// Cloud project id. Defaults to the selected project or checkout name.
+        #[arg(long)]
+        project: Option<String>,
+        /// Capture session shared with the SDK. Defaults to REPROIT_SESSION_ID.
+        #[arg(long)]
+        session: Option<String>,
+        /// Logical application component represented by this workload.
+        #[arg(long)]
+        component: Option<String>,
+        /// Optional private JSON output for inspection or offline transport.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Do not upload even when Cloud credentials are configured.
+        #[arg(long)]
+        local_only: bool,
+    },
     /// Capture a known failure from a configured app, a command, or a signed
     /// offline support bundle.
     #[command(name = "capture", trailing_var_arg = true)]

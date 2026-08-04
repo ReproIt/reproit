@@ -21,6 +21,15 @@ pub(crate) fn expand_direct_reference_arg(
     let Some(first) = args.get(index).and_then(|arg| arg.to_str()) else {
         return args;
     };
+    if first == "debug"
+        && args
+            .get(index + 1)
+            .and_then(|arg| arg.to_str())
+            .is_some_and(|reference| reference.starts_with("occ_"))
+    {
+        args.insert(index + 1, "occurrence".into());
+        return args;
+    }
     let direct_alias = first
         .strip_prefix('@')
         .filter(|alias| !alias.is_empty())
@@ -101,6 +110,10 @@ mod tests {
         assert_eq!(
             expand(&["reproit", "cap_deadbeef00000000", "--watch"]),
             ["reproit", "__capture", "cap_deadbeef00000000", "--watch"]
+        );
+        assert_eq!(
+            expand(&["reproit", "debug", "occ_deadbeef0001"]),
+            ["reproit", "debug", "occurrence", "occ_deadbeef0001"]
         );
         assert_eq!(
             expand(&["reproit", "bkt_deadbeef0001"]),

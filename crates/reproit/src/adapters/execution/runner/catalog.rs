@@ -7,6 +7,73 @@
 
 use super::*;
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ProviderCatalogInspection {
+    pub(crate) provider_count: usize,
+    pub(crate) cell_count: usize,
+    pub(crate) debug_executor_count: usize,
+    pub(crate) phases: Vec<ExecutionPhase>,
+    pub(crate) observation_count: usize,
+    pub(crate) state_fingerprint_count: usize,
+    pub(crate) source_pinned_count: usize,
+    pub(crate) cleanup_count: usize,
+}
+
+/// Validate and summarize only the checkout-owned provider catalog.
+///
+/// Machine-local and kept-guard providers are occurrence-specific, so doctor
+/// must not count them as general project readiness.
+pub(crate) fn inspect_project_catalog(root: &Path) -> Result<Option<ProviderCatalogInspection>> {
+    let Some(catalog) = read_project_catalog(&root.join("reproit.yaml"))? else {
+        return Ok(None);
+    };
+    validate_catalog(root, &catalog)?;
+    let phases = catalog
+        .providers
+        .values()
+        .map(|provider| provider.phase)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    Ok(Some(ProviderCatalogInspection {
+        provider_count: catalog.providers.len(),
+        cell_count: catalog.cells.len(),
+        debug_executor_count: catalog
+            .cells
+            .values()
+            .filter(|cell| match cell {
+                ReproductionCell::DockerCompose(cell) => cell.debug.is_some(),
+            })
+            .count()
+            + catalog
+                .providers
+                .values()
+                .filter(|provider| provider.debug.is_some())
+                .count(),
+        phases,
+        observation_count: catalog
+            .providers
+            .values()
+            .filter(|provider| provider.observation.is_some())
+            .count(),
+        state_fingerprint_count: catalog
+            .providers
+            .values()
+            .filter(|provider| provider.state_fingerprint.is_some())
+            .count(),
+        source_pinned_count: catalog
+            .providers
+            .values()
+            .filter(|provider| provider.source.is_some())
+            .count(),
+        cleanup_count: catalog
+            .providers
+            .values()
+            .filter(|provider| provider.cleanup.is_some())
+            .count(),
+    }))
+}
+
 pub(super) fn load_catalog(
     root: &Path,
     occurrence_id: Option<&str>,
@@ -18,6 +85,7 @@ pub(super) fn load_catalog(
     } else {
         ProviderCatalog {
             version: CATALOG_VERSION,
+            cells: BTreeMap::new(),
             providers: BTreeMap::new(),
         }
     };
@@ -52,6 +120,15 @@ pub(super) fn merge_catalog(
     source: ProviderCatalog,
     source_label: &str,
 ) -> Result<()> {
+    for (cell_id, cell) in source.cells {
+        if let Some(existing) = destination.cells.get(&cell_id) {
+            if serde_json::to_vec(existing)? == serde_json::to_vec(&cell)? {
+                continue;
+            }
+            anyhow::bail!("{source_label} `{cell_id}` conflicts with another execution cell");
+        }
+        destination.cells.insert(cell_id, cell);
+    }
     for (provider_id, provider) in source.providers {
         if let Some(existing) = destination.providers.get(&provider_id) {
             if provider_digest(existing)? == provider_digest(&provider)? {
@@ -168,10 +245,34 @@ pub(super) fn validate_catalog(root: &Path, catalog: &ProviderCatalog) -> Result
     if catalog.providers.is_empty() || catalog.providers.len() > MAX_PROVIDERS {
         anyhow::bail!("execution provider catalog must contain 1..={MAX_PROVIDERS} providers");
     }
+    if catalog.cells.len() > MAX_CELLS {
+        anyhow::bail!("execution catalog exceeds {MAX_CELLS} cells");
+    }
+    for (cell_id, cell) in &catalog.cells {
+        validate_provider_id(cell_id)?;
+        validate_cell(root, cell_id, cell)?;
+    }
     for (provider_id, provider) in &catalog.providers {
         validate_provider_id(provider_id)?;
+        if let Some(cell_id) = &provider.cell {
+            validate_provider_id(cell_id)?;
+            if !catalog.cells.contains_key(cell_id) {
+                anyhow::bail!("provider `{provider_id}` names unknown cell `{cell_id}`");
+            }
+        }
         if let Some(source) = &provider.source {
             validate_provider_source(root, source)?;
+        }
+        if let Some(debug) = &provider.debug {
+            if provider.cell.is_some() {
+                anyhow::bail!(
+                    "provider `{provider_id}` cannot declare debug alongside an execution cell"
+                );
+            }
+            if provider.phase != ExecutionPhase::Trigger {
+                anyhow::bail!("provider `{provider_id}` debug requires phase trigger");
+            }
+            validate_debug_profile(root, &format!("provider `{provider_id}`"), debug)?;
         }
         validate_command(
             root,
@@ -197,6 +298,7 @@ pub(super) fn validate_catalog(root: &Path, catalog: &ProviderCatalog) -> Result
                 }
             }
         }
+        validate_state_fingerprint(root, provider_id, provider)?;
         if let Some(cleanup) = &provider.cleanup {
             validate_command(
                 root,
@@ -204,6 +306,112 @@ pub(super) fn validate_catalog(root: &Path, catalog: &ProviderCatalog) -> Result
                 &cleanup.environment,
                 cleanup.working_directory.as_deref(),
                 cleanup.timeout_ms,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_cell(root: &Path, cell_id: &str, cell: &ReproductionCell) -> Result<()> {
+    match cell {
+        ReproductionCell::DockerCompose(cell) => validate_compose_cell(root, cell_id, cell),
+    }
+}
+
+fn validate_compose_cell(root: &Path, cell_id: &str, cell: &DockerComposeCell) -> Result<()> {
+    resolve_checkout_file(root, &cell.compose_file, "compose file")?;
+    validate_provider_id(&cell.application_service)?;
+    if cell.dependency_services.len() > 63 {
+        anyhow::bail!("cell `{cell_id}` exceeds 63 dependency services");
+    }
+    let mut services = BTreeSet::new();
+    services.insert(cell.application_service.as_str());
+    for service in &cell.dependency_services {
+        validate_provider_id(service)?;
+        if !services.insert(service) {
+            anyhow::bail!("cell `{cell_id}` repeats service `{service}`");
+        }
+    }
+    if cell.timeout_ms == 0 || cell.timeout_ms > MAX_TIMEOUT_MS {
+        anyhow::bail!("cell `{cell_id}` timeoutMs must be within 1..={MAX_TIMEOUT_MS}");
+    }
+    if let Some(platform) = &cell.platform {
+        validate_text(platform, "cell platform")?;
+    }
+    if let Some(debug) = &cell.debug {
+        validate_debug_profile(root, &format!("cell `{cell_id}`"), debug)?;
+    }
+    Ok(())
+}
+
+fn validate_debug_profile(root: &Path, owner: &str, debug: &DebugProfile) -> Result<()> {
+    if debug.argv.is_empty() || debug.argv.len() > MAX_COMMAND_ARGS || debug.port == 0 {
+        anyhow::bail!("{owner} has an invalid debug profile");
+    }
+    for argument in &debug.argv {
+        validate_text(argument, "debug command argument")?;
+    }
+    resolve_checkout_directory(root, &debug.local_source_root, "local source root")?;
+    if !debug.target_source_root.is_absolute() {
+        anyhow::bail!("{owner} targetSourceRoot must be absolute");
+    }
+    Ok(())
+}
+
+fn resolve_checkout_file(root: &Path, configured: &Path, label: &str) -> Result<PathBuf> {
+    if configured.is_absolute() {
+        anyhow::bail!("{label} must be checkout-relative");
+    }
+    let root = root
+        .canonicalize()
+        .with_context(|| format!("resolving checkout root {}", root.display()))?;
+    let joined = root.join(configured);
+    let path = joined
+        .canonicalize()
+        .with_context(|| format!("resolving {label} {}", joined.display()))?;
+    if !path.starts_with(&root) || !path.is_file() {
+        anyhow::bail!("{label} must be a regular file inside the checkout");
+    }
+    Ok(path)
+}
+
+fn resolve_checkout_directory(root: &Path, configured: &Path, label: &str) -> Result<PathBuf> {
+    let directory = resolve_working_directory(root, Some(configured))?;
+    if !directory.is_dir() {
+        anyhow::bail!("{label} must be a directory inside the checkout");
+    }
+    Ok(directory)
+}
+
+fn validate_state_fingerprint(
+    root: &Path,
+    provider_id: &str,
+    provider: &CommandProvider,
+) -> Result<()> {
+    let changes_state = matches!(provider.phase, ExecutionPhase::Reset | ExecutionPhase::Seed);
+    if changes_state && provider.observation.is_some() {
+        anyhow::bail!(
+            "provider `{provider_id}` phase {:?} must verify state, not match a failure observation",
+            provider.phase
+        );
+    }
+    match (&provider.state_fingerprint, changes_state) {
+        (None, true) => anyhow::bail!(
+            "provider `{provider_id}` phase {:?} requires stateFingerprint verification",
+            provider.phase
+        ),
+        (Some(_), false) => {
+            anyhow::bail!("provider `{provider_id}` may use stateFingerprint only in reset or seed")
+        }
+        (None, false) => return Ok(()),
+        (Some(fingerprint), true) => {
+            validate_sha256(&fingerprint.expected_sha256, "state fingerprint")?;
+            validate_command(
+                root,
+                &fingerprint.command.argv,
+                &fingerprint.command.environment,
+                fingerprint.command.working_directory.as_deref(),
+                fingerprint.command.timeout_ms,
             )?;
         }
     }
@@ -219,14 +427,7 @@ pub(super) fn validate_provider_source(root: &Path, source: &ProviderSource) -> 
     {
         anyhow::bail!("provider source path must be a normalized checkout-relative path");
     }
-    if !source.sha256.starts_with("sha256:")
-        || source.sha256.len() != "sha256:".len() + 64
-        || !source.sha256["sha256:".len()..]
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-    {
-        anyhow::bail!("provider source sha256 is invalid");
-    }
+    validate_sha256(&source.sha256, "provider source")?;
     let declared_path = root.join(&source.path);
     let path = declared_path
         .canonicalize()
@@ -250,6 +451,18 @@ pub(super) fn validate_provider_source(root: &Path, source: &ProviderSource) -> 
             source.sha256,
             actual
         );
+    }
+    Ok(())
+}
+
+fn validate_sha256(value: &str, field: &str) -> Result<()> {
+    if !value.starts_with("sha256:")
+        || value.len() != "sha256:".len() + 64
+        || !value["sha256:".len()..]
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        anyhow::bail!("{field} sha256 is invalid");
     }
     Ok(())
 }
@@ -332,6 +545,29 @@ pub(super) fn provider_digest(provider: &CommandProvider) -> Result<String> {
     Ok(format!("sha256:{encoded}"))
 }
 
+pub(super) fn provider_binding_digest(
+    root: &Path,
+    catalog: &ProviderCatalog,
+    provider: &CommandProvider,
+) -> Result<String> {
+    let Some(cell_id) = &provider.cell else {
+        return provider_digest(provider);
+    };
+    let cell = catalog
+        .cells
+        .get(cell_id)
+        .with_context(|| format!("provider names unknown cell `{cell_id}`"))?;
+    let compose_digest = match cell {
+        ReproductionCell::DockerCompose(cell) => {
+            let path = resolve_checkout_file(root, &cell.compose_file, "compose file")?;
+            sha256_path(&path)?
+        }
+    };
+    let bytes = serde_json::to_vec(&(provider, cell, compose_digest))
+        .context("serializing trusted provider and execution cell")?;
+    Ok(sha256_bytes(&bytes))
+}
+
 /// The digest a provider pins its source file by. Exposed so a refresh can say
 /// which pinned sources moved, which is the reason it is being run.
 pub(crate) fn source_digest(path: &Path) -> Result<String> {
@@ -340,13 +576,17 @@ pub(crate) fn source_digest(path: &Path) -> Result<String> {
 
 pub(super) fn sha256_path(path: &Path) -> Result<String> {
     let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    Ok(sha256_bytes(&bytes))
+}
+
+pub(super) fn sha256_bytes(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let mut encoded = String::with_capacity(64);
     for byte in digest {
         use std::fmt::Write;
         write!(&mut encoded, "{byte:02x}").unwrap();
     }
-    Ok(format!("sha256:{encoded}"))
+    format!("sha256:{encoded}")
 }
 
 pub(super) fn captured_provider_source(root: &Path, argv: &[String]) -> Option<ProviderSource> {
@@ -406,12 +646,12 @@ pub(crate) fn repin_guard_providers(
         }
         source.sha256 = sha256_path(&file)?;
     }
-    let digest = catalog
+    let provider = catalog
         .providers
         .values()
         .next()
-        .map(provider_digest)
-        .context("the guard catalog defines no provider")??;
+        .context("the guard catalog defines no provider")?;
+    let digest = provider_binding_digest(root, &catalog, provider)?;
 
     let encoded = serde_yaml::to_string(&catalog).context("serializing guard providers")?;
     let temporary = directory.join(format!(".providers.{}.tmp", std::process::id()));
@@ -487,12 +727,25 @@ pub(crate) fn persist_plan_catalog(
         .as_ref()
         .context("cannot persist providers for a package without a plan")?;
     let catalog = load_catalog(root, Some(&package.occurrence.occurrence_id), None)?;
-    let providers = resolve_providers(plan, &package.assessment, &catalog)?
-        .into_iter()
-        .map(|(provider_id, provider)| (provider_id, provider.clone()))
+    let providers: BTreeMap<String, CommandProvider> =
+        resolve_providers(root, plan, &package.assessment, &catalog)?
+            .into_iter()
+            .map(|(provider_id, provider)| (provider_id, provider.clone()))
+            .collect();
+    let selected_cells = providers
+        .values()
+        .filter_map(|provider| provider.cell.as_deref())
+        .filter_map(|cell_id| {
+            catalog
+                .cells
+                .get(cell_id)
+                .cloned()
+                .map(|cell| (cell_id.to_string(), cell))
+        })
         .collect();
     let committed = ProviderCatalog {
         version: CATALOG_VERSION,
+        cells: selected_cells,
         providers,
     };
     validate_catalog(root, &committed)?;
@@ -514,6 +767,7 @@ pub(crate) fn persist_plan_catalog(
 }
 
 pub(super) fn resolve_providers<'a>(
+    root: &Path,
     plan: &reproit_protocol::ReproductionPlan,
     assessment: &CapabilityAssessment,
     catalog: &'a ProviderCatalog,
@@ -551,7 +805,7 @@ pub(super) fn resolve_providers<'a>(
                 requirement_phase(requirement)
             );
         }
-        let digest = provider_digest(provider)?;
+        let digest = provider_binding_digest(root, catalog, provider)?;
         if digest != binding.template_digest {
             anyhow::bail!(
                 "provider `{}` changed since the plan was compiled: expected {}, got {}",

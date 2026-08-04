@@ -1,5 +1,8 @@
 //! Signed, encrypted, source-neutral offline support bundles.
 
+mod debug;
+pub(crate) use debug::{debug_occurrence, explain_occurrence};
+
 use crate::domain::execution::ExecutionVerdict;
 use crate::interface::cli::context::{exit_with, Ctx, Exit};
 use anyhow::{Context, Result};
@@ -426,6 +429,20 @@ pub(crate) async fn run_occurrence(
     let latest = directory.join("latest-run.json");
     std::fs::write(&latest, serde_json::to_vec_pretty(&run)?)
         .with_context(|| format!("writing {}", latest.display()))?;
+    if let Some(provenance) = cloud::read_provenance(&directory)? {
+        match super::triage::report_plan_run(
+            &provenance.cloud_base,
+            &provenance.app_id,
+            &provenance.bucket_id,
+            &package.occurrence.occurrence_id,
+            &run,
+        )
+        .await
+        {
+            Ok(()) => ctx.say("  cloud: authoritative cell receipt and result recorded"),
+            Err(error) => ctx.say(format!("  cloud: result was not uploaded: {error}")),
+        }
+    }
     ctx.emit(&serde_json::json!({
         "command": "occurrence",
         "occurrenceId": package.occurrence.occurrence_id,
@@ -638,6 +655,9 @@ fn persist_compiled_package(
     capsule.occurrence = Some(compiled.occurrence.clone());
     capsule.assessment = Some(compiled.assessment.clone());
     capsule.reproduction_plan = Some(plan.clone());
+    capsule.readiness = Some(crate::adapters::execution::assess_package_readiness(
+        root, &compiled,
+    )?);
     capsule.persist(root)?;
     compiled.capsule = Some(serde_json::to_value(&capsule)?);
     compiled.finalize_id().map_err(protocol_error)?;

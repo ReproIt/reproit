@@ -60,6 +60,8 @@ of it. Incomplete coverage stays an explicit blocker rather than an implied clea
 ```sh
 reproit fnd_...        # a local finding
 reproit occ_...        # a production occurrence
+reproit debug occ_...  # auto-open an IDE, attach, pause before the trigger
+reproit debug explain occ_...  # explain readiness without starting a cell
 reproit @saved-name    # a saved guard, by alias
 ```
 
@@ -67,7 +69,7 @@ reproit @saved-name    # a saved guard, by alias
 failure reproduced; a clean result; a different failure; a flaky result; stale or unsupported
 evidence; or an infrastructure failure. A different failure never counts as a reproduction.
 
-On a TTY the replayed app is held for you to attach a debugger. `--auto` (and any non-TTY, `--json`,
+On a TTY the replayed app can be held for inspection. `--auto` (and any non-TTY, `--json`,
 or `--yes` run) reports the verdict and exits.
 
 ## keep
@@ -141,6 +143,16 @@ production identities, never unverified telemetry.
 check carries a repair when Reproit knows a safe one. `--json` carries the same `detail` and `fix`
 fields.
 
+For backend projects it also validates the checkout-owned trusted execution catalog, reports phase
+and cleanup coverage, and warns when no provider defines an exact verdict observation. Its live
+adapter probe decodes and validates the bounded start-to-return event sequence, so a malformed or
+proxy-truncated header cannot be reported as effect-level coverage. See [Trusted execution
+providers](execution-providers.md).
+
+`reproit debug map suggest-contracts` is also backend-aware. It emits per-operation declared,
+schema, inferred, lifecycle, proof, and effect coverage. Inferred behavior is marked
+`authoritativeForFindings: false`, and every abstention names its exact missing capability.
+
 `login` stores a credential in the platform credential store and selects a project. Local capture
 and checking never require it.
 
@@ -152,6 +164,22 @@ These are real commands, typed the same way; `--help` does not list them so the 
 `scan`, `fuzz`, `verify`, `accept`, `baseline`, `proof`, `repro simplify|why`, `journey`,
 `screenshots`, `auth`, `import`, `collect`, `inspect`, `surface`, `push`, `create`, `triage`,
 `timeline`, `resolution-events`, `skills`, `platforms`, `mcp`, `reset`, `update`, `debug`.
+
+`reproit debug occ_...` resolves one checkout-owned debug capability from the occurrence's existing
+execution plan. That capability may belong to a Compose cell or to a trusted local process, device,
+simulator, or VM provider. It starts the debugger before the recorded trigger and writes a bounded
+diagnostic receipt. `--ide auto` opens a
+detected VS Code command with a generated, gitignored workspace; `--no-open` prepares the same
+token-protected loopback session without launching an application. IDE clients can signal debugger
+attachment and fire the recorded trigger through `debug-session.json`; terminal Enter remains the
+extension-free fallback. The command is intentionally interactive, so `--yes`, `--json`, and
+non-TTY invocations fail before a cell is started. The receipt is non-authoritative by construction.
+Use a normal `reproit occ_...` run to verify the failure or fix.
+For Cloud-pulled occurrences, both paths upload their bounded receipts to the originating bucket;
+diagnostic history remains excluded from verdict and fix workflows.
+
+Deployment evidence collection for Kubernetes, Compose, ECS, serverless, native services, CI,
+Android, and iOS is documented in [platform-collectors.md](platform-collectors.md).
 
 Names beginning `__` are not commands at all. They are process entry points reproit spawns on
 itself (runner hosts, the direct-id routes, the update check) and are deliberately untypeable.

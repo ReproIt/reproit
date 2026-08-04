@@ -28,6 +28,30 @@ SDK source dependencies must use an immutable `v1.x.y` tag. Keep the CLI and SDK
 on the same minor version when practical; the version 1 wire protocol permits
 independent patch updates.
 
+## 1.0.1 - 2026-08-04
+
+### Added: reproducible debugging
+
+- Added provider-neutral debug execution for local processes, containers,
+  simulators, physical devices, and local virtual machines.
+- Added reproducible Docker Compose cells with bounded readiness, reset,
+  containment, cleanup, and execution receipts.
+- Added source-neutral debugger profiles plus a VS Code integration that opens
+  a prepared replay session without tying the CLI vocabulary to a framework.
+- Added platform, OpenTelemetry, clock, randomness, and readiness evidence to
+  capture compilation and Cloud replay packages.
+- Added explicit explanations for unavailable capabilities so a replay reaches
+  an honest reproduced, clean, or not-reproducible outcome.
+
+### Improved: backend evidence
+
+- Added automatic effect-boundary instrumentation and backend contract support
+  for richer production-to-local replay evidence.
+- Added Cloud storage, retention, and replay-package joining for platform and
+  execution evidence.
+- Expanded doctor and capability coverage reporting for debug providers and
+  capture completeness.
+
 ## 1.0.0 - 2026-07-24
 
 Every surface in this release is covered by the 1.x compatibility promise; see

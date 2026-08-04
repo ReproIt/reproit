@@ -1,7 +1,7 @@
 use crate::domain::execution::{ExecutionPhase, ExecutionVerdict, PhaseRecord};
 use reproit_protocol::{
-    DependencyKind, EnvironmentKind, MechanismAuthority, ObservationKind, ReproductionRequirement,
-    RequirementKind, TriggerKind,
+    DebuggerKind, DependencyKind, EnvironmentKind, MechanismAuthority, ObservationKind,
+    ReproductionRequirement, RequirementKind, TriggerKind,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -11,7 +11,42 @@ use std::path::PathBuf;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct ProviderCatalog {
     pub(super) version: u16,
+    #[serde(default)]
+    pub(super) cells: BTreeMap<String, ReproductionCell>,
     pub(super) providers: BTreeMap<String, CommandProvider>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "driver", rename_all = "kebab-case", deny_unknown_fields)]
+pub(super) enum ReproductionCell {
+    DockerCompose(DockerComposeCell),
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct DockerComposeCell {
+    pub(super) compose_file: PathBuf,
+    pub(super) application_service: String,
+    #[serde(default)]
+    pub(super) dependency_services: Vec<String>,
+    #[serde(default)]
+    pub(super) allow_local_build: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) platform: Option<String>,
+    #[serde(default = "default_timeout_ms")]
+    pub(super) timeout_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) debug: Option<DebugProfile>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct DebugProfile {
+    pub(super) debugger: DebuggerKind,
+    pub(super) argv: Vec<String>,
+    pub(super) port: u16,
+    pub(super) local_source_root: PathBuf,
+    pub(super) target_source_root: PathBuf,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -23,6 +58,10 @@ pub(super) struct CommandProvider {
     pub(super) capabilities: BTreeSet<TrustedCapability>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) source: Option<ProviderSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) cell: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) debug: Option<DebugProfile>,
     pub(super) argv: Vec<String>,
     #[serde(default)]
     pub(super) environment: BTreeMap<String, String>,
@@ -34,6 +73,8 @@ pub(super) struct CommandProvider {
     pub(super) clean_exit_codes: Vec<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) observation: Option<CommandObservation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) state_fingerprint: Option<StateFingerprint>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) cleanup: Option<CommandTemplate>,
 }
@@ -106,6 +147,14 @@ pub(super) struct CommandTemplate {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct StateFingerprint {
+    #[serde(flatten)]
+    pub(super) command: CommandTemplate,
+    pub(super) expected_sha256: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct CommandObservation {
     pub(super) identity: String,
@@ -131,6 +180,17 @@ pub(crate) struct PlanRun {
     pub(crate) verdict: ExecutionVerdict,
     pub(crate) phases: Vec<PhaseRecord>,
     pub(crate) provider_runs: Vec<ProviderRun>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) cell_receipt: Option<reproit_protocol::CellReceipt>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) diagnostic_receipt: Option<reproit_protocol::DiagnosticReceipt>,
+    pub(crate) authoritative: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct DebugLaunchOptions {
+    pub(crate) ide: String,
+    pub(crate) open: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -144,6 +204,12 @@ pub(crate) struct ProviderRun {
     pub(super) timed_out: bool,
     pub(super) output_truncated: bool,
     pub(super) observation_matched: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) expected_state_fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) actual_state_fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) state_verified: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) error: Option<String>,
 }

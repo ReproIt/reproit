@@ -10,6 +10,8 @@ fn provider() -> CommandProvider {
         phase: ExecutionPhase::Launch,
         capabilities: BTreeSet::new(),
         source: None,
+        cell: None,
+        debug: None,
         argv: vec!["sh".into(), "-c".into(), "exit 17".into()],
         environment: BTreeMap::new(),
         working_directory: None,
@@ -19,6 +21,7 @@ fn provider() -> CommandProvider {
             identity: "service-start-failure".into(),
             matcher: ObservationMatcher::ExitCode { code: 17 },
         }),
+        state_fingerprint: None,
         cleanup: None,
     }
 }
@@ -49,6 +52,34 @@ fn provider_digest_changes_with_executable_mechanism() {
 }
 
 #[test]
+fn cell_binding_digest_includes_the_compose_file() {
+    let root = temporary_root("cell-binding-digest");
+    std::fs::write(root.join("compose.yaml"), "services: {}\n").unwrap();
+    let mut provider = provider();
+    provider.cell = Some("backend".into());
+    let catalog = ProviderCatalog {
+        version: CATALOG_VERSION,
+        cells: BTreeMap::from([(
+            "backend".into(),
+            ReproductionCell::DockerCompose(DockerComposeCell {
+                compose_file: "compose.yaml".into(),
+                application_service: "app".into(),
+                dependency_services: Vec::new(),
+                allow_local_build: false,
+                platform: None,
+                timeout_ms: 1_000,
+                debug: None,
+            }),
+        )]),
+        providers: BTreeMap::from([("service-start".into(), provider.clone())]),
+    };
+    let first = provider_binding_digest(&root, &catalog, &provider).unwrap();
+    std::fs::write(root.join("compose.yaml"), "services: {app: {}}\n").unwrap();
+    let second = provider_binding_digest(&root, &catalog, &provider).unwrap();
+    assert_ne!(first, second);
+}
+
+#[test]
 fn interpreted_provider_source_is_bound_by_checkout_relative_digest() {
     let root = temporary_root("provider-source");
     let directory = root.join("validation");
@@ -76,9 +107,11 @@ fn interpreted_provider_source_is_bound_by_checkout_relative_digest() {
 
 #[test]
 fn imported_plan_cannot_substitute_a_provider_template() {
+    let root = temporary_root("imported-plan");
     let provider = provider();
     let catalog = ProviderCatalog {
         version: CATALOG_VERSION,
+        cells: BTreeMap::new(),
         providers: BTreeMap::from([("service-start".into(), provider)]),
     };
     let plan = ReproductionPlan {
@@ -114,7 +147,7 @@ fn imported_plan_cannot_substitute_a_provider_template() {
         }],
         unresolved: vec![],
     };
-    let error = resolve_providers(&plan, &assessment, &catalog).unwrap_err();
+    let error = resolve_providers(&root, &plan, &assessment, &catalog).unwrap_err();
     assert!(error
         .to_string()
         .contains("changed since the plan was compiled"));
@@ -150,10 +183,265 @@ execution:
 }
 
 #[test]
+fn project_catalog_inspection_reports_only_declared_readiness() {
+    let root = temporary_root("catalog-inspection");
+    let mut launch = provider();
+    launch.cleanup = Some(CommandTemplate {
+        argv: vec!["sh".into(), "-c".into(), "exit 0".into()],
+        environment: BTreeMap::new(),
+        working_directory: None,
+        timeout_ms: 1_000,
+    });
+    write_project_catalog(
+        &root,
+        &ProviderCatalog {
+            version: CATALOG_VERSION,
+            cells: BTreeMap::new(),
+            providers: BTreeMap::from([("service-start".into(), launch)]),
+        },
+    );
+    let inspected = inspect_project_catalog(&root).unwrap().unwrap();
+    assert_eq!(inspected.provider_count, 1);
+    assert_eq!(inspected.cell_count, 0);
+    assert_eq!(inspected.debug_executor_count, 0);
+    assert_eq!(inspected.phases, vec![ExecutionPhase::Launch]);
+    assert_eq!(inspected.observation_count, 1);
+    assert_eq!(inspected.state_fingerprint_count, 0);
+    assert_eq!(inspected.source_pinned_count, 0);
+    assert_eq!(inspected.cleanup_count, 1);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn provider_debug_capability_is_source_neutral_and_trigger_bound() {
+    let root = temporary_root("provider-debug-capability");
+    let mut trigger = provider();
+    trigger.phase = ExecutionPhase::Trigger;
+    trigger.debug = Some(DebugProfile {
+        debugger: reproit_protocol::DebuggerKind::NodeInspector,
+        argv: vec!["node".into(), "--inspect-brk=127.0.0.1:9229".into()],
+        port: 9_229,
+        local_source_root: ".".into(),
+        target_source_root: "/workspace".into(),
+    });
+    let catalog = ProviderCatalog {
+        version: CATALOG_VERSION,
+        cells: BTreeMap::new(),
+        providers: BTreeMap::from([("trigger".into(), trigger.clone())]),
+    };
+    write_project_catalog(&root, &catalog);
+    let inspected = inspect_project_catalog(&root).unwrap().unwrap();
+    assert_eq!(inspected.debug_executor_count, 1);
+
+    trigger.phase = ExecutionPhase::Launch;
+    let invalid = ProviderCatalog {
+        version: CATALOG_VERSION,
+        cells: BTreeMap::new(),
+        providers: BTreeMap::from([("launch".into(), trigger)]),
+    };
+    assert!(validate_catalog(&root, &invalid)
+        .unwrap_err()
+        .to_string()
+        .contains("requires phase trigger"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn local_process_plan_becomes_debug_ready_from_provider_capability() {
+    let root = temporary_root("provider-debug-readiness");
+    let mut trigger = provider();
+    trigger.phase = ExecutionPhase::Trigger;
+    trigger.debug = Some(DebugProfile {
+        debugger: reproit_protocol::DebuggerKind::NodeInspector,
+        argv: vec!["node".into(), "--inspect-brk=127.0.0.1:9229".into()],
+        port: 9_229,
+        local_source_root: ".".into(),
+        target_source_root: "/workspace".into(),
+    });
+    write_project_catalog(
+        &root,
+        &ProviderCatalog {
+            version: CATALOG_VERSION,
+            cells: BTreeMap::new(),
+            providers: BTreeMap::from([("trigger".into(), trigger)]),
+        },
+    );
+    let mut package = incomplete_process_package();
+    package.assessment.requirements[0].id = "req_command".into();
+    package.assessment.requirements[0].requirement = RequirementKind::Trigger {
+        trigger: TriggerKind::Command,
+        subject: "captured command".into(),
+    };
+    package.assessment.unresolved[0].requirement_id = "req_command".into();
+    package.id.clear();
+    package.finalize_id().unwrap();
+    let AutomaticCompilation::Compiled(compiled) =
+        compile_package_automatically(&root, &package).unwrap()
+    else {
+        panic!("the trusted provider should compile");
+    };
+    let local_destinations = [
+        ExecutionDestination::LocalProcess,
+        ExecutionDestination::Simulator {
+            platform: "android".into(),
+        },
+        ExecutionDestination::PhysicalDevice {
+            platform: "ios".into(),
+        },
+        ExecutionDestination::LocalVm {
+            platform: "windows".into(),
+        },
+    ];
+    for destination in local_destinations {
+        let mut candidate = (*compiled).clone();
+        candidate.plan.as_mut().unwrap().destination = destination;
+        candidate.plan.as_mut().unwrap().id.clear();
+        candidate.plan.as_mut().unwrap().finalize_id().unwrap();
+        candidate.id.clear();
+        candidate.finalize_id().unwrap();
+        let readiness = assess_package_readiness(&root, &candidate).unwrap();
+        assert_eq!(
+            readiness
+                .dimension(reproit_protocol::ReadinessDimension::Debug)
+                .status,
+            reproit_protocol::ReadinessStatus::Ready
+        );
+    }
+
+    let mut remote = (*compiled).clone();
+    remote.plan.as_mut().unwrap().destination = ExecutionDestination::HostedWorker {
+        worker_class: "linux".into(),
+    };
+    remote.plan.as_mut().unwrap().id.clear();
+    remote.plan.as_mut().unwrap().finalize_id().unwrap();
+    remote.id.clear();
+    remote.finalize_id().unwrap();
+    let readiness = assess_package_readiness(&root, &remote).unwrap();
+    assert_eq!(
+        readiness
+            .dimension(reproit_protocol::ReadinessDimension::Debug)
+            .status,
+        reproit_protocol::ReadinessStatus::Blocked
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+fn reset_provider(expected: &str) -> CommandProvider {
+    let mut reset = provider();
+    reset.phase = ExecutionPhase::Reset;
+    reset.argv = vec!["sh".into(), "-c".into(), "exit 0".into()];
+    reset.observation = None;
+    reset.state_fingerprint = Some(StateFingerprint {
+        command: CommandTemplate {
+            argv: vec!["sh".into(), "-c".into(), "printf clean-state".into()],
+            environment: BTreeMap::new(),
+            working_directory: None,
+            timeout_ms: 1_000,
+        },
+        expected_sha256: expected.into(),
+    });
+    reset
+}
+
+#[test]
+fn state_changing_providers_require_a_bounded_fingerprint_probe() {
+    let root = temporary_root("state-fingerprint-required");
+    let mut reset = provider();
+    reset.phase = ExecutionPhase::Reset;
+    reset.observation = None;
+    let catalog = ProviderCatalog {
+        version: CATALOG_VERSION,
+        cells: BTreeMap::new(),
+        providers: BTreeMap::from([("reset-db".into(), reset)]),
+    };
+    assert!(validate_catalog(&root, &catalog)
+        .unwrap_err()
+        .to_string()
+        .contains("requires stateFingerprint verification"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn state_changing_providers_cannot_substitute_a_failure_observation() {
+    let root = temporary_root("state-fingerprint-observation");
+    let expected = sha256_bytes(b"clean-state");
+    let mut reset = reset_provider(&expected);
+    reset.observation = provider().observation;
+    let catalog = ProviderCatalog {
+        version: CATALOG_VERSION,
+        cells: BTreeMap::new(),
+        providers: BTreeMap::from([("reset-db".into(), reset)]),
+    };
+    assert!(validate_catalog(&root, &catalog)
+        .unwrap_err()
+        .to_string()
+        .contains("must verify state"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn reset_provider_records_matching_state_fingerprint() {
+    let root = temporary_root("state-fingerprint-match");
+    let expected = sha256_bytes(b"clean-state");
+    let reset = reset_provider(&expected);
+    let (run, verdict) = execute_provider(&root, "reset-db", &reset, "unused")
+        .await
+        .unwrap();
+    assert_eq!(verdict, ProviderVerdict::SetupPassed);
+    assert_eq!(
+        run.expected_state_fingerprint.as_deref(),
+        Some(expected.as_str())
+    );
+    assert_eq!(
+        run.actual_state_fingerprint.as_deref(),
+        Some(expected.as_str())
+    );
+    assert_eq!(run.state_verified, Some(true));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn reset_provider_fails_closed_on_state_fingerprint_mismatch() {
+    let root = temporary_root("state-fingerprint-mismatch");
+    let reset = reset_provider(&sha256_bytes(b"different-state"));
+    let (run, verdict) = execute_provider(&root, "reset-db", &reset, "unused")
+        .await
+        .unwrap();
+    let actual = sha256_bytes(b"clean-state");
+    assert_eq!(verdict, ProviderVerdict::InfrastructureFailed);
+    assert_eq!(
+        run.actual_state_fingerprint.as_deref(),
+        Some(actual.as_str())
+    );
+    assert_eq!(run.state_verified, Some(false));
+    assert!(run.error.unwrap().contains("state fingerprint mismatch"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn project_catalog_inspection_distinguishes_missing_and_invalid_catalogs() {
+    let root = temporary_root("catalog-diagnostics");
+    std::fs::write(root.join("reproit.yaml"), "app:\n  platform: web\n").unwrap();
+    assert_eq!(inspect_project_catalog(&root).unwrap(), None);
+
+    std::fs::write(
+        root.join("reproit.yaml"),
+        "execution:\n  version: 99\n  providers: {}\n",
+    )
+    .unwrap();
+    assert!(inspect_project_catalog(&root)
+        .unwrap_err()
+        .to_string()
+        .contains("unsupported execution provider catalog version"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn removed_standalone_execution_catalog_is_not_loaded() {
     let root = temporary_root("standalone-catalog");
     let catalog = ProviderCatalog {
         version: CATALOG_VERSION,
+        cells: BTreeMap::new(),
         providers: BTreeMap::from([("service-start".into(), provider())]),
     };
     std::fs::write(
@@ -187,6 +475,28 @@ async fn command_output_is_bounded_while_the_pipe_is_drained() {
 }
 
 #[tokio::test]
+async fn cleanup_failures_are_recorded_and_fail_closed() {
+    let root = temporary_root("cleanup-failure");
+    let mut launch = provider();
+    launch.cleanup = Some(CommandTemplate {
+        argv: vec!["sh".into(), "-c".into(), "exit 23".into()],
+        environment: BTreeMap::new(),
+        working_directory: None,
+        timeout_ms: 1_000,
+    });
+    let providers = vec![("service-start".into(), &launch)];
+    let mut runs = Vec::new();
+    assert_eq!(run_cleanup(&root, &providers, &mut runs).await, 1);
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].exit_code, Some(23));
+    assert!(runs[0]
+        .error
+        .as_deref()
+        .is_some_and(|error| error.contains("cleanup command exited")));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
 async fn imported_process_occurrence_compiles_and_reproduces_without_ui() {
     use reproit_protocol::{
         ConsentClass, EvidencePolicy, EvidenceSource, FailureObservation, OccurrenceEnvelope,
@@ -197,6 +507,7 @@ async fn imported_process_occurrence_compiles_and_reproduces_without_ui() {
     let root = temporary_root("compile");
     let catalog = ProviderCatalog {
         version: CATALOG_VERSION,
+        cells: BTreeMap::new(),
         providers: BTreeMap::from([("service-start".into(), provider())]),
     };
     write_project_catalog(&root, &catalog);
@@ -275,6 +586,7 @@ fn automatic_compilation_uses_only_an_unambiguous_trusted_provider() {
     let root = temporary_root("automatic-compile");
     let catalog = ProviderCatalog {
         version: CATALOG_VERSION,
+        cells: BTreeMap::new(),
         providers: BTreeMap::from([("service-start".into(), provider())]),
     };
     write_project_catalog(&root, &catalog);
@@ -300,6 +612,7 @@ fn automatic_compilation_refuses_ambiguous_providers() {
     let root = temporary_root("ambiguous-compile");
     let catalog = ProviderCatalog {
         version: CATALOG_VERSION,
+        cells: BTreeMap::new(),
         providers: BTreeMap::from([
             ("service-start".into(), provider()),
             ("service-start-copy".into(), provider()),
@@ -390,6 +703,7 @@ fn automatic_compilation_returns_a_typed_blocker_for_an_untrusted_capability() {
     trigger_provider.phase = ExecutionPhase::Trigger;
     let catalog = ProviderCatalog {
         version: CATALOG_VERSION,
+        cells: BTreeMap::new(),
         providers: BTreeMap::from([("concurrency-trigger".into(), trigger_provider)]),
     };
     write_project_catalog(&root, &catalog);

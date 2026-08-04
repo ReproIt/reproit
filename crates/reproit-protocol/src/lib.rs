@@ -11,7 +11,11 @@ mod capture_backend;
 mod capture_compiler;
 mod causal;
 mod environment;
+mod execution_receipt;
 mod occurrence;
+mod open_telemetry;
+mod platform;
+mod readiness;
 mod reproduction;
 pub use capture::{
     translate_event_batch, translate_event_batches, CaptureBatch, CaptureCapability,
@@ -30,11 +34,28 @@ pub use environment::{
     EnvironmentEnvelope, EnvironmentOutcome, EnvironmentProof, EnvironmentTrial,
     ENVIRONMENT_ENVELOPE_VERSION, MAX_ENVIRONMENT_TRIALS,
 };
+pub use execution_receipt::{
+    CellReceipt, CleanupStatus, DebugEndpoint, DebugSessionCommand, DebugSessionDescriptor,
+    DebugSessionRequest, DebugSessionResponse, DebugSessionState, DiagnosticReceipt, SourceMapping,
+    CELL_RECEIPT_VERSION, DEBUG_SESSION_VERSION, DIAGNOSTIC_RECEIPT_VERSION,
+};
 pub use occurrence::{
     ArtifactPolicy, CaptureDefect, CaptureDefectKind, CollectionMethod, ConsentClass,
     EvidenceArtifact, EvidenceArtifactKind, EvidencePolicy, EvidenceSource, FailureObservation,
     ObservationAuthority, ObservationKind, OccurrenceEnvelope, RedactionState, SubjectIdentity,
     MAX_ARTIFACT_BYTES, MAX_OCCURRENCE_ARTIFACTS, OCCURRENCE_VERSION,
+};
+pub use open_telemetry::{
+    bridge_open_telemetry, OpenTelemetryBatch, OpenTelemetrySpan, OpenTelemetrySpanKind,
+};
+pub use platform::{
+    BuildIdentity, PlatformEvidence, PlatformEvidenceBatch, PlatformIdentity, ResourceLimits,
+    WorkloadIdentity, PLATFORM_EVIDENCE_BATCH_VERSION, PLATFORM_EVIDENCE_VERSION,
+};
+pub use readiness::{
+    assess_readiness, CapabilityGap, CapabilityGapReason, DimensionReadiness, FidelityClaim,
+    FidelityStatus, ReadinessAssessment, ReadinessDimension, ReadinessStatus, MAX_FIDELITY_CLAIMS,
+    MAX_READINESS_GAPS, READINESS_VERSION,
 };
 pub use reproduction::{
     AssessmentStatus, BundleEncryption, BundleEncryptionAlgorithm, BundleSignature,
@@ -110,11 +131,19 @@ pub struct DeploymentIdentity {
     pub version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub platforms: Vec<PlatformEvidence>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub platform_gaps: Vec<String>,
 }
 
 impl DeploymentIdentity {
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        if self.version.is_none() && self.commit.is_none() {
+        if self.version.is_none()
+            && self.commit.is_none()
+            && self.platforms.is_empty()
+            && self.platform_gaps.is_empty()
+        {
             return Err(ProtocolError::new(ReasonCode::InvalidEvent));
         }
         if let Some(version) = &self.version {
@@ -122,6 +151,21 @@ impl DeploymentIdentity {
         }
         if let Some(commit) = &self.commit {
             validate_token(commit)?;
+        }
+        if self.platforms.len() > 16 {
+            return Err(ProtocolError::new(ReasonCode::BatchTooLarge));
+        }
+        for platform in &self.platforms {
+            platform.validate()?;
+        }
+        if self.platform_gaps.len() > 128 {
+            return Err(ProtocolError::new(ReasonCode::BatchTooLarge));
+        }
+        for gap in &self.platform_gaps {
+            validate_text(gap, MAX_TEXT_BYTES)?;
+            if gap.is_empty() {
+                return Err(ProtocolError::new(ReasonCode::InvalidEvent));
+            }
         }
         Ok(())
     }

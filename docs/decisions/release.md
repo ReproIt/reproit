@@ -25,7 +25,7 @@ defects in real applications.
 Validate without publishing:
 
 ```sh
-gh workflow run release.yml -f version=1.0.0 -f publish=false
+gh workflow run release.yml -f version=1.0.1 -f publish=false
 ```
 
 Run permissioned gates through `native-gates.yml`. The release workflow rejects
