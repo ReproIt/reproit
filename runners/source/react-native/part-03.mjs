@@ -455,13 +455,53 @@ async function startClipCapture(driver, clip) {
       'xcrun',
       ['simctl', 'io', udid, 'recordVideo', '--codec=h264', '--force', clip.mov],
       {
-        stdio: 'ignore',
+        stdio: ['ignore', 'ignore', 'pipe'],
       },
     );
+    if (!(await waitForRecordingStarted(clip.proc))) {
+      clip.proc.kill('SIGINT');
+      clip.proc = null;
+      clip.recording = null;
+      return;
+    }
     clip.recording = 'ios';
   } catch {
     clip.recording = null;
   }
+}
+
+const RECORDING_START_TIMEOUT_MS = 10_000;
+
+// simctl documents this stderr marker as the first point at which a video frame
+// has actually been processed. Waiting for process spawn is insufficient on a
+// loaded host and can miss the entire transition that follows.
+export async function waitForRecordingStarted(
+  proc,
+  timeoutMs = RECORDING_START_TIMEOUT_MS,
+) {
+  if (!proc?.stderr) return false;
+  return new Promise((resolve) => {
+    let stderr = '';
+    let settled = false;
+    const finish = (started) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      proc.stderr.off('data', onData);
+      proc.off('error', onFailure);
+      proc.off('exit', onFailure);
+      resolve(started);
+    };
+    const onData = (chunk) => {
+      stderr = (stderr + String(chunk)).slice(-4096);
+      if (stderr.includes('Recording started')) finish(true);
+    };
+    const onFailure = () => finish(false);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    proc.stderr.on('data', onData);
+    proc.once('error', onFailure);
+    proc.once('exit', onFailure);
+  });
 }
 
 // Stop filming and finalize clip.mov. iOS: SIGINT the recordVideo child so it
