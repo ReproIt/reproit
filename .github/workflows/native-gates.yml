@@ -70,9 +70,21 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - run: python3 validation/native/preflight.py linux-containers
+      - name: Set up persistent Docker builder
+        uses: docker/setup-buildx-action@v4
+      - name: Build cached Tauri gate image
+        uses: docker/build-push-action@v7
+        with:
+          context: validation/backends
+          file: validation/backends/tauri.Dockerfile
+          load: true
+          tags: reproit-tauri-backend
+          cache-from: type=gha,scope=tauri-native-gate-${{ runner.arch }}
+          cache-to: type=gha,mode=max,scope=tauri-native-gate-${{ runner.arch }},ignore-error=true
       - name: Run disposable Linux container gates
         env:
           REPROIT_GATE_OUTPUT_DIR: ${{ runner.temp }}/native-gates
+          REPROIT_TAURI_GATE_IMAGE_READY: "1"
         run: |
           python3 validation/backends/gate.py tauri
           python3 validation/backends/gate.py linux-atspi-gtk

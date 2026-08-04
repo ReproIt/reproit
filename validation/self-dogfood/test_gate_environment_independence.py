@@ -37,6 +37,8 @@ RN_BUNDLE = ROOT / "runners/rn/runner.mjs"
 PY_CONFTEST = ROOT / "sdk/reproit-backend-py/tests/conftest.py"
 WORKFLOW = ROOT / ".github/workflows/native-gates.yml"
 CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
+TAURI_DOCKERFILE = ROOT / "validation/backends/tauri.Dockerfile"
+TAURI_GATE = ROOT / "validation/backends/run-tauri.sh"
 ANDROID_HOST_TEST = ROOT / "sdk/reproit-android/run_host_test.sh"
 JAVA_CAPTURE_TEST = ROOT / (
     "sdk/reproit-backend-java/src/test/java/dev/reproit/backend/CaptureTest.java"
@@ -56,6 +58,18 @@ SYS_PATH_SETUP = re.compile(r"sys\.path\.(insert|append)\s*\(")
 
 
 class GateEnvironmentIndependenceTests(unittest.TestCase):
+    def test_tauri_gate_reuses_content_addressed_layers_across_workers(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8", errors="replace")
+        gate = TAURI_GATE.read_text(encoding="utf-8", errors="replace")
+        self.assertTrue(TAURI_DOCKERFILE.is_file(), "Tauri gate image has no stable Dockerfile")
+        self.assertIn("docker/setup-buildx-action@v4", workflow)
+        self.assertIn("docker/build-push-action@v7", workflow)
+        self.assertIn("cache-from: type=gha", workflow)
+        self.assertIn("cache-to: type=gha,mode=max", workflow)
+        self.assertIn('REPROIT_TAURI_GATE_IMAGE_READY: "1"', workflow)
+        self.assertIn("validation/backends/tauri.Dockerfile", gate)
+        self.assertNotIn('cat > "$WORK/Dockerfile"', gate)
+
     def test_the_rn_bundle_loads_without_the_appium_driver(self) -> None:
         bundle = RN_BUNDLE.read_text(encoding="utf-8", errors="replace")
         self.assertIsNone(

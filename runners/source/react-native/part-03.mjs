@@ -424,9 +424,8 @@ function bootedUdid() {
   return 'booted';
 }
 
-// Start filming. iOS: spawn `simctl io <udid> recordVideo` (finalized on SIGINT).
-// Android: Appium startRecordingScreen (base64 mp4 drained at stop). Best-effort;
-// a failure leaves clip.recording null so finalize still emits FINDING:BOXED.
+// Start filming. iOS uses `simctl io <udid> recordVideo`, finalized on SIGINT.
+// Android abstains until a recorder can preserve the authoritative UI action.
 async function startClipCapture(driver, clip) {
   try {
     mkdirSync(clip.dir, { recursive: true });
@@ -440,38 +439,49 @@ async function startClipCapture(driver, clip) {
     // or destabilized UiAutomator2 during native controls. Without a frame source
     // that preserves the action authority, a FLICKER marker would not be valid.
     clip.recording = null;
-    return;
+    return {
+      status: 'unavailable',
+      reason: 'android-recorder-authority-unavailable',
+      attempts: [],
+    };
   }
   const udid = bootedUdid();
-  try {
-    rmSync(clip.mov, { force: true });
-  } catch {
-    /* ignore */
-  }
-  try {
+  const acquisition = await acquireRecordingProcess(() => {
+    try {
+      rmSync(clip.mov, { force: true });
+    } catch {
+      /* ignore */
+    }
     // --codec=h264 for broad ffmpeg/QuickTime compatibility; --force overwrites a
     // stale file. Records until it receives SIGINT (see stopClipCapture).
-    clip.proc = spawn(
+    return spawn(
       'xcrun',
       ['simctl', 'io', udid, 'recordVideo', '--codec=h264', '--force', clip.mov],
       {
         stdio: ['ignore', 'ignore', 'pipe'],
       },
     );
-    if (!(await waitForRecordingStarted(clip.proc))) {
-      clip.proc.kill('SIGINT');
-      clip.proc = null;
-      clip.recording = null;
-      return;
-    }
-    clip.videoStartedAt = Date.now();
-    clip.recording = 'ios';
-  } catch {
+  });
+  clip.captureAttempts = acquisition.attempts;
+  if (acquisition.status !== 'started') {
+    clip.proc = null;
     clip.recording = null;
+    return acquisition;
   }
+  clip.proc = acquisition.proc;
+  clip.videoStartedAt = Date.now();
+  clip.recording = 'ios';
+  return acquisition;
 }
 
-const RECORDING_START_TIMEOUT_MS = 10_000;
+const RECORDING_START_TIMEOUT_MS = 30_000;
+const RECORDING_START_ATTEMPTS = 2;
+const RECORDING_STOP_TIMEOUT_MS = 8_000;
+const RECORDING_DIAGNOSTIC_LIMIT = 4_096;
+
+function boundedRecordingText(value) {
+  return String(value || '').slice(-RECORDING_DIAGNOSTIC_LIMIT);
+}
 
 // simctl documents this stderr marker as the first point at which a video frame
 // has actually been processed. Waiting for process spawn is insufficient on a
@@ -480,29 +490,114 @@ export async function waitForRecordingStarted(
   proc,
   timeoutMs = RECORDING_START_TIMEOUT_MS,
 ) {
-  if (!proc?.stderr) return false;
+  if (!proc?.stderr) {
+    return { status: 'unavailable', reason: 'recorder-stderr-unavailable' };
+  }
   return new Promise((resolve) => {
     let stderr = '';
     let settled = false;
-    const finish = (started) => {
+    const finish = (result) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       proc.stderr.off('data', onData);
-      proc.off('error', onFailure);
-      proc.off('exit', onFailure);
-      resolve(started);
+      proc.off('error', onError);
+      proc.off('exit', onExit);
+      resolve(result);
     };
     const onData = (chunk) => {
-      stderr = (stderr + String(chunk)).slice(-4096);
-      if (stderr.includes('Recording started')) finish(true);
+      stderr = boundedRecordingText(stderr + String(chunk));
+      if (stderr.includes('Recording started')) finish({ status: 'started' });
     };
-    const onFailure = () => finish(false);
-    const timer = setTimeout(() => finish(false), timeoutMs);
+    const onError = (error) =>
+      finish({
+        status: 'unavailable',
+        reason: 'recorder-spawn-failed',
+        detail: boundedRecordingText(error?.message || error),
+        ...(stderr ? { stderr } : {}),
+      });
+    const onExit = (exitCode, signal) =>
+      finish({
+        status: 'unavailable',
+        reason: 'recorder-exited',
+        ...(Number.isInteger(exitCode) ? { exitCode } : {}),
+        ...(signal ? { signal: boundedRecordingText(signal) } : {}),
+        ...(stderr ? { stderr } : {}),
+      });
+    const timer = setTimeout(
+      () =>
+        finish({
+          status: 'unavailable',
+          reason: 'recorder-start-timeout',
+          timeoutMs,
+          ...(stderr ? { stderr } : {}),
+        }),
+      timeoutMs,
+    );
     proc.stderr.on('data', onData);
-    proc.once('error', onFailure);
-    proc.once('exit', onFailure);
+    proc.once('error', onError);
+    proc.once('exit', onExit);
   });
+}
+
+async function stopRecordingProcess(proc, timeoutMs = RECORDING_STOP_TIMEOUT_MS) {
+  if (!proc || proc.exitCode !== null) return;
+  await new Promise((resolveStop) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      proc.off('exit', finish);
+      proc.off('error', finish);
+      resolveStop();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    proc.once('exit', finish);
+    proc.once('error', finish);
+    try {
+      proc.kill('SIGINT');
+    } catch {
+      finish();
+    }
+  });
+}
+
+export async function acquireRecordingProcess(
+  spawnRecording,
+  options = {},
+) {
+  const boundedInteger = (value, fallback, maximum) =>
+    Math.min(maximum, Math.max(1, Number.isInteger(value) ? value : fallback));
+  const maxAttempts = boundedInteger(options.maxAttempts, RECORDING_START_ATTEMPTS, 3);
+  const timeoutMs = boundedInteger(options.timeoutMs, RECORDING_START_TIMEOUT_MS, 60_000);
+  const stopTimeoutMs = boundedInteger(
+    options.stopTimeoutMs,
+    RECORDING_STOP_TIMEOUT_MS,
+    10_000,
+  );
+  const attempts = [];
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    let proc;
+    try {
+      proc = spawnRecording();
+    } catch (error) {
+      attempts.push({
+        attempt,
+        reason: 'recorder-spawn-failed',
+        detail: boundedRecordingText(error?.message || error),
+      });
+      continue;
+    }
+    const result = await waitForRecordingStarted(proc, timeoutMs);
+    if (result.status === 'started') {
+      return { status: 'started', proc, attempt, attempts };
+    }
+    const { status: _status, ...failure } = result;
+    attempts.push({ attempt, ...failure });
+    await stopRecordingProcess(proc, stopTimeoutMs);
+  }
+  return { status: 'unavailable', reason: 'capture-unavailable', attempts };
 }
 
 // Stop filming and finalize clip.mov. iOS: SIGINT the recordVideo child so it
@@ -510,23 +605,7 @@ export async function waitForRecordingStarted(
 // returns base64 mp4 which we write to clip.mov. Never throws.
 async function stopClipCapture(driver, clip) {
   if (clip.recording === 'ios' && clip.proc) {
-    try {
-      clip.proc.kill('SIGINT');
-    } catch {
-      /* already gone */
-    }
-    await new Promise((res) => {
-      let done = false;
-      const finish = () => {
-        if (!done) {
-          done = true;
-          res();
-        }
-      };
-      clip.proc.on('exit', finish);
-      clip.proc.on('error', finish);
-      setTimeout(finish, 8000); // never hang the run on a stuck finalize
-    });
+    await stopRecordingProcess(clip.proc);
   }
 }
 
@@ -557,13 +636,43 @@ async function startTransitionFlicker(driver) {
       videoStartedAt: 0,
       actionAtSeconds: null,
     };
-    await startClipCapture(driver, capture);
+    const acquisition = await startClipCapture(driver, capture);
     if (!capture.recording) {
+      if (FLICKER_DIAGNOSTICS) {
+        log(
+          'REPROIT:FLICKER_DIAGNOSTICS ' +
+            JSON.stringify({
+              outcome: 'abstained',
+              reason: acquisition?.reason || 'capture-unavailable',
+              attempts: acquisition?.attempts || [],
+            }),
+        );
+      }
       rmSync(dir, { recursive: true, force: true });
       return null;
     }
+    if (FLICKER_DIAGNOSTICS) {
+      log(
+        'REPROIT:FLICKER_CAPTURE ' +
+          JSON.stringify({
+            outcome: 'started',
+            attempt: acquisition.attempt,
+            priorFailures: acquisition.attempts,
+          }),
+      );
+    }
     return capture;
-  } catch (_) {
+  } catch (error) {
+    if (FLICKER_DIAGNOSTICS) {
+      log(
+        'REPROIT:FLICKER_DIAGNOSTICS ' +
+          JSON.stringify({
+            outcome: 'abstained',
+            reason: 'capture-exception',
+            detail: boundedRecordingText(error?.message || error),
+          }),
+      );
+    }
     if (dir) rmSync(dir, { recursive: true, force: true });
     return null;
   }
@@ -579,7 +688,17 @@ async function finishTransitionFlicker(driver, capture) {
         ? (details) => log('REPROIT:FLICKER_DIAGNOSTICS ' + JSON.stringify(details))
         : undefined,
     });
-  } catch (_) {
+  } catch (error) {
+    if (FLICKER_DIAGNOSTICS) {
+      log(
+        'REPROIT:FLICKER_DIAGNOSTICS ' +
+          JSON.stringify({
+            outcome: 'abstained',
+            reason: 'classification-exception',
+            detail: boundedRecordingText(error?.message || error),
+          }),
+      );
+    }
     return null;
   } finally {
     try {
