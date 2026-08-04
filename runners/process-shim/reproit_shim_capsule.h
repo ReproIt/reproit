@@ -286,7 +286,7 @@ ssize_t serve_recv(int fd, void *buf, size_t len);
  * the platform or the environment declined it, in which case the libc
  * boundary keeps working exactly as before. */
 #ifdef __linux__
-int reproit_seccomp_start(void);
+int reproit_seccomp_start(const char *control);
 
 /* The scratch tree the completeness layer replays files out of
  * (reproit_seccomp_scratch.c). Real files, not memfds: glibc validates a
@@ -303,7 +303,10 @@ int reproit_serve_dir(const char *absolute);
  * half of the boundary is blind inside it. */
 int reproit_elf_is_dynamic(const char *path);
 #else
-static inline int reproit_seccomp_start(void) { return 0; }
+static inline int reproit_seccomp_start(const char *control) {
+    (void)control;
+    return 0;
+}
 #endif
 
 #define ENTER()                                                                                    \

@@ -887,12 +887,29 @@ static int install_filter(void) {
                         &prog);
 }
 
-int reproit_seccomp_start(void) {
+static int replay_was_captured_without_seccomp(void) {
+    if (G.mode != 2) {
+        return 0;
+    }
+    for (size_t i = 0; i < G.entry_count; i++) {
+        entry_t *entry = &G.entries[i];
+        if (entry->kind == K_LAYER && strcmp(entry->key, "libc") == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int reproit_seccomp_start(const char *control) {
     if (REPROIT_AUDIT_ARCH == 0 || G.mode == 0) {
         return 0;
     }
-    const char *off = getenv("REPROIT_SECCOMP");
-    if (off && off[0] == '0') {
+    /* Reproit's own control lookup is mechanism, not target behavior. The
+     * caller resolves it through real getenv so it never leaks into the
+     * capsule's environment observations. A libc-only recording must also
+     * replay libc-only, otherwise the syscall layer asks for metadata that
+     * the recording intentionally does not contain. */
+    if ((control && control[0] == '0') || replay_was_captured_without_seccomp()) {
         return 0;
     }
     int sv[2];

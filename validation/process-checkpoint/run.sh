@@ -44,10 +44,10 @@ SHIM_SOURCES=(
 gcc -shared -fPIC -O1 -o "$WORK/reproit_shim.so" "${SHIM_SOURCES[@]}" -ldl \
   || fail "could not build the process shim"
 export REPROIT_PROCESS_SHIM="$WORK/reproit_shim.so"
-# Capture and the full replay run on the default boundary. Only anchoring
-# forces libc-only, because criu refuses to dump a process holding a seccomp
-# notify descriptor. The subject is given an ABSOLUTE config path so both
-# boundaries key that file identically and one capsule serves both.
+# CRIU refuses to dump a process holding a seccomp notify descriptor, so an
+# anchorable capsule must be captured on the libc boundary. Replay derives the
+# same boundary from the capsule's layer marker. The subject is given an
+# ABSOLUTE config path so its file identity is unambiguous.
 CONFIG="$WORK/checkpoint-config.txt"
 
 BINARY="${REPROIT_BINARY:?set REPROIT_BINARY to a Linux reproit}"
@@ -70,8 +70,8 @@ ITERATIONS="${ITERATIONS:-400}"
 ANCHOR_AT="${ANCHOR_AT:-350}"
 echo "anchored-config-value" > "$CONFIG"
 
-# 1. Capture the long running failure.
-if ! "$BINARY" --json process-capture --out capsule.json -- \
+# 1. Capture the long running failure on the anchor-compatible boundary.
+if ! REPROIT_SECCOMP=0 "$BINARY" --json process-capture --out capsule.json -- \
     ./subject "$ITERATIONS" "$CONFIG" > capture.json 2> capture.err; then
   cat capture.err >&2
   fail "capture did not produce a capsule"

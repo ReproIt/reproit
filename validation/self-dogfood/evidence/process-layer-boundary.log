@@ -1,0 +1,7 @@
+Affected result:
+FAIL: The process shim reads a framework control through the target interceptor.
+
+Fixed result:
+PASS: The process shim keeps the framework control outside target observations.
+PASS: A libc capture selects the libc layer during replay.
+PASS: The native checkpoint gate completed all seven cases.

@@ -114,8 +114,8 @@ void shim_init(void) {
     /* Start the syscall completeness layer LAST, so it inherits the open log
      * and the loaded replay entries. When it comes up it owns files and path
      * metadata and the interposed file calls below become passthrough. */
-    int layered = reproit_seccomp_start();
     const char *seccomp_env = real_getenv ? real_getenv("REPROIT_SECCOMP") : NULL;
+    int layered = reproit_seccomp_start(seccomp_env);
     const char *layerless_reason =
         seccomp_env && seccomp_env[0] == '0' ? "disabled by REPROIT_SECCOMP=0"
 #ifdef __linux__
@@ -878,4 +878,3 @@ ssize_t pread64(int fd, void *buf, size_t count, off_t offset) {
 }
 
 FILE *fopen64(const char *path, const char *mode) { return fopen(path, mode); }
-

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "process-layer-boundary",
+  "detail": "The checkpoint gate found a process-layer mismatch. The capture used the seccomp layer. CRIU requires the libc layer. Reproit now reads its control before interception. A libc capsule now selects the libc layer during replay. The test checks both source invariants. The native checkpoint gate checks the complete behavior.",
+  "test": "validation/process-checkpoint/test_layer_contract.py",
+  "command": [
+    "python3",
+    "validation/process-checkpoint/test_layer_contract.py"
+  ],
+  "timeoutSeconds": 30,
+  "affectedExitCode": 1,
+  "affectedEvidence": [
+    {
+      "path": "validation/self-dogfood/evidence/process-layer-boundary.log",
+      "sha256": "sha256:a115e2c54e7c346abc769317fcc444adda6c31b4d650322daa3d8e62021f31b5"
+    }
+  ]
+}
