@@ -45,9 +45,8 @@ use windows::Win32::System::Com::{
 };
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationLegacyIAccessiblePattern,
-    IUIAutomationRangeValuePattern, IUIAutomationScrollPattern, IUIAutomationValuePattern,
-    TreeScope_Children, UIA_LegacyIAccessiblePatternId, UIA_RangeValuePatternId,
-    UIA_ScrollPatternId, UIA_ValuePatternId,
+    IUIAutomationRangeValuePattern, IUIAutomationValuePattern, TreeScope_Children,
+    UIA_LegacyIAccessiblePatternId, UIA_RangeValuePatternId, UIA_ValuePatternId,
 };
 // windows-rs 0.58 groups PrintWindow + PRINT_WINDOW_FLAGS under the Xps module
 // namespace (the metadata's home for the API), not WindowsAndMessaging.
