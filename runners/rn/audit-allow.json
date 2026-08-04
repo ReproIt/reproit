@@ -1,6 +1,1 @@
-{
-  "GHSA-mh99-v99m-4gvg": {
-    "reason": "brace-expansion DoS via unbounded expansion. No non-breaking fix exists: only brace-expansion 5.0.8 is patched, and 5.x is a breaking API change (named `expand` export, no default) that minimatch 9.x and 5.x cannot consume. minimatch 9.0.9 deliberately reverted from ^5 back to ^2, and 2.1.2 is still unbounded (verified: it OOM-crashes on a nested expansion). npm's own suggested fix is a major DOWNGRADE to webdriverio 6.3.5. Not reachable here: the advisory needs an attacker-controlled glob pattern, and the runner imports only `remote` from webdriverio, never the @wdio/cli testrunner spec globbing or archiver; any pattern would come from our own repo. Re-check when glob/minimatch adopt brace-expansion >=5.0.8, at which point this entry goes stale and the gate will say so.",
-    "review": "2026-10-23"
-  }
-}
+{}
