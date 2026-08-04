@@ -1,12 +1,9 @@
 # Changelog
 
-## 1.0.1
+## 1.0.0
 
 - Add provider-neutral platform, readiness, clock, randomness, and execution
   evidence for reproducible debugging.
-
-## 1.0.0
-
 - First stable release of the cross-platform event, structural identity, and causal capture
   contract.
 

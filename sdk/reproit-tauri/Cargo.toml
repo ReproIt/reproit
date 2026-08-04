@@ -1,6 +1,6 @@
 [package]
 name = "tauri-plugin-reproit"
-version = "1.0.1"
+version = "1.0.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/ReproIt/reproit"

@@ -19,7 +19,7 @@ dependencies:
     git:
       url: https://github.com/ReproIt/reproit.git
       path: sdk/reproit_flutter
-      ref: v1.0.1
+      ref: v1.0.0
 ```
 
 ```dart

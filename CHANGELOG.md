@@ -28,7 +28,7 @@ SDK source dependencies must use an immutable `v1.x.y` tag. Keep the CLI and SDK
 on the same minor version when practical; the version 1 wire protocol permits
 independent patch updates.
 
-## 1.0.1 - 2026-08-04
+## 1.0.0 - 2026-08-04
 
 ### Added: reproducible debugging
 
@@ -51,8 +51,6 @@ independent patch updates.
   execution evidence.
 - Expanded doctor and capability coverage reporting for debug providers and
   capture completeness.
-
-## 1.0.0 - 2026-07-24
 
 Every surface in this release is covered by the 1.x compatibility promise; see
 `docs/compatibility.md`.

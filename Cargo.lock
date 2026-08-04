@@ -2419,7 +2419,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "reproit"
-version = "1.0.1"
+version = "1.0.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2494,7 +2494,7 @@ dependencies = [
 
 [[package]]
 name = "reproit-llm"
-version = "1.0.1"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2508,7 +2508,7 @@ dependencies = [
 
 [[package]]
 name = "reproit-protocol"
-version = "1.0.1"
+version = "1.0.0"
 dependencies = [
  "hex",
  "schemars",
@@ -2519,7 +2519,7 @@ dependencies = [
 
 [[package]]
 name = "reproit-recorder"
-version = "1.0.1"
+version = "1.0.0"
 dependencies = [
  "reproit-protocol",
  "serde_json",
@@ -2527,7 +2527,7 @@ dependencies = [
 
 [[package]]
 name = "reproit-tui-sdk"
-version = "1.0.1"
+version = "1.0.0"
 dependencies = [
  "reproit-tui-sig",
  "serde_json",
@@ -2535,7 +2535,7 @@ dependencies = [
 
 [[package]]
 name = "reproit-tui-sig"
-version = "1.0.1"
+version = "1.0.0"
 
 [[package]]
 name = "reqwest"
