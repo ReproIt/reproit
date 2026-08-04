@@ -11,11 +11,17 @@ use std::time::Duration;
 use reproit_protocol::{CaptureEventKind, ProcessIdentity};
 use reproit_recorder::{EventContext, Recorder};
 
+#[cfg(unix)]
 const POLL_INTERVAL_MS: u64 = 100;
+#[cfg(unix)]
 const POLL_TIMEOUT_MS: u64 = 1_000;
+#[cfg(unix)]
 const MAX_POLLS: usize = 6_000;
+#[cfg(unix)]
 const MAX_PROCESSES_PER_POLL: usize = 4_096;
+#[cfg(unix)]
 const MAX_DESCENDANTS: usize = 4_096;
+#[cfg(unix)]
 const MAX_ANCESTRY_DEPTH: usize = 64;
 
 pub(super) struct ObservedProcess {

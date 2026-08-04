@@ -10,8 +10,8 @@ pub(super) const TAPPABLE_CONTROL_TYPES: &[i32] = &[
     50013, // RadioButton
 ];
 
-const TITLEBAR_CONTROL_TYPE: i32 = 50037;
-const BUTTON_CONTROL_TYPE: i32 = 50000;
+pub(super) const TITLEBAR_CONTROL_TYPE: i32 = 50037;
+pub(super) const BUTTON_CONTROL_TYPE: i32 = 50000;
 const TITLEBAR_AUTOMATION_ID: &str = "TitleBar";
 const CAPTION_BUTTON_AUTOMATION_IDS: &[&str] = &["Close", "Minimize", "Maximize", "Restore"];
 

@@ -91,6 +91,8 @@ use scenario::{run_scenario_actor, window_for_pid};
 
 #[cfg(test)]
 use oracle::{parse_invariant_marker, InvariantState};
+#[cfg(test)]
+use roles::{BUTTON_CONTROL_TYPE, TITLEBAR_CONTROL_TYPE};
 
 fn emit(s: &str) {
     println!("{s}");
