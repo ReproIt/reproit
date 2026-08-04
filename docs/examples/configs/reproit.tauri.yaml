@@ -1,4 +1,5 @@
 # Tauri desktop app: system webview driven over WebDriver (tauri-driver).
+schemaVersion: 1
 app:
   platform: tauri
   executable: ${APP_EXECUTABLE:-./src-tauri/target/release/my-app}

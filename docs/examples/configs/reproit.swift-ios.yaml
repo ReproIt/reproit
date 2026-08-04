@@ -1,4 +1,5 @@
 # Native iOS (UIKit/SwiftUI) via XCUITest through Appium.
+schemaVersion: 1
 app:
   platform: swift-ios
   appiumUrl: ${APPIUM_URL:-http://127.0.0.1:4723}

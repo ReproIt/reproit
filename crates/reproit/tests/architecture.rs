@@ -124,6 +124,72 @@ fn inner_layers_do_not_depend_on_outer_layers() {
     }
 }
 
+#[test]
+fn domain_outer_dependency_debt_cannot_grow() {
+    // These are existing persistence and configuration seams. They are debt,
+    // not precedent. Move their narrow input models inward as each area is
+    // touched, then remove its path from this allowlist.
+    const ADAPTER_ALLOWED: &[&str] = &[
+        "src/domain/invariants/custom.rs",
+        "src/domain/invariants/evaluate/edge.rs",
+        "src/domain/invariants/evaluate/graph.rs",
+        "src/domain/invariants/evaluate/lifecycle.rs",
+        "src/domain/invariants/evaluate/mod.rs",
+        "src/domain/invariants/evaluate/operability.rs",
+        "src/domain/invariants/evaluate/render.rs",
+        "src/domain/invariants/evaluate/transition.rs",
+        "src/domain/invariants/mod.rs",
+        "src/domain/map/mod.rs",
+        "src/domain/map/persistence.rs",
+        "src/domain/route_access.rs",
+    ];
+    const RUNTIME_ALLOWED: &[&str] = &[
+        "src/domain/candidate.rs",
+        "src/domain/capsule/crypto.rs",
+        "src/domain/capsule/mod.rs",
+        "src/domain/capsule/retention.rs",
+        "src/domain/map/persistence.rs",
+        "src/domain/repro.rs",
+    ];
+
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut pending = vec![manifest.join("src/domain")];
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(directory).expect("read domain directory") {
+            let path = entry.expect("read domain entry").path();
+            if path.is_dir() {
+                if path.file_name().is_none_or(|name| name != "tests") {
+                    pending.push(path);
+                }
+                continue;
+            }
+            if path.extension().is_none_or(|extension| extension != "rs")
+                || path
+                    .file_name()
+                    .is_some_and(|name| name == "tests.rs" || name == "boundary_tests.rs")
+            {
+                continue;
+            }
+            let relative = path
+                .strip_prefix(&manifest)
+                .expect("domain source under crate")
+                .to_string_lossy();
+            let body = std::fs::read_to_string(&path).expect("read domain source");
+            let production = body.split("#[cfg(test)]").next().unwrap_or(&body);
+            for (dependency, allowed) in [
+                ("crate::adapters", ADAPTER_ALLOWED),
+                ("crate::runtime", RUNTIME_ALLOWED),
+            ] {
+                assert!(
+                    !production.contains(dependency) || allowed.contains(&relative.as_ref()),
+                    "{relative} added an outward {dependency} dependency; pass a narrow domain \
+                     input from the workflow instead"
+                );
+            }
+        }
+    }
+}
+
 /// The domain layer must be decidable from its inputs: no wall clock, no
 /// network, no environment. `inner_layers_do_not_depend_on_outer_layers` checks
 /// module direction, which is the wrong axis for this: an LLM call reached the

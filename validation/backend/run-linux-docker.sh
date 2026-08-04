@@ -9,8 +9,9 @@ docker run --rm --platform linux/amd64 \
   -v reproit-backend-linux-target:/target \
   -e CARGO_TARGET_DIR=/target \
   -w /work \
-  rust:1.88-bookworm \
-  sh -c 'apt-get update -qq && \
+  rust:bookworm \
+  sh -c 'rustup update stable && rustup default stable && \
+apt-get update -qq && \
 apt-get install -y -qq libatspi2.0-dev >/dev/null && \
 cargo test -p reproit "backend::" --locked'
 

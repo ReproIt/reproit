@@ -44,6 +44,8 @@ jobs:
         run: cargo build --workspace --locked
       - name: Test (incl. determinism replay)
         run: cargo test --workspace --locked
+      - name: Verify the independently versioned protocol release package
+        run: cargo package --locked -p reproit-protocol
       # Named explicitly rather than left to --workspace. The Rust TUI SDK is a
       # workspace member today, so it was gated by accident of layout; if it
       # ever leaves the workspace the accident goes away silently. This step is

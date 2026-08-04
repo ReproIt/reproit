@@ -37,35 +37,42 @@ Every target in the manifest declares:
 preservation, a verified minimized trigger, a passing neighboring-behavior
 control, and exact-commit native evidence.
 
+Qualification is derived, never hand-authored. A target is `qualified` only
+when its independent field benchmark is complete and every required evidence
+slot is present. Otherwise it is `preview`. The generated status shows the
+exact evidence gap. Both levels remain native-gated. Preview preserves the
+documented 1.x configuration and wire contracts. It joins the 1.0 behavior
+support claim only when its evidence is complete.
+
 ## Supported targets
 
 <!-- generated:targets -->
 
-Supported atomic targets: 21.
+Declared atomic targets: 21.
 
-| Target | Framework | Platforms | Driving runtime |
-|---|---|---|---|
-| Backend contracts | Backend services | Linux, macOS, Windows | HTTP, OpenAPI |
-| Jetpack Compose Android | Jetpack Compose | Android | ART, Appium UiAutomator2 |
-| Electron | Electron | Linux, macOS, Windows | Chromium, Node.js, CDP |
-| Flutter Android | Flutter | Android | Dart VM service (profile-mode build, liveness and isolate only), Appium UiAutomator2 |
-| Flutter iOS | Flutter | iOS | Dart VM service, flutter drive |
-| Linux GTK | GTK 3, GTK 4 | Linux | AT-SPI 2, GLib main loop |
-| Linux Qt Quick/QML | Qt Quick/QML | Linux | AT-SPI 2, Qt 6, QML engine |
-| Linux Qt Widgets | Qt Widgets | Linux | AT-SPI 2, Qt 6 |
-| Linux wxWidgets | wxWidgets | Linux | AT-SPI 2, GTK backend |
-| macOS Accessibility | SwiftUI, AppKit | macOS | Swift runtime, Accessibility API |
-| React Native Android | React Native | Android | Hermes, Appium UiAutomator2 |
-| React Native iOS | React Native | iOS | Hermes, Appium XCUITest |
-| SwiftUI iOS | SwiftUI | iOS | Swift runtime, Appium XCUITest |
-| Tauri | Tauri | Linux, Windows | WebKitGTK, tauri-driver |
-| Terminal UI | Terminal applications | Linux, macOS | PTY, VT parser |
-| Web Chromium | DOM applications | Linux, macOS, Windows | Node.js 20+, Playwright CDP |
-| Web Firefox | DOM applications | Linux, macOS, Windows | Node.js 20+, Playwright |
-| Web WebKit | DOM applications | Linux, macOS, Windows | Node.js 20+, Playwright |
-| Windows Avalonia | Avalonia | Windows | .NET, UI Automation |
-| Windows WinUI 3 | WinUI 3 | Windows | .NET, UI Automation, WinAppSDK |
-| Windows WPF | WPF | Windows | .NET, UI Automation |
+| Target | Qualification | Framework | Platforms | Driving runtime |
+|---|---|---|---|---|
+| Backend contracts | qualified | Backend services | Linux, macOS, Windows | HTTP, OpenAPI |
+| Jetpack Compose Android | qualified | Jetpack Compose | Android | ART, Appium UiAutomator2 |
+| Electron | qualified | Electron | Linux, macOS, Windows | Chromium, Node.js, CDP |
+| Flutter Android | qualified | Flutter | Android | Dart VM service (profile-mode build, liveness and isolate only), Appium UiAutomator2 |
+| Flutter iOS | qualified | Flutter | iOS | Dart VM service, flutter drive |
+| Linux GTK | qualified | GTK 3, GTK 4 | Linux | AT-SPI 2, GLib main loop |
+| Linux Qt Quick/QML | qualified | Qt Quick/QML | Linux | AT-SPI 2, Qt 6, QML engine |
+| Linux Qt Widgets | qualified | Qt Widgets | Linux | AT-SPI 2, Qt 6 |
+| Linux wxWidgets | qualified | wxWidgets | Linux | AT-SPI 2, GTK backend |
+| macOS Accessibility | qualified | SwiftUI, AppKit | macOS | Swift runtime, Accessibility API |
+| React Native Android | qualified | React Native | Android | Hermes, Appium UiAutomator2 |
+| React Native iOS | preview | React Native | iOS | Hermes, Appium XCUITest |
+| SwiftUI iOS | qualified | SwiftUI | iOS | Swift runtime, Appium XCUITest |
+| Tauri | preview | Tauri | Linux, Windows | WebKitGTK, tauri-driver |
+| Terminal UI | qualified | Terminal applications | Linux, macOS | PTY, VT parser |
+| Web Chromium | qualified | DOM applications | Linux, macOS, Windows | Node.js 20+, Playwright CDP |
+| Web Firefox | qualified | DOM applications | Linux, macOS, Windows | Node.js 20+, Playwright |
+| Web WebKit | qualified | DOM applications | Linux, macOS, Windows | Node.js 20+, Playwright |
+| Windows Avalonia | qualified | Avalonia | Windows | .NET, UI Automation |
+| Windows WinUI 3 | qualified | WinUI 3 | Windows | .NET, UI Automation, WinAppSDK |
+| Windows WPF | qualified | WPF | Windows | .NET, UI Automation |
 
 Every target's runtime and framework bounds, release evidence
 directories, and retained evidence slots are listed in

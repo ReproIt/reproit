@@ -41,9 +41,10 @@ if [[ "$(uname -s)" != "Linux" ]]; then
   if ! docker image inspect "$IMAGE" > /dev/null 2>&1; then
     echo "=== building $IMAGE (one time) ==="
     docker build -t "$IMAGE" - <<'DOCKERFILE' || exit 1
-FROM rust:1.97.1-trixie
+FROM rust:trixie
 # libatspi2.0-dev because the CLI links -latspi; sdl2 for the C engine.
-RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+RUN rustup update stable && rustup default stable \
+    && apt-get update -qq && apt-get install -y -qq --no-install-recommends \
     libsdl2-dev python3 libatspi2.0-dev && rm -rf /var/lib/apt/lists/*
 DOCKERFILE
   fi

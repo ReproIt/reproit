@@ -22,6 +22,7 @@ class AndroidX86RemoteContractTests(unittest.TestCase):
         source = WORKER.read_text(encoding="utf-8")
         self.assertIn("--network none", source)
         self.assertIn("--device /dev/kvm", source)
+        self.assertIn("--env RUSTUP_TOOLCHAIN=stable", source)
         self.assertIn("rm -rf /owned/source /owned/avd", source)
         self.assertIn('rm -rf "$SOURCE" "$AVD"', source)
 
@@ -79,7 +80,9 @@ class AndroidX86RemoteContractTests(unittest.TestCase):
     def test_container_sources_and_framework_tools_are_pinned(self) -> None:
         source = DOCKERFILE.read_text(encoding="utf-8")
         self.assertEqual(source.count("FROM "), 3)
-        self.assertEqual(source.count("@sha256:"), 3)
+        self.assertEqual(source.count("@sha256:"), 2)
+        self.assertIn("FROM rust:bookworm AS rust", source)
+        self.assertIn("rustup update stable", source)
         self.assertIn("flutter_linux_3.41.6-stable.tar.xz", source)
         self.assertIn("appium@3.5.2", source)
         self.assertIn("uiautomator2@8.0.0", source)

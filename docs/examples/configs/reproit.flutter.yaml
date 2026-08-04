@@ -1,4 +1,5 @@
 # Flutter on the iOS simulator (flutter drive + Dart VM service).
+schemaVersion: 1
 app:
   platform: flutter
   projectDir: frontend

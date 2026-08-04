@@ -2,6 +2,45 @@ use super::*;
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ContractLedger {
+    package: String,
+    package_version: String,
+    compatibility_policy: String,
+    wire_versions: std::collections::BTreeMap<String, u16>,
+}
+
+#[test]
+fn contract_ledger_matches_compiled_versions() {
+    let ledger: ContractLedger =
+        serde_json::from_str(include_str!("../contract.json")).expect("valid contract ledger");
+    assert_eq!(ledger.package, env!("CARGO_PKG_NAME"));
+    assert_eq!(ledger.package_version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(ledger.compatibility_policy, "same-major-additive");
+
+    let expected = std::collections::BTreeMap::from([
+        ("captureBatch".into(), CAPTURE_BATCH_VERSION),
+        ("causalGraph".into(), CAUSAL_GRAPH_VERSION),
+        ("cellReceipt".into(), CELL_RECEIPT_VERSION),
+        ("debugSession".into(), DEBUG_SESSION_VERSION),
+        ("diagnosticReceipt".into(), DIAGNOSTIC_RECEIPT_VERSION),
+        ("environmentEnvelope".into(), ENVIRONMENT_ENVELOPE_VERSION),
+        ("eventFrame".into(), VERSION),
+        ("occurrence".into(), OCCURRENCE_VERSION),
+        ("platformEvidence".into(), PLATFORM_EVIDENCE_VERSION),
+        (
+            "platformEvidenceBatch".into(),
+            PLATFORM_EVIDENCE_BATCH_VERSION,
+        ),
+        ("readiness".into(), READINESS_VERSION),
+        ("reproductionPackage".into(), PACKAGE_VERSION),
+        ("reproductionPlan".into(), PLAN_VERSION),
+        ("supportBundle".into(), SUPPORT_BUNDLE_VERSION),
+    ]);
+    assert_eq!(ledger.wire_versions, expected);
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct LineCase {
     name: String,
     line: String,
@@ -53,6 +92,65 @@ fn occurrence() -> OccurrenceEnvelope {
             retention_class: "support-30d".into(),
         },
     }
+}
+
+#[test]
+fn occurrence_timestamps_reject_unstructured_text() {
+    let mut envelope = occurrence();
+    assert!(envelope.validate().is_ok());
+    envelope.observed_at = "yesterday".into();
+    assert_eq!(
+        envelope.validate().unwrap_err().reason,
+        ReasonCode::InvalidEvent
+    );
+}
+
+#[test]
+fn derived_occurrence_ids_are_full_and_domain_separated() {
+    let capture = derive_occurrence_id("capture-batch-v1", b"same-identity");
+    let legacy = derive_occurrence_id("legacy-sdk-finding-v1", b"same-identity");
+    assert_eq!(capture.len(), 68);
+    assert_ne!(capture, legacy);
+    assert!(validate_occurrence_id(&capture).is_ok());
+    assert!(validate_occurrence_id("occ_0123456789abcdef").is_ok());
+    assert!(validate_occurrence_id("occ_").is_err());
+}
+
+#[test]
+fn legacy_diagnostic_sources_normalize_to_the_neutral_variant() {
+    for source in [
+        "sentry",
+        "datadog",
+        "open-telemetry",
+        "crash-report",
+        "system-log",
+        "manual-report",
+        "preproduction",
+    ] {
+        let parsed: EvidenceSource = serde_json::from_str(&format!("\"{source}\""))
+            .expect("legacy evidence source remains readable");
+        assert_eq!(parsed, EvidenceSource::ImportedDiagnostic);
+        assert_eq!(
+            serde_json::to_string(&parsed).expect("neutral source serializes"),
+            "\"imported-diagnostic\""
+        );
+    }
+
+    let emitter: CaptureEmitterKind =
+        serde_json::from_str("\"telemetry-adapter\"").expect("legacy emitter remains readable");
+    assert_eq!(emitter, CaptureEmitterKind::ImportedEvidence);
+    assert_eq!(
+        serde_json::to_string(&emitter).expect("neutral emitter serializes"),
+        "\"imported-evidence\""
+    );
+
+    let capability: CaptureCapabilityKind =
+        serde_json::from_str("\"open-telemetry\"").expect("legacy capability remains readable");
+    assert_eq!(capability, CaptureCapabilityKind::ImportedDiagnostics);
+    assert_eq!(
+        serde_json::to_string(&capability).expect("neutral capability serializes"),
+        "\"imported-diagnostics\""
+    );
 }
 
 fn eligible_assessment(occurrence: &OccurrenceEnvelope) -> CapabilityAssessment {

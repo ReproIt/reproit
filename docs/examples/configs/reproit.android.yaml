@@ -1,4 +1,5 @@
 # Native Android (Jetpack Compose / Views) via Appium UiAutomator2.
+schemaVersion: 1
 app:
   platform: android
   appiumUrl: ${APPIUM_URL:-http://127.0.0.1:4723}

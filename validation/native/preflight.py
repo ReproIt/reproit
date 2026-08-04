@@ -51,6 +51,16 @@ def require_version(label: str, actual: str, expected: str) -> None:
         raise ValueError(f"{label} is not pinned to {expected}: {actual.splitlines()[0]}")
 
 
+def require_stable_rust() -> None:
+    actual = output(["rustc", "--version"]).splitlines()[0]
+    stable = output(["rustup", "run", "stable", "rustc", "--version"]).splitlines()[0]
+    if actual != stable:
+        raise ValueError(
+            f"rustc is not the installed stable toolchain: active {actual}, stable {stable}; "
+            "run `rustup update stable` and use `cargo +stable`"
+        )
+
+
 def require_appium_driver(profile: str, pins: dict[str, object]) -> None:
     driver_name = "uiautomator2" if profile == "android" else "xcuitest"
     raw = output(["appium", "driver", "list", "--installed", "--json"])
@@ -70,7 +80,7 @@ def require_appium_driver(profile: str, pins: dict[str, object]) -> None:
 
 def validate_versions(profile: str, pins: dict[str, object]) -> None:
     if profile not in {"linux-containers", "windows-bridge"}:
-        require_version("rustc", output(["rustc", "--version"]), str(pins["rust"]))
+        require_stable_rust()
     if profile in {"linux-hosted", "android", "macos-appium"}:
         node = output(["node", "--version"])
         if not re.match(rf"^v{pins['nodeMajor']}\.", node):

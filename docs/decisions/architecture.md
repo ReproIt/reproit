@@ -28,7 +28,10 @@ process entry point -> interface -> workflows -> domain
 Dependencies point away from external interfaces. Domain and adapter production code cannot import
 the interface or workflows, and the interface cannot import workflows. Workflows coordinate the
 layers after parsing. A few domain persistence modules use configuration and project-layout types,
-but deterministic evaluators do not acquire external evidence themselves.
+but deterministic evaluators do not get external evidence themselves. The exact remaining
+domain-to-adapter and domain-to-runtime files are allowlisted by an architecture test. The list may
+shrink as narrow input models move inward, but a new outward dependency fails the build. This keeps
+future adapters additive without requiring a speculative plugin framework.
 
 ## Why `workflows/` groups by target class, not by lifecycle
 
@@ -114,8 +117,12 @@ a general graph abstraction.
 Runner output crosses one lexical boundary in `domain/runner.rs`. Platform control markers remain a
 capture-adapter concern. Verdict-bearing evidence crosses the core boundary only as a strict
 `REPROIT/1 <domain> <subject> <sequence> <run-id> <event-json>` frame defined by the
-`reproit-protocol` package. CLI and cloud compile the same package source and reject unknown fields,
-unknown versions, invalid ordering, malformed scopes, and values outside explicit bounds.
+`reproit-protocol` package. The package is independently versioned from both products and publishes
+a machine-readable wire ledger. CLI and Cloud consume the same reviewed package content and reject
+unknown fields, unknown versions, invalid ordering, malformed scopes, and values outside explicit
+bounds. Cloud may retain an exact vendored snapshot while a package release is being reviewed, but
+content equality and the package version are gated. A CLI commit pin is provenance and controller
+selection, not a claim of protocol compatibility.
 
 The same shared protocol defines the causal graph and environment-minimization envelope used by
 capsule schema version 2. A capsule is assembled through five layers: bounded capture,
@@ -175,8 +182,9 @@ The trust boundary is asymmetric by design. Evidence may describe facts, referen
 content-addressed artifacts, and identify required capabilities. It may not supply an executable
 mechanism. A plan binding accepts only these authorities: trusted checkout, built-in adapter,
 organization policy, or explicit local approval. The first local executor resolves bindings
-through `execution.providers` in the checkout-owned `reproit.yaml`, recomputes the provider digest, verifies its
-phase and exact observation, and only then launches it.
+through `execution.providers` in the checkout-owned `reproit.yaml`, recomputes
+the provider digest, verifies its phase and exact observation, and only then
+launches it.
 
 The execution state machine is shared by actionless and action-driven failures:
 

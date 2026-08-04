@@ -13,6 +13,12 @@ Publication requires:
 - a matching version across every published CLI, runner, and SDK manifest; and
 - successful parsing of every workflow command by the production CLI schema.
 
+`reproit-protocol` has an independent semantic version. Its `contract.json`
+wire ledger must match the compiled constants and package manifest, and
+`cargo package --locked -p reproit-protocol` must pass. Publishing that crate is
+a separate, explicitly authorized release action. CLI and Cloud release
+versions do not imply protocol compatibility.
+
 The native evidence bundle covers all release-owned browser, mobile, desktop,
 terminal, webview, and backend gates. Permissioned macOS AX and Windows UIA
 evidence must come from their registered interactive environments.

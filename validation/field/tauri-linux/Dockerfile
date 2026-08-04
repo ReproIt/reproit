@@ -7,10 +7,10 @@
 # The platform is pinned in the file, not left to a build flag: the legacy
 # builder silently ignores --platform and would produce a worker of a different
 # architecture than the declared bound.
-# Rust 1.90 is the floor, not a preference: readest pulls roaring 0.11.4, which
-# refuses to build on 1.88 and fails the stage with a dependency-resolution
-# error rather than a compile error.
-FROM --platform=linux/amd64 rust:1.90-bookworm AS rust-toolchain
+# Current stable Rust stays above the measured 1.90 floor required by readest's
+# roaring dependency while keeping the campaign on the repository-wide policy.
+FROM --platform=linux/amd64 rust:bookworm AS rust-toolchain
+RUN rustup update stable && rustup default stable
 FROM --platform=linux/amd64 node:22-bookworm AS node-toolchain
 FROM --platform=linux/amd64 ubuntu:24.04
 

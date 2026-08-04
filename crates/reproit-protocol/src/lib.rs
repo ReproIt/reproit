@@ -13,7 +13,6 @@ mod causal;
 mod environment;
 mod execution_receipt;
 mod occurrence;
-mod open_telemetry;
 mod platform;
 mod readiness;
 mod reproduction;
@@ -32,7 +31,7 @@ pub use causal::{
 };
 pub use environment::{
     EnvironmentEnvelope, EnvironmentOutcome, EnvironmentProof, EnvironmentTrial,
-    ENVIRONMENT_ENVELOPE_VERSION, MAX_ENVIRONMENT_TRIALS,
+    ENVIRONMENT_ENVELOPE_VERSION, MAX_ENVIRONMENT_DIMENSIONS, MAX_ENVIRONMENT_TRIALS,
 };
 pub use execution_receipt::{
     CellReceipt, CleanupStatus, DebugEndpoint, DebugSessionCommand, DebugSessionDescriptor,
@@ -40,13 +39,11 @@ pub use execution_receipt::{
     CELL_RECEIPT_VERSION, DEBUG_SESSION_VERSION, DIAGNOSTIC_RECEIPT_VERSION,
 };
 pub use occurrence::{
-    ArtifactPolicy, CaptureDefect, CaptureDefectKind, CollectionMethod, ConsentClass,
-    EvidenceArtifact, EvidenceArtifactKind, EvidencePolicy, EvidenceSource, FailureObservation,
-    ObservationAuthority, ObservationKind, OccurrenceEnvelope, RedactionState, SubjectIdentity,
-    MAX_ARTIFACT_BYTES, MAX_OCCURRENCE_ARTIFACTS, OCCURRENCE_VERSION,
-};
-pub use open_telemetry::{
-    bridge_open_telemetry, OpenTelemetryBatch, OpenTelemetrySpan, OpenTelemetrySpanKind,
+    derive_occurrence_id, validate_occurrence_id, ArtifactPolicy, CaptureDefect, CaptureDefectKind,
+    CollectionMethod, ConsentClass, EvidenceArtifact, EvidenceArtifactKind, EvidencePolicy,
+    EvidenceSource, FailureObservation, ObservationAuthority, ObservationKind, OccurrenceEnvelope,
+    RedactionState, SubjectIdentity, MAX_ARTIFACT_BYTES, MAX_OCCURRENCE_ARTIFACTS,
+    OCCURRENCE_VERSION,
 };
 pub use platform::{
     BuildIdentity, PlatformEvidence, PlatformEvidenceBatch, PlatformIdentity, ResourceLimits,
@@ -991,6 +988,27 @@ pub(crate) fn validate_optional_text(
         .map(|text| validate_text(text, max_bytes))
         .transpose()
         .map(drop)
+}
+
+pub(crate) fn validate_timestamp(value: &str) -> Result<(), ProtocolError> {
+    validate_text(value, MAX_TOKEN_BYTES)?;
+    if chrono::DateTime::parse_from_rfc3339(value).is_ok() {
+        return Ok(());
+    }
+    // Early capture SDKs emitted Unix milliseconds as a decimal string. Keep
+    // that v1 input readable while RFC 3339 remains the canonical output.
+    let legacy_millis = !value.is_empty()
+        && value.len() <= 15
+        && (value == "0" || !value.starts_with('0'))
+        && value.bytes().all(|byte| byte.is_ascii_digit())
+        && value
+            .parse::<u64>()
+            .is_ok_and(|millis| millis <= 253_402_300_799_999);
+    if legacy_millis {
+        Ok(())
+    } else {
+        Err(ProtocolError::new(ReasonCode::InvalidEvent))
+    }
 }
 
 pub(crate) fn validate_strings(

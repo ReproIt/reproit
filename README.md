@@ -96,24 +96,24 @@ Per-target gates, platforms, and evidence live in [compatibility](docs/compatibi
 
 <!-- generated:platforms -->
 
-- **Backend services**: Linux, macOS, Windows
-- **DOM applications**: Linux, macOS, Windows
-- **Jetpack Compose**: Android
-- **React Native**: Android, iOS
-- **Flutter**: Android, iOS
-- **Electron**: Linux, macOS, Windows
-- **Tauri**: Linux, Windows
-- **GTK 3**: Linux
-- **GTK 4**: Linux
-- **Qt Quick/QML**: Linux
-- **Qt Widgets**: Linux
-- **wxWidgets**: Linux
-- **SwiftUI**: macOS, iOS
-- **AppKit**: macOS
-- **Avalonia**: Windows
-- **WinUI 3**: Windows
-- **WPF**: Windows
-- **Terminal applications**: Linux, macOS
+- **Backend services**: Linux, macOS, Windows (qualified)
+- **DOM applications**: Linux, macOS, Windows (qualified)
+- **Jetpack Compose**: Android (qualified)
+- **React Native**: Android (qualified), iOS (preview)
+- **Flutter**: Android, iOS (qualified)
+- **Electron**: Linux, macOS, Windows (qualified)
+- **Tauri**: Linux, Windows (preview)
+- **GTK 3**: Linux (qualified)
+- **GTK 4**: Linux (qualified)
+- **Qt Quick/QML**: Linux (qualified)
+- **Qt Widgets**: Linux (qualified)
+- **wxWidgets**: Linux (qualified)
+- **SwiftUI**: macOS, iOS (qualified)
+- **AppKit**: macOS (qualified)
+- **Avalonia**: Windows (qualified)
+- **WinUI 3**: Windows (qualified)
+- **WPF**: Windows (qualified)
+- **Terminal applications**: Linux, macOS (qualified)
 
 <!-- /generated:platforms -->
 
@@ -126,6 +126,7 @@ Per-target gates, platforms, and evidence live in [compatibility](docs/compatibi
 - [Oracle reference](docs/oracles.md) — what counts as a bug, and why
 - [Security and data handling](docs/security.md) — what leaves your machine
 - [Compatibility](docs/compatibility.md) — per-target gates and evidence
+- [Migrating to 1.0](docs/1.0-migration.md) - compatibility and evidence changes
 - [Screen signatures](docs/signature.md) — the cross-SDK identity spec
 - [Configuration examples](docs/examples) — a `reproit.yaml` per framework, gated by a test
 - [ReproIt Cloud](docs/cloud/README.md) — signup, SDKs, the dashboard, the API

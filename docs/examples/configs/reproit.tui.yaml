@@ -1,4 +1,5 @@
 # Any terminal UI / CLI (vim, lazygit, k9s, ...) driven in a PTY.
+schemaVersion: 1
 app:
   platform: tui
   executable: ${APP_CMD:-./my-cli}    # the command to run inside the PTY

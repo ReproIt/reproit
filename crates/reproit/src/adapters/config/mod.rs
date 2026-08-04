@@ -3,9 +3,19 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
+pub const CONFIG_SCHEMA_VERSION: u16 = 1;
+
+fn legacy_config_schema_version() -> u16 {
+    CONFIG_SCHEMA_VERSION
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Config {
+    /// Version of this public configuration contract. Missing means version 1
+    /// for configurations created before explicit versioning was introduced.
+    #[serde(default = "legacy_config_schema_version", rename = "schemaVersion")]
+    pub schema_version: u16,
     pub app: App,
     pub devices: Devices,
     #[serde(default)]

@@ -33,7 +33,7 @@ pub enum CaptureEmitterKind {
     BrowserSdk,
     DeviceSdk,
     PlatformAdapter,
-    TelemetryAdapter,
+    #[serde(alias = "telemetry-adapter")]
     ImportedEvidence,
 }
 
@@ -88,7 +88,8 @@ pub enum CaptureCapabilityKind {
     Clock,
     Randomness,
     Concurrency,
-    OpenTelemetry,
+    #[serde(alias = "open-telemetry")]
+    ImportedDiagnostics,
 }
 
 #[derive(
@@ -506,9 +507,8 @@ impl CaptureBatch {
         validate_token(&self.batch_id)?;
         validate_token(&self.project_id)?;
         validate_token(&self.session_id)?;
-        validate_text(&self.observed_at, crate::MAX_TOKEN_BYTES)?;
-        if self.observed_at.is_empty()
-            || self.events.is_empty()
+        crate::validate_timestamp(&self.observed_at)?;
+        if self.events.is_empty()
             || self.events.len() > MAX_CAPTURE_EVENTS
             || self.artifacts.len() > MAX_CAPTURE_ARTIFACTS
             || self.capabilities.len() > MAX_CAPTURE_CAPABILITIES

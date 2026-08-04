@@ -1,6 +1,6 @@
 //! Configuration discovery, interpolation, parsing, and validation.
 
-use super::Config;
+use super::{Config, CONFIG_SCHEMA_VERSION};
 use anyhow::{bail, Context, Result};
 use regex::Regex;
 use std::path::{Path, PathBuf};
@@ -45,6 +45,15 @@ pub fn parse_str(raw: &str, root: PathBuf) -> Result<Loaded> {
     let mut value: serde_yaml::Value = serde_yaml::from_str(raw)?;
     interpolate_value(&mut value)?;
     let mut config: Config = serde_yaml::from_value(value)?;
+    if config.schema_version != CONFIG_SCHEMA_VERSION {
+        bail!(
+            "reproit config schemaVersion {} cannot be read; this binary reads version {}; \
+             migrate the config fields to version {} before loading it",
+            config.schema_version,
+            CONFIG_SCHEMA_VERSION,
+            CONFIG_SCHEMA_VERSION
+        );
+    }
     if crate::adapters::platform::resolve(&config.app.platform).is_none() {
         bail!(
             "app.platform {:?} is not one reproit knows; set it to one of: {}",

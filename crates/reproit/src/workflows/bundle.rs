@@ -892,12 +892,12 @@ mod tests {
     }
 
     #[test]
-    fn legacy_cloud_occurrence_becomes_a_local_guard_without_a_process_plan() {
+    fn legacy_sdk_cloud_occurrence_becomes_a_local_guard_without_a_process_plan() {
         let occurrence_id = "occ_0123456789abcdef";
         let occurrence = OccurrenceEnvelope {
             version: OCCURRENCE_VERSION,
             occurrence_id: occurrence_id.into(),
-            source: EvidenceSource::Sentry,
+            source: EvidenceSource::ReproitSdk,
             subject: SubjectIdentity {
                 product: "shop".into(),
                 component: "checkout".into(),

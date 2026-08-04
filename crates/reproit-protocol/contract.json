@@ -1,0 +1,21 @@
+{
+  "package": "reproit-protocol",
+  "packageVersion": "1.0.0",
+  "compatibilityPolicy": "same-major-additive",
+  "wireVersions": {
+    "captureBatch": 1,
+    "causalGraph": 1,
+    "cellReceipt": 1,
+    "debugSession": 1,
+    "diagnosticReceipt": 1,
+    "environmentEnvelope": 1,
+    "eventFrame": 1,
+    "occurrence": 1,
+    "platformEvidence": 1,
+    "platformEvidenceBatch": 1,
+    "readiness": 1,
+    "reproductionPackage": 1,
+    "reproductionPlan": 1,
+    "supportBundle": 1
+  }
+}

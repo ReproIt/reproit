@@ -1,4 +1,4 @@
-use super::{interpolate_value, load, synthesize_tui, synthesize_web};
+use super::{interpolate_value, load, parse_str, synthesize_tui, synthesize_web};
 use std::path::PathBuf;
 
 // Interpolate a one-key YAML document and return the resolved scalar so the
@@ -25,6 +25,7 @@ fn synthesize_web_parses_to_a_valid_web_config() {
         proj.clone(),
     )
     .expect("synthesized web config parses + validates");
+    assert_eq!(l.config.schema_version, 1);
     assert_eq!(l.config.app.platform, "web");
     assert_eq!(
         l.config.app.url.as_deref(),
@@ -47,6 +48,7 @@ fn synthesize_tui_parses_to_a_valid_tui_config() {
     // A command with args + a quote, to exercise the JSON/YAML escaping.
     let l = synthesize_tui("lazygit --use-config \"x y\"", proj.clone())
         .expect("synthesized tui config parses + validates");
+    assert_eq!(l.config.schema_version, 1);
     assert_eq!(l.config.app.platform, "tui");
     assert_eq!(
         l.config.app.executable.as_deref(),
@@ -172,6 +174,35 @@ fn loader_resolves_app_web_runner_dir() {
 
     std::env::remove_var("RIT_E2E_WRD");
     std::fs::remove_dir_all(&dir).ok();
+}
+
+fn minimal_web_config(schema_version: &str) -> String {
+    format!(
+        "{schema_version}app:\n  platform: web\ndevices:\n  namePrefix: x\njourneys:\n  \
+         driver: noop\n  doneMarkers: [done]\n"
+    )
+}
+
+#[test]
+fn unversioned_config_is_accepted_as_schema_version_one() {
+    let loaded =
+        parse_str(&minimal_web_config(""), PathBuf::from(".")).expect("legacy unversioned config");
+    assert_eq!(loaded.config.schema_version, 1);
+}
+
+#[test]
+fn unsupported_config_schema_version_is_rejected() {
+    let error = match parse_str(
+        &minimal_web_config("schemaVersion: 2\n"),
+        PathBuf::from("."),
+    ) {
+        Ok(_) => panic!("future schema must be rejected"),
+        Err(error) => error,
+    };
+    let message = error.to_string();
+    assert!(message.contains("schemaVersion 2"), "got: {message}");
+    assert!(message.contains("reads version 1"), "got: {message}");
+    assert!(message.contains("migrate"), "got: {message}");
 }
 
 fn examples_dir() -> std::path::PathBuf {

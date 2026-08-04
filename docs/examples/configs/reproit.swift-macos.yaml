@@ -1,4 +1,5 @@
 # Native macOS (AppKit/SwiftUI) read through the AXUIElement API.
+schemaVersion: 1
 app:
   platform: swift-macos
   # An explicit executable, OR fall back to bundleId for the macOS AX runner.

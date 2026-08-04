@@ -1,12 +1,13 @@
 # ReproIt capture SDKs
 
 ReproIt has one source-neutral capture contract for all software. A runtime SDK is one emitter.
-Host collectors, crash reporters, OpenTelemetry adapters, browser SDKs, device adapters, and
-offline support bundles emit the same causal facts.
+Host collectors, crash reporters, browser SDKs, device adapters, CI capture, and offline support
+bundles emit the same causal facts.
 
-The SDK does not promise that telemetry alone can recreate every failure. It records what happened,
-marks every incomplete capability, and lets Cloud compile the highest-fidelity reproduction that
-the evidence and authorized execution environment permit.
+The SDK records what happened at the dependency boundary. It marks each
+incomplete capability. Cloud makes the best reproduction that the evidence and
+authorized execution environment permit. Imported diagnostics can add context.
+They cannot replace SDK capture or make an occurrence executable.
 
 ## The complete path
 

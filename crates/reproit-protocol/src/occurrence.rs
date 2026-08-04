@@ -10,6 +10,7 @@ use crate::{
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
 pub const OCCURRENCE_VERSION: u16 = 1;
@@ -19,19 +20,49 @@ pub const MAX_CAPTURE_DEFECTS: usize = 256;
 pub const MAX_ARTIFACT_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 pub const MAX_OCCURRENCE_ARTIFACT_BYTES: u64 = 32 * 1024 * 1024 * 1024;
 
+/// Derive a collision-resistant occurrence ID from a domain-separated stable
+/// identity. Readers accept legacy IDs. New IDs keep the complete SHA-256
+/// digest.
+pub fn derive_occurrence_id(domain: &str, identity: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"reproit-occurrence-v1\0");
+    hasher.update(domain.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(identity);
+    format!("occ_{}", hex::encode(hasher.finalize()))
+}
+
+pub fn validate_occurrence_id(occurrence_id: &str) -> Result<(), ProtocolError> {
+    if occurrence_id.len() > MAX_TOKEN_BYTES
+        || !occurrence_id.starts_with("occ_")
+        || occurrence_id.len() == 4
+        || !occurrence_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        return Err(ProtocolError::new(ReasonCode::InvalidEvent));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum EvidenceSource {
     ReproitSdk,
     ReproitCapture,
-    Sentry,
-    Datadog,
-    OpenTelemetry,
+    CiCapture,
+    PlatformCollector,
     SupportBundle,
-    CrashReport,
-    SystemLog,
-    ManualReport,
-    Preproduction,
+    #[serde(
+        alias = "sentry",
+        alias = "datadog",
+        alias = "open-telemetry",
+        alias = "crash-report",
+        alias = "system-log",
+        alias = "manual-report",
+        alias = "preproduction"
+    )]
+    ImportedDiagnostic,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -305,16 +336,10 @@ impl OccurrenceEnvelope {
         if self.version != OCCURRENCE_VERSION {
             return Err(ProtocolError::new(ReasonCode::UnsupportedVersion));
         }
-        validate_token(&self.occurrence_id)?;
-        if !self.occurrence_id.starts_with("occ_") {
-            return Err(ProtocolError::new(ReasonCode::InvalidEvent));
-        }
+        validate_occurrence_id(&self.occurrence_id)?;
         self.subject.validate()?;
-        validate_text(&self.observed_at, MAX_TOKEN_BYTES)?;
-        validate_text(&self.received_at, MAX_TOKEN_BYTES)?;
-        if self.observed_at.is_empty() || self.received_at.is_empty() {
-            return Err(ProtocolError::new(ReasonCode::InvalidEvent));
-        }
+        crate::validate_timestamp(&self.observed_at)?;
+        crate::validate_timestamp(&self.received_at)?;
         if let Some(deployment) = &self.deployment {
             deployment.validate()?;
         }

@@ -1,4 +1,5 @@
-FROM rust:1.88-bookworm AS rust-toolchain
+FROM rust:bookworm AS rust-toolchain
+RUN rustup update stable && rustup default stable
 FROM node:22-bookworm AS node-toolchain
 FROM ubuntu:24.04
 

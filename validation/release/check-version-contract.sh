@@ -15,13 +15,32 @@ require_literal() {
 for path in \
   crates/reproit-llm/Cargo.toml \
   crates/reproit/Cargo.toml \
-  crates/reproit-protocol/Cargo.toml \
   crates/tui-sig/Cargo.toml \
   sdk/reproit-tauri/Cargo.toml \
   sdk/reproit-tui-rs/Cargo.toml
 do
   require_literal "$path" "version = \"$version\""
 done
+
+# The protocol is independently versioned so CLI and Cloud can evolve without
+# lockstep releases. Its package manifest and machine-readable wire ledger must
+# still advertise the exact same package version.
+protocol_version=$(sed -n 's/^version = "\([0-9][0-9.]*\)"/\1/p' \
+  crates/reproit-protocol/Cargo.toml | head -1)
+python3 - "$protocol_version" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+manifest_version = sys.argv[1]
+ledger = json.loads(Path("crates/reproit-protocol/contract.json").read_text())
+if ledger.get("packageVersion") != manifest_version:
+    raise SystemExit(
+        "release version mismatch: protocol contract.json packageVersion "
+        f"{ledger.get('packageVersion')!r} != Cargo.toml {manifest_version!r}"
+    )
+print(f"protocol package version contract: {manifest_version}")
+PY
 
 for path in \
   runners/package.json \

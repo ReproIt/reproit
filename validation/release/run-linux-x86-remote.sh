@@ -116,7 +116,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-git -C "$ROOT" ls-files -co --exclude-standard -z >"$WORK/files"
+bash "$ROOT/validation/release/list-current-tree-files.sh" "$ROOT" >"$WORK/files"
 (
   cd "$ROOT"
   COPYFILE_DISABLE=1 tar --no-xattrs --null -T "$WORK/files" -czf "$ARCHIVE" .git
@@ -247,7 +247,8 @@ PY
 
 if ((${#HOSTED[@]})); then
   cat >"$BASE/Dockerfile.hosted" <<'DOCKER'
-FROM rust:1.88-bookworm AS rust-toolchain
+FROM rust:bookworm AS rust-toolchain
+RUN rustup update stable && rustup default stable
 FROM node:24-bookworm
 COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo
 COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup

@@ -19,6 +19,8 @@
         "backend-contract": "linux-hosted"
       },
       "fieldBenchmark": "validation/field/backend-contract.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -52,6 +54,8 @@
         "compose-android": "android"
       },
       "fieldBenchmark": "validation/field/compose-android.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -83,6 +87,8 @@
         "electron": "linux-hosted"
       },
       "fieldBenchmark": "validation/field/electron-linux.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -117,6 +123,8 @@
         "flutter-android": "android"
       },
       "fieldBenchmark": "validation/field/flutter-android.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -148,6 +156,8 @@
         "flutter-ios": "flutter"
       },
       "fieldBenchmark": "validation/field/flutter-ios.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -179,6 +189,8 @@
         "linux-atspi-gtk": "linux-containers"
       },
       "fieldBenchmark": "validation/field/linux-gtk.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -211,6 +223,8 @@
         "linux-atspi-toolkits": "linux-containers"
       },
       "fieldBenchmark": "validation/field/linux-qt-quick.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -243,6 +257,8 @@
         "linux-atspi-toolkits": "linux-containers"
       },
       "fieldBenchmark": "validation/field/linux-qt-widgets.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -274,6 +290,8 @@
         "linux-atspi-toolkits": "linux-containers"
       },
       "fieldBenchmark": "validation/field/linux-wxwidgets.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -305,6 +323,8 @@
         "macos-ax": "macos"
       },
       "fieldBenchmark": "validation/field/macos-ax.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -337,6 +357,8 @@
         "react-native-android": "android"
       },
       "fieldBenchmark": "validation/field/react-native-android.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -368,6 +390,10 @@
         "react-native-ios": "swiftui"
       },
       "fieldBenchmark": "validation/field/react-native-ios.json",
+      "qualification": "preview",
+      "qualificationGaps": [
+        "independent field benchmark is pending"
+      ],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -399,6 +425,8 @@
         "swiftui-ios": "swiftui"
       },
       "fieldBenchmark": "validation/field/swiftui-ios.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -430,6 +458,10 @@
         "tauri": "linux-containers"
       },
       "fieldBenchmark": null,
+      "qualification": "preview",
+      "qualificationGaps": [
+        "independent field benchmark is missing"
+      ],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -462,6 +494,8 @@
         "tui-pty": "linux-hosted"
       },
       "fieldBenchmark": "validation/field/tui.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -494,6 +528,8 @@
         "web-chromium": "linux-hosted"
       },
       "fieldBenchmark": "validation/field/benchmark.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -527,6 +563,8 @@
         "web-engines": "linux-hosted"
       },
       "fieldBenchmark": "validation/field/web-firefox.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -560,6 +598,8 @@
         "web-engines": "linux-hosted"
       },
       "fieldBenchmark": "validation/field/web-webkit.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -593,6 +633,8 @@
         "windows-uia": "windows"
       },
       "fieldBenchmark": "validation/field/windows-avalonia.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -624,6 +666,8 @@
         "windows-uia": "windows"
       },
       "fieldBenchmark": "validation/field/windows-winui.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",
@@ -656,6 +700,8 @@
         "windows-uia": "windows"
       },
       "fieldBenchmark": "validation/field/windows-wpf.json",
+      "qualification": "qualified",
+      "qualificationGaps": [],
       "evidence": {
         "cleanCorpus": "evidence",
         "adversarialCorpus": "evidence",

@@ -18,13 +18,15 @@ defects are that shape.
 
 ## Guard inventory
 
-| guard | alias | what it protects | oracle |
-| --- | --- | --- | --- |
-| `rep_6bc2f97d73a7` | self-dogfood-required-corpus-dispatch | CI still dispatches the full required guard corpus | exact-occurrence |
-| `rep_b1ab0f0eb617` | self-dogfood-cli-backend-root | `doctor` on a blank backend project root | exact-occurrence |
-| `rep_cf7b6f962595` | self-dogfood-direct-push-policy | CI still enforces the direct-push dogfood policy | exact-occurrence |
-| `rep_b9fee273bb4a` | self-dogfood-contract-null-optional | a kept guard's contract with explicit nulls still LOADS | exact-occurrence |
-| `rep_77fe5b41f678` | self-dogfood-check-flag-callers | no repository caller passes a deleted `check` flag | exact-occurrence |
+Every entry uses the `exact-occurrence` oracle.
+
+| guard | alias |
+| --- | --- |
+| `rep_b6f7c439ee73` | self-dogfood-required-corpus-dispatch |
+| `rep_bc3102f3a330` | self-dogfood-cli-backend-root |
+| `rep_adb0d03115cf` | self-dogfood-direct-push-policy |
+| `rep_a0c5982cf686` | self-dogfood-contract-null-optional |
+| `rep_5e6e817c4d5c` | self-dogfood-check-flag-callers |
 
 Five required guards, up from three. The two new ones are the first guards in
 this project that assert **behaviour of the reproit binary and its callers**
@@ -35,8 +37,8 @@ Both new guards are proven in both directions, end to end through
 
 ```
 HOLD   run-required-guards.py            all 5: pass, not_reproduced x3 each
-RED 1  pre-fix binary swapped in         FAIL rep_b9fee273bb4a  exit 1
-RED 2  deleted flag reintroduced         FAIL rep_77fe5b41f678  exit 1
+RED 1  pre-fix binary swapped in         FAIL rep_a0c5982cf686  exit 1
+RED 2  deleted flag reintroduced         FAIL rep_5e6e817c4d5c  exit 1
 ```
 
 ## The honest count
@@ -100,23 +102,26 @@ this project. Not built yet.
 nothing). Guarded today by the policy script's own unit suite, which is the
 right place for it. A guard would be a second copy of the same assertion.
 
-## Can a process capsule be kept as a guard? Not yet
+## Can a process capsule be kept as a guard? Yes, but none is required yet
 
 The directive asked. Measured answer:
 
 - `reproit check <capsule> --exec "<command>"` **works**: `check.rs` routes a
   file whose `format` is a process capsule to `process_capsule::check_exec`,
   reusing the four-way verdict vocabulary.
-- `reproit keep` has **no process-capsule route**. It handles a backend capture
-  file, an `occ_` id, and a finding id. A process capsule matches none of them,
-  so a captured process session cannot be persisted into `.reproit/repros/` and
-  therefore cannot join the required corpus.
+- `reproit keep <capsule> --exec <command> --strict` now recognizes the process
+  capsule, proves its current four-way verdict, and persists `capsule.json`, a
+  checkout-authorized `hermetic.json` recipe, and required guard metadata.
+- `reproit check <guard>` detects that retained format and replays it without a
+  capsule path or repeated command. Unit and Linux process gates cover this
+  path.
 
-**What is missing, precisely:** a branch in `keep_command.rs` that recognises a
-process capsule (`process_capsule::is_process_capsule`) and lands it as a guard
-carrying its `--exec` recipe, exactly as the hermetic backend capture path
-already does. That file is owned by another workstream, so this is reported
-rather than edited.
+**What is missing, precisely:** the required self-dogfood corpus still has no
+process-capsule guard. The current corpus is platform-neutral. The `LD_PRELOAD`
+capture and replay mechanism is Linux-only. Guard metadata needs a typed
+environment requirement. The corpus runner must require Linux for this guard.
+It must report the guard as not applicable on other hosts. It must not report a
+pass on those hosts.
 
 **A second constraint, worth knowing before that is built:** process capture
 and replay both need the LD_PRELOAD shim, which is Linux only. Today
@@ -156,6 +161,6 @@ In rough order of value per unit of work:
 2. **A guard over harness honesty**, asserting every acceptance script pins a
    case count and cannot report success after stopping early. Four occurrences
    justify it on its own.
-3. **`keep` accepting a process capsule**, which makes ReproIt guardable by the
-   same general-program machinery it sells, and is the path to guarding the
-   binary's behaviour rather than its callers' text.
+3. **Promote a retained process capsule into the required Linux corpus.** The
+   keep and check routes now exist. The remaining work is typed environment
+   selection plus a committed affected-versus-fixed process guard.

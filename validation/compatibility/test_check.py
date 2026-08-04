@@ -29,6 +29,13 @@ class CompatibilityContractTests(unittest.TestCase):
             self.assertTrue(target["nativeGates"], target["id"])
             self.assertTrue(target["bounds"]["platforms"], target["id"])
 
+    def test_qualification_is_derived_from_completed_field_evidence(self):
+        status = CHECK.status_document(self.support)
+        levels = {target["id"]: target["qualification"] for target in status["targets"]}
+        self.assertEqual(levels["backend-contract"], "qualified")
+        self.assertEqual(levels["react-native-ios"], "preview")
+        self.assertEqual(levels["tauri-linux"], "preview")
+
     def test_every_owned_gate_is_release_gated(self):
         for target_id, target in self.support["targets"].items():
             self.assertEqual(
@@ -141,7 +148,7 @@ class CompatibilityContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "displayName is duplicated"):
             CHECK.validate_support(candidate, self.gates)
 
-    def test_generated_surfaces_carry_every_target_without_a_tier(self):
+    def test_generated_surfaces_carry_every_target_and_qualification(self):
         status = CHECK.status_document(self.support)
         table = CHECK.readme_platforms(status)
         claim = CHECK.support_claim(status)
@@ -157,11 +164,13 @@ class CompatibilityContractTests(unittest.TestCase):
             self.assertIn(target["displayName"], claim)
             self.assertIn(target["displayName"], section)
             self.assertIn(f"`{target['id']}`", document)
+            self.assertIn(target["qualification"], section)
+            self.assertIn(target["qualification"], document)
         self.assertNotIn("Backend |", table)
-        for surface in (table, claim, section, document):
-            for word in ("Stable", "Preview", "Experimental", "maturity",
-                         "Qualified", "promotion"):
-                self.assertNotIn(word, surface)
+        self.assertIn("qualified", table)
+        self.assertIn("preview", table)
+        self.assertIn("qualified", claim)
+        self.assertIn("Preview", claim)
 
     def test_render_is_deterministic(self):
         first = CHECK.render()

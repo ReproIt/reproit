@@ -1,4 +1,5 @@
 # React Native over an Appium session; the a11y tree is the state.
+schemaVersion: 1
 app:
   platform: react-native
   rnRunnerDir: ${REPROIT_RN_RUNNER_DIR:-./runners/rn}

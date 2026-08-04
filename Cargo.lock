@@ -2510,6 +2510,7 @@ dependencies = [
 name = "reproit-protocol"
 version = "1.0.0"
 dependencies = [
+ "chrono",
  "hex",
  "schemars",
  "serde",

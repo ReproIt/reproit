@@ -1,4 +1,5 @@
 # Any web app driven by Playwright (Chromium); the DOM a11y tree is the state.
+schemaVersion: 1
 app:
   platform: web
   webRunnerDir: ${REPROIT_WEB_RUNNER_DIR:-./runners/web}   # holds runner.mjs

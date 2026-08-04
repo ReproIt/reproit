@@ -45,7 +45,8 @@ VOLUME_LABEL="${REPROIT_DOCKER_VOLUME_LABEL:-}"
 }
 
 cat > "$WORK/Dockerfile" <<'EOF'
-FROM rust:1.88-bookworm AS rust-toolchain
+FROM rust:bookworm AS rust-toolchain
+RUN rustup update stable && rustup default stable
 FROM ubuntu:24.04
 COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo
 COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup

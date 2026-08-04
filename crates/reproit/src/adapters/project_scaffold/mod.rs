@@ -332,7 +332,8 @@ fn backend_config(schema_relative: &str, target: Option<&str>, dir: &Path) -> Re
         None => String::new(),
     };
     Ok(format!(
-        "# Reproit backend config. The schema owns structural contracts.\nbackend:\n  enabled: \
+        "# Reproit backend config. The schema owns structural contracts.\n\
+         schemaVersion: 1\nbackend:\n  enabled: \
          true\n  schemas:\n    - {relative}\n{target}{exec}\n{}",
         execution_provider_template()
     ))
@@ -694,6 +695,7 @@ fn flutter_config(dir: &Path) -> String {
 
 const FLUTTER_CONFIG: &str = r#"# reproit config (flutter). See the example in the reproit repo for
 # the full set of options (reset steps, hooks, visual baselines, llm).
+schemaVersion: 1
 app:
   platform: flutter
   projectDir: .
@@ -741,6 +743,7 @@ llm:
 
 const WEB_CONFIG: &str = r#"# reproit config (web). Drives a browser with Playwright; the
 # whole map/fuzz/soak/a11y/evidence pipeline is shared with the mobile path.
+schemaVersion: 1
 app:
   platform: web
   # Path to reproit's web runner directory (run npm install there once).
@@ -780,6 +783,7 @@ llm:
 
 const RN_CONFIG: &str = r#"# reproit config (react-native). Drives a React Native app over an Appium
 # session; the whole map/fuzz/soak/a11y/evidence pipeline is shared.
+schemaVersion: 1
 app:
   platform: react-native
   rnRunnerDir: ../reproit/runners/rn   # run npm install there once
@@ -831,6 +835,7 @@ const ANDROID_CONFIG: &str = r#"# reproit config (android). Drives a native Andr
 # any test ids. Set testTagsAsResourceId=true in the app to additionally expose
 # Modifier.testTag values as resource-id locators. Adding contentDescription to
 # icon-only buttons both improves accessibility and gives reproit better labels.
+schemaVersion: 1
 app:
   platform: android
   rnRunnerDir: ../reproit/runners/rn   # run npm install there once

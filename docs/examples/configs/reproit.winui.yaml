@@ -1,4 +1,5 @@
 # WinUI / WPF read through Windows UI Automation.
+schemaVersion: 1
 app:
   platform: winui
   executable: ${APP_EXECUTABLE:-./bin/Release/MyApp.exe}

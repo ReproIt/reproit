@@ -50,7 +50,7 @@ RUN apt-get update \
 ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
 ENV PATH=/usr/local/cargo/bin:$PATH
 RUN curl -sSf https://sh.rustup.rs \
-      | sh -s -- -y --profile minimal --default-toolchain 1.88.0
+      | sh -s -- -y --profile minimal --default-toolchain stable
 EOF
 
 cat > "$WORK/inner.sh" <<'EOF'

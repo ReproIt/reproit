@@ -295,7 +295,7 @@ impl PlatformEvidenceBatch {
         ] {
             validate_required(value)?;
         }
-        validate_required(&self.observed_at)?;
+        crate::validate_timestamp(&self.observed_at)?;
         for evidence in &self.evidence {
             evidence.validate()?;
         }

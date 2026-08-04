@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMMIT="${1:-$(git -C "$ROOT" rev-parse HEAD)}"
 OUTPUT_DIR="${REPROIT_GATE_OUTPUT_DIR:-$ROOT/target/reproit-validation}"
+MAX_SOURCE_ARCHIVE_BYTES=$((512 * 1024 * 1024))
 GATEWAY="black@zgx-5a09.local"
 LINUX_HOST="strix"
 GUEST="reproit@localhost"
@@ -26,6 +27,32 @@ cleanup() {
 }
 trap cleanup EXIT
 
+if [[ -n "$(git -C "$ROOT" status --porcelain=v1)" ]]; then
+  echo "Windows exact-commit validation requires a clean worktree" >&2
+  exit 2
+fi
+if [[ "$(git -C "$ROOT" rev-parse HEAD)" != "$COMMIT" ]]; then
+  echo "Windows source HEAD does not match the requested commit" >&2
+  exit 2
+fi
+if [[ ! -d "$ROOT/.git" ]]; then
+  echo "Windows source packaging requires a regular Git checkout" >&2
+  exit 2
+fi
+SOURCE_ARCHIVE="$WORK/source.tar.gz"
+git -C "$ROOT" ls-files -z >"$WORK/source-files"
+(
+  cd "$ROOT"
+  COPYFILE_DISABLE=1 tar --no-xattrs --null -T "$WORK/source-files" \
+    -czf "$SOURCE_ARCHIVE" .git
+)
+SOURCE_ARCHIVE_BYTES="$(wc -c <"$SOURCE_ARCHIVE" | tr -d ' ')"
+if ((SOURCE_ARCHIVE_BYTES > MAX_SOURCE_ARCHIVE_BYTES)); then
+  echo "Windows source archive exceeds the 512 MiB bound" >&2
+  exit 2
+fi
+SOURCE_ARCHIVE_SHA256="$(shasum -a 256 "$SOURCE_ARCHIVE" | awk '{print $1}')"
+
 if ! ssh "$GATEWAY" \
   ssh "$LINUX_HOST" \
   ssh -i "$GUEST_KEY" -p "$GUEST_PORT" "$GUEST" \
@@ -36,6 +63,33 @@ if ! ssh "$GATEWAY" \
   ssh "$GATEWAY" ssh "$LINUX_HOST" bash winlab/gwait.sh
 fi
 
+# The exact commit may not be published yet. Upload the clean local checkout
+# instead of making native validation depend on an external Git host.
+UPLOAD_COMMAND="$(python3 - "$SHORT_COMMIT" <<'PY'
+import base64
+import sys
+
+short_commit = sys.argv[1]
+script = rf'''
+$ErrorActionPreference = "Stop"
+$ownedRoot = "C:\lab"
+$sourceArchive = Join-Path $ownedRoot "source-{short_commit}.tar.gz"
+New-Item -ItemType Directory -Force $ownedRoot | Out-Null
+Remove-Item -Force $sourceArchive -ErrorAction SilentlyContinue
+$encoded = [Console]::In.ReadToEnd()
+[System.IO.File]::WriteAllBytes(
+    $sourceArchive,
+    [Convert]::FromBase64String($encoded)
+)
+'''
+print(base64.b64encode(script.encode("utf-16le")).decode("ascii"))
+PY
+)"
+base64 <"$SOURCE_ARCHIVE" | ssh "$GATEWAY" \
+  ssh "$LINUX_HOST" \
+  ssh -i "$GUEST_KEY" -p "$GUEST_PORT" "$GUEST" \
+  powershell.exe -NoProfile -NonInteractive -EncodedCommand "$UPLOAD_COMMAND"
+
 cat > "$WORK/run.ps1" <<POWERSHELL
 \$ErrorActionPreference = "Stop"
 \$ProgressPreference = "SilentlyContinue"
@@ -43,6 +97,8 @@ cat > "$WORK/run.ps1" <<POWERSHELL
 \$shortCommit = "${SHORT_COMMIT}"
 \$ownedRoot = "C:\lab"
 \$checkout = Join-Path \$ownedRoot "reproit-\$shortCommit"
+\$sourceArchive = Join-Path \$ownedRoot "source-\$shortCommit.tar.gz"
+\$sourceArchiveSha256 = "${SOURCE_ARCHIVE_SHA256}"
 \$evidence = Join-Path \$ownedRoot "evidence-\$shortCommit"
 \$archive = Join-Path \$ownedRoot "evidence-\$shortCommit.zip"
 \$batch = Join-Path \$ownedRoot "gate-\$shortCommit.bat"
@@ -72,13 +128,20 @@ try {
         throw "Python executable is unavailable"
     }
 
-    & \$git clone --filter=blob:none --no-checkout "https://github.com/ReproIt/reproit.git" \$checkout
-    if (\$LASTEXITCODE -ne 0) { throw "clone failed" }
+    if (-not (Test-Path \$sourceArchive)) {
+        throw "uploaded source archive is unavailable"
+    }
+    if (-not (Get-Command tar.exe -ErrorAction SilentlyContinue)) {
+        throw "tar executable is unavailable"
+    }
+    \$actualArchiveSha256 = (Get-FileHash -Algorithm SHA256 \$sourceArchive).Hash.ToLowerInvariant()
+    if (\$actualArchiveSha256 -ne \$sourceArchiveSha256) {
+        throw "uploaded source archive digest mismatch"
+    }
+    New-Item -ItemType Directory -Force \$checkout | Out-Null
+    & tar.exe -xzf \$sourceArchive -C \$checkout
+    if (\$LASTEXITCODE -ne 0) { throw "source archive extraction failed" }
     Set-Location \$checkout
-    & \$git fetch --no-tags origin \$commit
-    if (\$LASTEXITCODE -ne 0) { throw "exact commit fetch failed" }
-    & \$git checkout --detach \$commit
-    if (\$LASTEXITCODE -ne 0) { throw "exact commit checkout failed" }
     \$actual = (& \$git rev-parse HEAD).Trim()
     if (\$actual -ne \$commit) { throw "exact commit mismatch: \$actual" }
     if (& \$git status --porcelain) { throw "exact checkout has local changes" }
@@ -127,7 +190,11 @@ set "REPROIT_GATE_OUTPUT_DIR=\$evidence"
         Unregister-ScheduledTask -TaskName \$task -Confirm:\$false
     }
     Set-Location \$ownedRoot
-    foreach (\$path in @(\$checkout, \$evidence, \$archive, \$batch, \$done, \$runLog)) {
+    \$ownedPaths = @(
+        \$checkout, \$sourceArchive, \$evidence, \$archive,
+        \$batch, \$done, \$runLog
+    )
+    foreach (\$path in \$ownedPaths) {
         Remove-Item -Recurse -Force \$path -ErrorAction SilentlyContinue
     }
 }

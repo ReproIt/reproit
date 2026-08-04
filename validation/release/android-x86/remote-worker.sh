@@ -159,6 +159,8 @@ if ((OVERALL == 0)); then
   if [[ -c /dev/dri/card1 ]]; then
     DEVICE_ARGS+=(--device /dev/dri/card1)
   fi
+  # The runtime has no network. Select the installed stable toolchain so
+  # rustup does not try to refresh rust-toolchain.toml before resolving rustc.
   docker run --rm \
     --name "$RUN_CONTAINER" \
     --network none \
@@ -179,6 +181,7 @@ if ((OVERALL == 0)); then
     --env REPROIT_RN_TEMPLATE_DIR=/cache/react-native-template-0.76.9 \
     --env REPROIT_RN_TEMPLATE_SHA256_FILE=/cache/react-native-template-0.76.9.sha256 \
     --env REPROIT_SOURCE_ROOT=/repo \
+    --env RUSTUP_TOOLCHAIN=stable \
     --volume "$SOURCE:/repo:Z" \
     --volume "$EVIDENCE:/evidence:Z" \
     --volume "$SDK_ROOT:/android-sdk:ro,Z" \

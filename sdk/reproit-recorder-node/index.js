@@ -23,7 +23,8 @@ const CAPABILITIES = new Set([
   'process-tree', 'commands', 'standard-streams', 'filesystem', 'environment',
   'network', 'http', 'rpc', 'database', 'cache', 'queue', 'object-store',
   'jobs', 'timers', 'user-interface', 'device', 'crash-diagnostics',
-  'resource-pressure', 'clock', 'randomness', 'concurrency', 'open-telemetry',
+  'resource-pressure', 'clock', 'randomness', 'concurrency',
+  'imported-diagnostics',
 ]);
 
 function token(value, name) {

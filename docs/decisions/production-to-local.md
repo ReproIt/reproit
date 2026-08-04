@@ -6,18 +6,18 @@ translate a production event into a test.
 
 ## Target journey
 
-Status: step 1's third-party connectors (Sentry, Datadog, OpenTelemetry) are
-PLANNED and not implemented; today the only production source is the ReproIt
-SDK's own capture mode. The protocol crate has a bounded OpenTelemetry semantic
-bridge for topology and causality, but that bridge is not yet a customer-facing
-collector connection. Steps 2 through 8 describe the shipped mechanism.
+The ReproIt SDK is the production capture authority. It records the trigger,
+dependency exchanges, deterministic inputs, observation point, and exact
+failure identity needed for replay. Imported diagnostics may add optional
+context for a person or agent, but cannot replace SDK capture and can never make
+an occurrence executable.
 
-1. The customer connects Sentry, Datadog, OpenTelemetry, or another source to a
-   ReproIt project. The connection maps projects, releases, and environments.
-2. A new source event is normalized into an immutable ReproIt occurrence. ReproIt
-   groups occurrences for prioritization, but keeps the exact occurrence as the
-   reproduction identity.
-3. ReproIt assesses the occurrence automatically:
+1. The customer installs the ReproIt SDK and deploys it with a project-scoped,
+   write-only capture key.
+2. A failing captured operation is normalized into an immutable ReproIt
+   occurrence. ReproIt groups occurrences for prioritization, but keeps the
+   exact occurrence as the reproduction identity.
+3. ReproIt assesses the SDK occurrence automatically:
    - `eligible`: enough source-neutral evidence exists to reproduce it.
    - `incomplete`: one or more named facts are missing.
    - `environment-bound`: the failure needs controlled remote infrastructure.
@@ -30,7 +30,7 @@ collector connection. Steps 2 through 8 describe the shipped mechanism.
 
 5. In a trusted checkout, the CLI downloads and verifies that occurrence. The
    package contains facts, fixtures, observations, and replay actions. It cannot
-   introduce a process command from Sentry or from production.
+   introduce a process command from captured production evidence.
 6. The local checkout selects the trusted app adapter and launch policy. ReproIt
    synthesizes safe fixture values, performs the replay, checks the same failure
    identity, and writes the result beside the occurrence.
@@ -45,7 +45,8 @@ collector connection. Steps 2 through 8 describe the shipped mechanism.
 Production evidence describes what happened. The checkout decides how code may
 run. This separation is the core safety rule:
 
-- Aggregators may provide occurrence facts and artifact references.
+- The ReproIt SDK may provide occurrence facts and content-addressed artifacts.
+- Imported diagnostics may provide non-authoritative context only.
 - ReproIt Cloud may store, assess, group, and distribute those facts.
 - Only a trusted checkout or approved remote adapter may supply executable
   commands, credentials, infrastructure, or destructive reset behavior.

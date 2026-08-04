@@ -16,7 +16,8 @@ pub fn synthesize_web(url: &str, web_runner_dir: &Path, root: PathBuf) -> Result
     let wrd = serde_json::to_string(&web_runner_dir.display().to_string())
         .unwrap_or_else(|_| "\"\"".to_string());
     let yaml = format!(
-        "app:\n  platform: web\n  webRunnerDir: {wrd}\n  url: {url}\n  defines: {{}}\ndevices:\n  \
+        "schemaVersion: 1\napp:\n  platform: web\n  webRunnerDir: {wrd}\n  \
+         url: {url}\n  defines: {{}}\ndevices:\n  \
          namePrefix: web\nreset:\n  steps: []\njourneys:\n  dir: integration_test\n  driver: \
          web\n  readyMarker: \"claimed role\"\n  doneMarkers:\n    - All tests passed\n    - Some \
          tests failed\n  deviceDoneMarker: \"JOURNEY DONE\"\n  actionPrefix: \"JOURNEY\"\n  \
@@ -50,7 +51,8 @@ pub fn synthesize_tui(executable: &str, root: PathBuf) -> Result<Loaded> {
     // claimed role=a", "JOURNEY DONE", "All tests passed"), so the orchestrator
     // contract matches without a hand-written reproit.yaml.
     let yaml = format!(
-        "app:\n  platform: tui\n  executable: {exe}\n  defines: {{}}\ndevices:\n  namePrefix: \
+        "schemaVersion: 1\napp:\n  platform: tui\n  executable: {exe}\n  \
+         defines: {{}}\ndevices:\n  namePrefix: \
          tui\nreset:\n  steps: []\njourneys:\n  driver: \"\"\n  readyMarker: \"claimed role\"\n  \
          doneMarkers:\n    - All tests passed\n    - Some tests failed\n  deviceDoneMarker: \
          \"JOURNEY DONE\"\n  actionPrefix: \"JOURNEY\"\n  timeoutSec: 300\nevidence:\n  outDir: \

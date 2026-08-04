@@ -2,12 +2,13 @@
 
 Generated from `validation/support-manifest.json`. Do not edit by hand.
 
-Reproit supports 21 atomic targets.
+Reproit declares 21 atomic targets.
 
 ## Backend contracts
 
 - Target id: `backend-contract`
 - Family: backend
+- Qualification: qualified
 - Scope: Bounded backend scan, fuzz, replay, proof, and runtime capture
 - Native gates: backend-contract
 - Release evidence directories: backend-contract in linux-hosted
@@ -25,6 +26,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `compose-android`
 - Family: native-mobile
+- Qualification: qualified
 - Scope: Jetpack Compose on a reset Android emulator through Appium UiAutomator2
 - Native gates: compose-android
 - Release evidence directories: compose-android in android
@@ -42,6 +44,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `electron-linux`
 - Family: desktop-webview
+- Qualification: qualified
 - Scope: Packaged Electron applications on Linux workers
 - Native gates: electron
 - Release evidence directories: electron in linux-hosted
@@ -59,6 +62,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `flutter-android`
 - Family: flutter
+- Qualification: qualified
 - Scope: Flutter profile-mode builds on a reset Android emulator, driven through Appium
   UiAutomator2. A release APK is AOT compiled with no Dart VM service; a profile APK exposes the
   service, but its tree dumps carry nothing and evaluate is refused, so the observable is read from
@@ -80,6 +84,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `flutter-ios`
 - Family: flutter
+- Qualification: qualified
 - Scope: Flutter on a disposable iOS simulator through flutter drive
 - Native gates: flutter-ios
 - Release evidence directories: flutter-ios in flutter
@@ -97,6 +102,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `linux-gtk`
 - Family: desktop
+- Qualification: qualified
 - Scope: x86_64 Linux container with AT-SPI on GTK
 - Native gates: linux-atspi-gtk
 - Release evidence directories: linux-atspi-gtk in linux-containers
@@ -114,6 +120,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `linux-qt-quick`
 - Family: desktop
+- Qualification: qualified
 - Scope: x86_64 Linux container with AT-SPI on Qt Quick/QML
 - Native gates: linux-atspi-toolkits
 - Release evidence directories: linux-atspi-toolkits in linux-containers
@@ -131,6 +138,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `linux-qt-widgets`
 - Family: desktop
+- Qualification: qualified
 - Scope: x86_64 Linux container with AT-SPI on Qt Widgets
 - Native gates: linux-atspi-toolkits
 - Release evidence directories: linux-atspi-toolkits in linux-containers
@@ -148,6 +156,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `linux-wxwidgets`
 - Family: desktop
+- Qualification: qualified
 - Scope: x86_64 Linux container with AT-SPI on wxWidgets
 - Native gates: linux-atspi-toolkits
 - Release evidence directories: linux-atspi-toolkits in linux-containers
@@ -165,6 +174,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `macos-ax`
 - Family: desktop
+- Qualification: qualified
 - Scope: Permissioned macOS accessibility on SwiftUI
 - Native gates: macos-ax
 - Release evidence directories: macos-ax in macos
@@ -182,6 +192,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `react-native-android`
 - Family: native-mobile
+- Qualification: qualified
 - Scope: React Native on a reset Android emulator through Appium UiAutomator2
 - Native gates: react-native-android
 - Release evidence directories: react-native-android in android
@@ -199,6 +210,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `react-native-ios`
 - Family: native-mobile
+- Qualification: preview
 - Scope: React Native on a disposable iOS simulator through Appium XCUITest
 - Native gates: react-native-ios
 - Release evidence directories: react-native-ios in swiftui
@@ -207,6 +219,7 @@ Reproit supports 21 atomic targets.
 - Runtimes: Hermes, Appium XCUITest
 - Frameworks: React Native
 - Evidence slots:
+- Qualification gap: independent field benchmark is pending
   - cleanCorpus: evidence
   - adversarialCorpus: evidence
   - packageInstall: ci-gate
@@ -216,6 +229,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `swiftui-ios`
 - Family: native-mobile
+- Qualification: qualified
 - Scope: SwiftUI on a disposable iOS simulator through Appium XCUITest
 - Native gates: swiftui-ios
 - Release evidence directories: swiftui-ios in swiftui
@@ -233,6 +247,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `tauri-linux`
 - Family: desktop-webview
+- Qualification: preview
 - Scope: Tauri on Linux WebKitGTK workers
 - Native gates: tauri
 - Release evidence directories: tauri in linux-containers
@@ -241,6 +256,7 @@ Reproit supports 21 atomic targets.
 - Runtimes: WebKitGTK, tauri-driver
 - Frameworks: Tauri
 - Evidence slots:
+- Qualification gap: independent field benchmark is missing
   - cleanCorpus: evidence
   - adversarialCorpus: evidence
   - packageInstall: ci-gate
@@ -250,6 +266,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `tui`
 - Family: tui
+- Qualification: qualified
 - Scope: Terminal applications on a real PTY with the VT parser
 - Native gates: tui-pty
 - Release evidence directories: tui-pty in linux-hosted
@@ -267,6 +284,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `web-chromium`
 - Family: web
+- Qualification: qualified
 - Scope: Chromium web through Playwright CDP on Linux
 - Native gates: web-chromium
 - Release evidence directories: web-chromium in linux-hosted
@@ -284,6 +302,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `web-firefox`
 - Family: web
+- Qualification: qualified
 - Scope: Firefox through Playwright on Linux
 - Native gates: web-engines
 - Release evidence directories: web-engines in linux-hosted
@@ -301,6 +320,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `web-webkit`
 - Family: web
+- Qualification: qualified
 - Scope: WebKit through Playwright on Linux
 - Native gates: web-engines
 - Release evidence directories: web-engines in linux-hosted
@@ -318,6 +338,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `windows-avalonia`
 - Family: desktop
+- Qualification: qualified
 - Scope: Native x86_64 Windows UI Automation on Avalonia
 - Native gates: windows-uia
 - Release evidence directories: windows-uia in windows
@@ -335,6 +356,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `windows-winui`
 - Family: desktop
+- Qualification: qualified
 - Scope: Native x86_64 Windows UI Automation on WinUI 3
 - Native gates: windows-uia
 - Release evidence directories: windows-uia in windows
@@ -352,6 +374,7 @@ Reproit supports 21 atomic targets.
 
 - Target id: `windows-wpf`
 - Family: desktop
+- Qualification: qualified
 - Scope: Native x86_64 Windows UI Automation on WPF
 - Native gates: windows-uia
 - Release evidence directories: windows-uia in windows

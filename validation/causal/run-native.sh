@@ -8,11 +8,12 @@ bash .github/scripts/causal-android-native-smoke.sh
 bash .github/scripts/causal-ios-native-smoke.sh
 
 native_command='test "$(uname -m)" = x86_64; '
+native_command+='rustup update stable; rustup default stable; '
 native_command+='cc -std=c11 -Wall -Wextra -Werror runners/test_causal.c '
 native_command+='-o /tmp/reproit-causal && /tmp/reproit-causal; '
 native_command+='cargo test --manifest-path sdk/reproit-tui-rs/Cargo.toml'
 docker run --rm --platform linux/amd64 -v "$ROOT:/work" -w /work \
-  rust:1.88-bookworm sh -c "$native_command"
+  rust:bookworm sh -c "$native_command"
 docker run --rm --platform linux/amd64 -v "$ROOT:/work" \
   -w /work/sdk/reproit-linux python:3.13-slim \
   sh -c 'python -m pip install -q pytest && pytest -q'

@@ -4,8 +4,13 @@ version = "1.0.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Bounded event and evidence protocol shared by Reproit components"
+repository = "https://github.com/ReproIt/reproit"
+readme = "README.md"
+keywords = ["reproducibility", "testing", "observability"]
+categories = ["development-tools::testing", "data-structures"]
 
 [dependencies]
+chrono = { version = "0.4.45", default-features = false }
 schemars = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

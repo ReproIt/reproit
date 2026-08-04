@@ -109,7 +109,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-git -C "$ROOT" ls-files -co --exclude-standard -z >"$WORK/files"
+bash "$ROOT/validation/release/list-current-tree-files.sh" "$ROOT" >"$WORK/files"
 (
   cd "$ROOT"
   COPYFILE_DISABLE=1 tar --no-xattrs --null -T "$WORK/files" -czf "$ARCHIVE" .git

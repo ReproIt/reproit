@@ -33,9 +33,10 @@ cp "$HERE/main.qml" "$WORK/main.qml"
 cp "$ROOT/fixtures/wxwidgets-fixture/main.cpp" "$WORK/wx-main.cpp"
 
 cat > "$WORK/Dockerfile" <<'EOF'
-FROM rust:1.88-bookworm
+FROM rust:bookworm
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN rustup update stable && rustup default stable \
+    && apt-get update && apt-get install -y --no-install-recommends \
     g++ pkg-config qt6-base-dev qt6-declarative-dev \
     qml6-module-qtqml-workerscript qml6-module-qtquick \
     qml6-module-qtquick-controls qml6-module-qtquick-templates \

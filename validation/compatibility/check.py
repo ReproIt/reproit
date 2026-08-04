@@ -37,6 +37,7 @@ def status_document(support: dict) -> dict:
     for target_id in sorted(support["targets"]):
         target = support["targets"][target_id]
         evidence = target["evidence"]
+        qualification, qualification_gaps = target_qualification(evidence)
         targets.append(
             {
                 "id": target_id,
@@ -46,6 +47,8 @@ def status_document(support: dict) -> dict:
                 "nativeGates": target["ownedGates"],
                 "releaseGates": target["releaseGates"],
                 "fieldBenchmark": evidence["fieldBenchmark"],
+                "qualification": qualification,
+                "qualificationGaps": qualification_gaps,
                 "evidence": {
                     slot: evidence[slot]["kind"] for slot in EVIDENCE_SLOTS
                 },
@@ -59,13 +62,29 @@ def status_document(support: dict) -> dict:
     }
 
 
+def target_qualification(evidence: dict) -> tuple[str, list[str]]:
+    gaps = [
+        f"{slot} evidence is missing"
+        for slot in EVIDENCE_SLOTS
+        if evidence[slot]["kind"] == "missing"
+    ]
+    benchmark_path = evidence["fieldBenchmark"]
+    if benchmark_path is None:
+        gaps.append("independent field benchmark is missing")
+    else:
+        benchmark = load_json(ROOT / benchmark_path)
+        if benchmark.get("status") != "complete":
+            gaps.append("independent field benchmark is pending")
+    return ("qualified", []) if not gaps else ("preview", gaps)
+
+
 def markdown_status(status: dict) -> str:
     lines = [
         "# Supported platform targets",
         "",
         "Generated from `validation/support-manifest.json`. Do not edit by hand.",
         "",
-        f"Reproit supports {len(status['targets'])} atomic targets.",
+        f"Reproit declares {len(status['targets'])} atomic targets.",
         "",
     ]
     for target in status["targets"]:
@@ -76,6 +95,7 @@ def markdown_status(status: dict) -> str:
                 "",
                 f"- Target id: `{target['id']}`",
                 f"- Family: {target['family']}",
+                f"- Qualification: {target['qualification']}",
                 *textwrap.wrap(
                     f"- Scope: {target['scope']}",
                     width=100,
@@ -94,6 +114,8 @@ def markdown_status(status: dict) -> str:
                 "- Evidence slots:",
             ]
         )
+        for gap in target["qualificationGaps"]:
+            lines.append(f"- Qualification gap: {gap}")
         for slot in EVIDENCE_SLOTS:
             lines.append(f"  - {slot}: {target['evidence'][slot]}")
         lines.append("")
@@ -118,21 +140,27 @@ def readme_platforms(status: dict) -> str:
     with rather than by how CI happens to be sharded: a framework that runs on
     two platforms is one entry naming both, not two entries named after runners.
     """
-    platforms: dict[str, list[str]] = {}
+    platforms: dict[str, dict[str, list[str]]] = {}
     first_family: dict[str, str] = {}
     for target in status["targets"]:
         bounds = target["bounds"]
         for framework in bounds["framework"]:
             first_family.setdefault(framework, target["family"])
             for platform in bounds["platforms"]:
-                if platform not in platforms.setdefault(framework, []):
-                    platforms[framework].append(platform)
+                by_level = platforms.setdefault(framework, {})
+                reach = by_level.setdefault(target["qualification"], [])
+                if platform not in reach:
+                    reach.append(platform)
     unordered = sorted(set(first_family.values()) - set(README_FAMILY_ORDER))
     lines = []
     for family in (*README_FAMILY_ORDER, *unordered):
-        for framework, reach in platforms.items():
+        for framework, by_level in platforms.items():
             if first_family[framework] == family:
-                lines.append(f"- **{framework}**: {', '.join(reach)}")
+                claims = []
+                for level in ("qualified", "preview"):
+                    if level in by_level:
+                        claims.append(f"{', '.join(by_level[level])} ({level})")
+                lines.append(f"- **{framework}**: {', '.join(claims)}")
     return "\n".join(lines)
 
 
@@ -140,15 +168,16 @@ def readme_platforms(status: dict) -> str:
 
 def target_section(status: dict) -> str:
     lines = [
-        f"Supported atomic targets: {len(status['targets'])}.",
+        f"Declared atomic targets: {len(status['targets'])}.",
         "",
-        "| Target | Framework | Platforms | Driving runtime |",
-        "|---|---|---|---|",
+        "| Target | Qualification | Framework | Platforms | Driving runtime |",
+        "|---|---|---|---|---|",
     ]
     for target in status["targets"]:
         bounds = target["bounds"]
         lines.append(
-            f"| {target['displayName']} | {', '.join(bounds['framework'])} | "
+            f"| {target['displayName']} | {target['qualification']} | "
+            f"{', '.join(bounds['framework'])} | "
             f"{', '.join(bounds['platforms'])} | {', '.join(bounds['runtime'])} |"
         )
     lines.extend(
@@ -163,16 +192,33 @@ def target_section(status: dict) -> str:
 
 
 def support_claim(status: dict) -> str:
-    names = ", ".join(target["displayName"] for target in status["targets"])
-    return "\n".join(
+    qualified = [
+        target["displayName"]
+        for target in status["targets"]
+        if target["qualification"] == "qualified"
+    ]
+    preview = [
+        target["displayName"]
+        for target in status["targets"]
+        if target["qualification"] == "preview"
+    ]
+    lines = [f"Reproit has {len(qualified)} qualified atomic platform targets:"]
+    lines.extend(f"- {name}" for name in qualified)
+    lines.extend(["", "Preview targets with incomplete independent evidence:"])
+    lines.extend(f"- {name}" for name in preview)
+    if not preview:
+        lines.append("- None")
+    lines.extend(
         [
-            f"Reproit supports {len(status['targets'])} atomic platform targets: "
-            f"{names}.",
             "",
-            "Each one is gated by the native fixtures it owns, and each one is",
-            "covered by the 1.x compatibility promise.",
+            "Every declared target has gates for its native fixtures.",
+            "Qualified targets have complete independent behavior evidence.",
+            "Only qualified targets are part of the 1.0 support claim.",
+            "Preview targets keep their 1.x configuration and wire compatibility.",
+            "The generated status shows each preview evidence gap.",
         ]
     )
+    return "\n".join(lines)
 
 
 def splice(path: Path, name: str, body: str) -> str:

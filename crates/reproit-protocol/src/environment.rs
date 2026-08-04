@@ -1,10 +1,11 @@
 //! Bounded environment-minimization proof shared across execution surfaces.
 
-use crate::{ProtocolError, ReasonCode};
+use crate::{validate_text, ProtocolError, ReasonCode};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const ENVIRONMENT_ENVELOPE_VERSION: u16 = 1;
+pub const MAX_ENVIRONMENT_DIMENSIONS: usize = 256;
 pub const MAX_ENVIRONMENT_TRIALS: usize = 4_096;
 const MAX_ENVIRONMENT_TEXT_BYTES: usize = 16 * 1024;
 
@@ -70,8 +71,16 @@ impl EnvironmentEnvelope {
         if self.version != ENVIRONMENT_ENVELOPE_VERSION {
             return Err(ProtocolError::new(ReasonCode::UnsupportedVersion));
         }
-        if self.trials.len() > MAX_ENVIRONMENT_TRIALS {
+        if captured.len() > MAX_ENVIRONMENT_DIMENSIONS || self.trials.len() > MAX_ENVIRONMENT_TRIALS
+        {
             return Err(ProtocolError::new(ReasonCode::BatchTooLarge));
+        }
+        for (dimension, value) in captured {
+            validate_text(dimension, MAX_ENVIRONMENT_TEXT_BYTES)?;
+            validate_text(value, MAX_ENVIRONMENT_TEXT_BYTES)?;
+            if dimension.is_empty() {
+                return Err(ProtocolError::new(ReasonCode::InvalidEvent));
+            }
         }
         if !self.complete && !self.relaxed_dimensions.is_empty() {
             return Err(ProtocolError::new(ReasonCode::InvalidEvent));
@@ -88,6 +97,8 @@ impl EnvironmentEnvelope {
                     .as_ref()
                     .is_some_and(|value| value.len() > MAX_ENVIRONMENT_TEXT_BYTES)
                 || trial.reason.len() > MAX_ENVIRONMENT_TEXT_BYTES
+                || trial.dimension.is_empty()
+                || trial.reason.is_empty()
                 || captured.get(&trial.dimension) != Some(&trial.baseline)
             {
                 return Err(ProtocolError::new(ReasonCode::InvalidEvent));
@@ -111,6 +122,9 @@ impl EnvironmentEnvelope {
         };
         if !valid_attempts {
             return Err(ProtocolError::new(ReasonCode::InvalidSequence));
+        }
+        if self.complete && dimensions.len() != captured.len() {
+            return Err(ProtocolError::new(ReasonCode::InvalidEvent));
         }
         for dimension in &self.relaxed_dimensions {
             let valid = self.trials.iter().any(|trial| {
@@ -156,6 +170,44 @@ mod tests {
         envelope.complete = false;
         assert_eq!(
             envelope.validate(&captured).unwrap_err().reason,
+            ReasonCode::InvalidEvent
+        );
+    }
+
+    #[test]
+    fn complete_proof_covers_every_captured_dimension() {
+        let captured = BTreeMap::from([
+            ("define:MODE".into(), "debug".into()),
+            ("platform".into(), "web".into()),
+        ]);
+        let envelope = EnvironmentEnvelope {
+            complete: true,
+            replay_attempts: 2,
+            trials: vec![EnvironmentTrial {
+                dimension: "define:MODE".into(),
+                baseline: "debug".into(),
+                candidate: None,
+                outcome: EnvironmentOutcome::Reproduces,
+                reason: "exact-identity-reproduced".into(),
+                replay_attempts: 1,
+            }],
+            ..EnvironmentEnvelope::default()
+        };
+        assert_eq!(
+            envelope.validate(&captured).unwrap_err().reason,
+            ReasonCode::InvalidEvent
+        );
+    }
+
+    #[test]
+    fn captured_environment_is_bounded_even_without_trials() {
+        let oversized = "x".repeat(MAX_ENVIRONMENT_TEXT_BYTES + 1);
+        let captured = BTreeMap::from([("platform".into(), oversized)]);
+        assert_eq!(
+            EnvironmentEnvelope::default()
+                .validate(&captured)
+                .unwrap_err()
+                .reason,
             ReasonCode::InvalidEvent
         );
     }

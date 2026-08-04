@@ -197,20 +197,6 @@
       ]
     },
     {
-      "id": "open-telemetry",
-      "capture": "adapter-specific",
-      "compiler": "complete",
-      "replay": "command-provider",
-      "provider": "authored command adapter",
-      "evidence": [
-        "crates/reproit-protocol/src/open_telemetry.rs",
-        "crates/reproit-protocol/src/capture_compiler.rs"
-      ],
-      "blockers": [
-        "semantic spans prove topology but need replay payloads and effect-specific completion evidence"
-      ]
-    },
-    {
       "id": "process-tree",
       "capture": "partial",
       "compiler": "complete",
@@ -331,19 +317,19 @@
   ],
   "summary": {
     "capture": {
-      "adapter-specific": 12,
+      "adapter-specific": 11,
       "complete": 1,
       "modeled-only": 4,
       "partial": 4,
       "unavailable": 1
     },
     "compiler": {
-      "complete": 19,
+      "complete": 18,
       "partial": 3
     },
     "replay": {
       "adapter-specific": 4,
-      "command-provider": 18
+      "command-provider": 17
     }
   }
 }

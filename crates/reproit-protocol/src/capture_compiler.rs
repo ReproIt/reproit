@@ -11,7 +11,6 @@ use crate::{
     RequirementLevel, StateKind, SubjectIdentity, TriggerKind, UnresolvedRequirement,
     UnresolvedRequirementReason, OCCURRENCE_VERSION,
 };
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub struct CaptureCompilation {
@@ -73,13 +72,7 @@ pub fn compile_capture_failure(
 fn occurrence_id(batch: &CaptureBatch) -> Result<String, ProtocolError> {
     let bytes =
         serde_json::to_vec(batch).map_err(|_| ProtocolError::new(ReasonCode::InvalidEvent))?;
-    let digest = Sha256::digest(bytes);
-    let mut encoded = String::with_capacity(64);
-    for byte in digest {
-        use std::fmt::Write;
-        write!(&mut encoded, "{byte:02x}").unwrap();
-    }
-    Ok(format!("occ_{}", &encoded[..16]))
+    Ok(crate::derive_occurrence_id("capture-batch-v1", &bytes))
 }
 
 fn failure_observations(batch: &CaptureBatch) -> Vec<FailureObservation> {
@@ -292,12 +285,7 @@ fn assess(
                 }
                 let id = requirement_id(requirement_number, "dependency");
                 requirement_number += 1;
-                let open_telemetry_topology = batch.emitter.kind
-                    == crate::CaptureEmitterKind::TelemetryAdapter
-                    && capabilities.contains_key(&CaptureCapabilityKind::OpenTelemetry);
-                let dependency = if open_telemetry_topology {
-                    DependencyKind::DistributedSystem
-                } else if value
+                let dependency = if value
                     .as_ref()
                     .is_some_and(|value| environment_bound(value, scope))
                 {

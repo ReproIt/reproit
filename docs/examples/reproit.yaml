@@ -12,6 +12,7 @@
 #   app:
 #     webRunnerDir: ${REPROIT_WEB_RUNNER_DIR:-./runners/web}
 
+schemaVersion: 1
 app:
   # Swap this for any id from `reproit platforms`; per-platform examples live in
   # docs/examples/configs/.

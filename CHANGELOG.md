@@ -28,7 +28,26 @@ SDK source dependencies must use an immutable `v1.x.y` tag. Keep the CLI and SDK
 on the same minor version when practical; the version 1 wire protocol permits
 independent patch updates.
 
-## 1.0.0 - 2026-08-04
+## 1.0.0 - Unreleased
+
+### Hardened: version 1 contract
+
+- Added explicit `schemaVersion: 1` configuration output while preserving
+  reads of existing unversioned version 1 files and rejecting future versions
+  with a migration repair.
+- Separated `reproit-protocol` versioning from CLI and Cloud releases, with a
+  machine-readable wire ledger, conformance checks, and package validation.
+- Strengthened occurrence identities, canonical timestamp handling, and
+  bounded environment dimensions without making legacy version 1 evidence
+  unreadable.
+- Removed monitoring-vendor-specific integration contracts. Imported
+  diagnostics can provide context but cannot grant replay authority.
+- Added architecture, stable-toolchain, dogfood, release, and support
+  qualification gates for the 1.0 promise.
+- Qualified 19 atomic targets. React Native iOS and Tauri remain preview until
+  their independent field evidence is complete.
+
+See [the 1.0 migration guide](docs/1.0-migration.md).
 
 ### Added: reproducible debugging
 
@@ -38,7 +57,7 @@ independent patch updates.
   containment, cleanup, and execution receipts.
 - Added source-neutral debugger profiles plus a VS Code integration that opens
   a prepared replay session without tying the CLI vocabulary to a framework.
-- Added platform, OpenTelemetry, clock, randomness, and readiness evidence to
+- Added platform, clock, randomness, and readiness evidence to
   capture compilation and Cloud replay packages.
 - Added explicit explanations for unavailable capabilities so a replay reaches
   an honest reproduced, clean, or not-reproducible outcome.

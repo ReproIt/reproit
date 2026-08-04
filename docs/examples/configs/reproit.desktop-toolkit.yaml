@@ -1,6 +1,7 @@
 # Cross-platform desktop toolkits (Qt, GTK, Avalonia, wxWidgets). The backend is
 # chosen by the HOST OS (macOS AX / Windows UIA / Linux AT-SPI), so the config is
 # identical across them; only `platform` changes.
+schemaVersion: 1
 app:
   platform: qt        # or: gtk | avalonia | wxwidgets
   executable: ${APP_EXECUTABLE:-./build/my-app}

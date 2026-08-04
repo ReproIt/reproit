@@ -154,12 +154,15 @@ truth.
 
 ## Current corpus
 
-| Case | Identity | Guard | Repository |
-| --- | --- | --- | --- |
-| `dog_cli_backend_root` | `doctor:blank-backend-project-root` | `rep_b1ab0f0eb617` | reproit-cli |
-| `dog_cli_required_corpus_dispatch` | `ci:required-guard-corpus-dispatch` | `rep_6bc2f97d73a7` | reproit-cli |
-| `dog_cli_direct_push_policy` | `ci:direct-push-dogfood-policy` | `rep_cf7b6f962595` | reproit-cli |
-| `dog_cloud_migration_history` | `cloud:migration-history-divergence` | `rep_40f619ef4a2c` | reproit-cloud |
+| Identity | Guard |
+| --- | --- |
+| `doctor:blank-backend-project-root` | `rep_bc3102f3a330` |
+| `ci:required-guard-corpus-dispatch` | `rep_b6f7c439ee73` |
+| `ci:direct-push-dogfood-policy` | `rep_adb0d03115cf` |
+| `cli:contract-null-optional` | `rep_a0c5982cf686` |
+| `cli:check-flag-callers` | `rep_5e6e817c4d5c` |
+
+Cloud owns `cloud:migration-history-divergence` as `rep_40f619ef4a2c`.
 
 The CLI CI-enforcement guards bind the affected and fixed commits, controller
 and verifier digests, three affected reproductions, and three reached-observation

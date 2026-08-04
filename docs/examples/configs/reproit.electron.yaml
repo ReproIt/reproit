@@ -1,4 +1,5 @@
 # Electron desktop app: Chromium under the hood, driven over CDP.
+schemaVersion: 1
 app:
   platform: electron
   executable: ${APP_EXECUTABLE:-./dist/MyApp.AppImage}   # the built app

@@ -64,6 +64,8 @@ jobs:
             }
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - name: Verify the independently versioned protocol release package
+        run: cargo package --locked -p reproit-protocol
       - name: Require successful CI and native evidence for publication
         if: inputs.publish
         env:

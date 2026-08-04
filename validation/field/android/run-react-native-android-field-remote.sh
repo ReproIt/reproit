@@ -193,7 +193,7 @@ printf '%s\n' "$COMMIT" >"$STAGE/.git/shallow"
 git -C "$STAGE" update-ref refs/heads/staged "$COMMIT"
 git -C "$STAGE" symbolic-ref HEAD refs/heads/staged
 if [[ "$SOURCE_MODE" == current-tree ]]; then
-  git -C "$ROOT" ls-files -co --exclude-standard -z >"$WORK/files"
+  bash "$ROOT/validation/release/list-current-tree-files.sh" "$ROOT" >"$WORK/files"
 else
   git -C "$ROOT" ls-files -z >"$WORK/files"
 fi

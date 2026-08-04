@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "pins": {
-    "rust": "1.88.0",
+    "rustChannel": "stable",
     "nodeMajor": 24,
     "flutter": "3.41.6",
     "appium": "3.5.2",
@@ -19,7 +19,7 @@
     }
   },
   "profiles": {
-    "linux-hosted": ["python3", "node", "npm", "cargo", "rustc"],
+    "linux-hosted": ["python3", "node", "npm", "cargo", "rustc", "rustup"],
     "linux-containers": ["python3", "docker"],
     "android": [
       "python3",
@@ -27,6 +27,7 @@
       "npm",
       "cargo",
       "rustc",
+      "rustup",
       "flutter",
       "adb",
       "appium"
@@ -37,13 +38,14 @@
       "npm",
       "cargo",
       "rustc",
+      "rustup",
       "xcodebuild",
       "xcrun",
       "appium",
       "ffmpeg"
     ],
-    "macos-flutter": ["python3", "cargo", "rustc", "flutter", "xcodebuild", "xcrun"],
-    "macos-ax": ["python3", "cargo", "rustc", "swift", "xcodebuild", "xcrun"],
+    "macos-flutter": ["python3", "cargo", "rustc", "rustup", "flutter", "xcodebuild", "xcrun"],
+    "macos-ax": ["python3", "cargo", "rustc", "rustup", "swift", "xcodebuild", "xcrun"],
     "windows-bridge": ["git", "ssh", "base64", "python3"]
   }
 }
