@@ -5,7 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { classifyVideoFile } from '../../runners/shared/video-flicker.mjs';
+import {
+  classifyVideoFile,
+  classifyVideoFlicker,
+} from '../../runners/shared/video-flicker.mjs';
 
 function makeVideo(path, segments) {
   const args = ['-hide_banner', '-loglevel', 'error', '-y'];
@@ -43,6 +46,19 @@ test('encoded persistent flash is detected', () => {
     ],
     (path) => assert.ok(classifyVideoFile(path)),
   );
+});
+
+test('encoder startup frames do not become the behavioral baseline', () => {
+  const solid = (value) => Buffer.alloc(12, value);
+  const frames = [
+    solid(0),
+    solid(0),
+    ...Array.from({ length: 6 }, () => solid(96)),
+    ...Array.from({ length: 4 }, () => solid(255)),
+    ...Array.from({ length: 6 }, () => solid(96)),
+  ];
+
+  assert.ok(classifyVideoFlicker(frames));
 });
 
 test('fixed presentation is silent', () => {

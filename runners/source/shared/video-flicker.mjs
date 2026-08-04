@@ -5,6 +5,7 @@ const HEIGHT = 120;
 const CHANNELS = 3;
 const FRAME_BYTES = WIDTH * HEIGHT * CHANNELS;
 const MAX_FRAMES = 50;
+const STARTUP_FRAMES_TO_SKIP = 5;
 
 function changedFraction(left, right) {
   if (!left || !right || left.length !== right.length || left.length === 0) return 1;
@@ -66,7 +67,11 @@ function decodeFrames(inputArgs) {
 export function classifyVideoFlicker(frames) {
   if (!Array.isArray(frames) || frames.length < 4) return null;
   const end = frames[frames.length - 1];
-  const start = changedFraction(frames[0], end);
+  // Capture begins before the action with a 500ms pre-roll. simctl can still
+  // prepend black encoder-startup frames on loaded hosts, so use a bounded
+  // settled frame inside that pre-roll as behavioral authority.
+  const startIndex = Math.min(STARTUP_FRAMES_TO_SKIP, frames.length - 4);
+  const start = changedFraction(frames[startIndex], end);
   const floor = Math.max(0.04, start > 0.04 ? start * 1.35 : 0.04);
   let peak = 0;
   let persistent = false;
