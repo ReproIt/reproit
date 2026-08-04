@@ -530,9 +530,9 @@ async function stopClipCapture(driver, clip) {
 }
 
 async function settleTransitionFlicker(driver) {
-  const started = Date.now();
-  const remaining = 800 - (Date.now() - started);
-  if (remaining > 0) await driver.pause(remaining);
+  // Keep a post-transition baseline after a transient long enough to survive
+  // frame drops on loaded simulator hosts. The decoder remains capped at 2.5s.
+  await driver.pause(2_000);
 }
 
 const FLICKER_PIXELS = process.env.REPROIT_FLICKER_PIXELS === '1';

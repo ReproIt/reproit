@@ -9,7 +9,7 @@ export default function App(): React.JSX.Element {
 
   const showTransientFlash = (): void => {
     setFlash(true);
-    setTimeout(() => setFlash(false), 400);
+    setTimeout(() => setFlash(false), 1200);
   };
 
   return (
