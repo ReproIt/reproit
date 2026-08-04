@@ -142,6 +142,8 @@ jobs:
         run: |
           rustup toolchain install 1.88.0 --profile minimal
           rustup default 1.88.0
+          brew install ffmpeg@7
+          echo "$(brew --prefix ffmpeg@7)/bin" >> "$GITHUB_PATH"
           npm ci --prefix runners/rn
           npm install -g appium@3.5.2
           appium driver install xcuitest@11.16.2

@@ -80,6 +80,8 @@ def validate_versions(profile: str, pins: dict[str, object]) -> None:
     if profile in {"android", "macos-appium"}:
         require_version("Appium", output(["appium", "--version"]), str(pins["appium"]))
         require_appium_driver(profile, pins)
+    if profile == "macos-appium":
+        require_version("FFmpeg", output(["ffmpeg", "-version"]), str(pins["ffmpeg"]))
     if profile.startswith("macos"):
         xcode = output(["xcodebuild", "-version"])
         xcode_version = pins["xcodeByProfile"][profile]

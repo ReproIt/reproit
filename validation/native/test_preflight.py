@@ -22,6 +22,35 @@ class PreflightTest(unittest.TestCase):
     def test_node_major_is_pinned(self, _output: object) -> None:
         MODULE.validate_versions("linux-hosted", {"rust": "v24.9.0", "nodeMajor": 24})
 
+    @patch.object(MODULE, "require_appium_driver")
+    @patch.object(
+        MODULE,
+        "output",
+        side_effect=[
+            "rustc 1.88.0 (abc)",
+            "v24.9.0",
+            "Appium 3.5.2",
+            "ffmpeg version 7.1.5 Copyright",
+            "Xcode 26.2\nBuild version 17C52",
+        ],
+    )
+    def test_macos_appium_ffmpeg_is_pinned(
+        self,
+        _output: object,
+        _require_appium_driver: object,
+    ) -> None:
+        MODULE.validate_versions(
+            "macos-appium",
+            {
+                "rust": "1.88.0",
+                "nodeMajor": 24,
+                "appium": "3.5.2",
+                "appiumDrivers": {"xcuitest": "11.16.2"},
+                "xcodeByProfile": {"macos-appium": "26.2"},
+                "ffmpeg": "7.1.5",
+            },
+        )
+
     @patch.object(MODULE.shutil, "which", return_value=None)
     def test_adb_is_found_under_android_home(self, _which: object) -> None:
         with tempfile.TemporaryDirectory() as directory:

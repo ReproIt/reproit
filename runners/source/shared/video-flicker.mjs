@@ -32,6 +32,19 @@ function emitDiagnostics(options, details) {
   }
 }
 
+function decodeFailureDetails(error) {
+  const stderr = Buffer.isBuffer(error?.stderr)
+    ? error.stderr.toString('utf8')
+    : String(error?.stderr || '');
+  const detail = stderr.replace(/\s+/g, ' ').trim().slice(-300);
+  return {
+    code: typeof error?.code === 'string' ? error.code : null,
+    status: Number.isInteger(error?.status) ? error.status : null,
+    signal: typeof error?.signal === 'string' ? error.signal : null,
+    detail: detail || null,
+  };
+}
+
 function decodeFrames(inputArgs, options) {
   let raw;
   try {
@@ -55,12 +68,16 @@ function decodeFrames(inputArgs, options) {
       ],
       {
         encoding: 'buffer',
-        maxBuffer: FRAME_BYTES * MAX_FRAMES,
+        maxBuffer: FRAME_BYTES * (MAX_FRAMES + 1),
         stdio: ['ignore', 'pipe', 'pipe'],
       },
     );
-  } catch (_) {
-    emitDiagnostics(options, { outcome: 'abstained', reason: 'decode-failed' });
+  } catch (error) {
+    emitDiagnostics(options, {
+      outcome: 'abstained',
+      reason: 'decode-failed',
+      ...decodeFailureDetails(error),
+    });
     return null;
   }
   const count = Math.min(MAX_FRAMES, Math.floor(raw.length / FRAME_BYTES));
@@ -80,7 +97,10 @@ function decodeFrames(inputArgs, options) {
   const actionFrameIndex = Number.isFinite(options?.actionAtSeconds)
     ? Math.floor(options.actionAtSeconds * FRAME_RATE)
     : undefined;
-  return classifyVideoFlicker(frames, { actionFrameIndex });
+  return classifyVideoFlicker(frames, {
+    actionFrameIndex,
+    onDiagnostics: options?.onDiagnostics,
+  });
 }
 
 function medoidFrameIndex(frames, startIndex, endIndex) {

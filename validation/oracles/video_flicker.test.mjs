@@ -48,6 +48,26 @@ test('encoded persistent flash is detected', () => {
   );
 });
 
+test('encoded classification forwards bounded diagnostics', () => {
+  withVideo(
+    [
+      ['black', 0.3],
+      ['white', 0.2],
+      ['black', 0.5],
+    ],
+    (path) => {
+      const diagnostics = [];
+      assert.ok(
+        classifyVideoFile(path, {
+          onDiagnostics: (details) => diagnostics.push(details),
+        }),
+      );
+      assert.equal(diagnostics.length, 1);
+      assert.equal(diagnostics[0].outcome, 'finding');
+    },
+  );
+});
+
 test('encoder startup frames do not become the behavioral baseline', () => {
   const solid = (value) => Buffer.alloc(12, value);
   const frames = [

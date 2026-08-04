@@ -5,6 +5,7 @@
     "nodeMajor": 24,
     "flutter": "3.41.6",
     "appium": "3.5.2",
+    "ffmpeg": "7.1.5",
     "appiumDrivers": {
       "uiautomator2": "8.0.0",
       "xcuitest": "11.16.2"
@@ -38,7 +39,8 @@
       "rustc",
       "xcodebuild",
       "xcrun",
-      "appium"
+      "appium",
+      "ffmpeg"
     ],
     "macos-flutter": ["python3", "cargo", "rustc", "flutter", "xcodebuild", "xcrun"],
     "macos-ax": ["python3", "cargo", "rustc", "swift", "xcodebuild", "xcrun"],
