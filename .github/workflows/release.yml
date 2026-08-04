@@ -129,16 +129,21 @@ jobs:
             --dir native/macos-flutter
       - name: Download private Windows UIA evidence bundle
         env:
+          WINDOWS_UIA_EVIDENCE_BASE64: ${{ secrets.WINDOWS_UIA_EVIDENCE_BASE64 }}
           WINDOWS_UIA_EVIDENCE_URL: ${{ secrets.WINDOWS_UIA_EVIDENCE_URL }}
         run: |
           set -euo pipefail
-          test -n "$WINDOWS_UIA_EVIDENCE_URL" || {
-            echo "WINDOWS_UIA_EVIDENCE_URL is not configured" >&2
-            exit 1
-          }
           mkdir -p native/windows
-          curl --fail --silent --show-error --location \
-            "$WINDOWS_UIA_EVIDENCE_URL" --output native/windows.zip
+          if [[ -n "$WINDOWS_UIA_EVIDENCE_BASE64" ]]; then
+            printf '%s' "$WINDOWS_UIA_EVIDENCE_BASE64" \
+              | base64 --decode > native/windows.zip
+          elif [[ -n "$WINDOWS_UIA_EVIDENCE_URL" ]]; then
+            curl --fail --silent --show-error --location \
+              "$WINDOWS_UIA_EVIDENCE_URL" --output native/windows.zip
+          else
+            echo "Windows UIA evidence is not configured" >&2
+            exit 1
+          fi
           python3 -m zipfile --test native/windows.zip
           python3 - <<'PY'
           from pathlib import Path
