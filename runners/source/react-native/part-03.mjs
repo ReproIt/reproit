@@ -464,6 +464,7 @@ async function startClipCapture(driver, clip) {
       clip.recording = null;
       return;
     }
+    clip.videoStartedAt = Date.now();
     clip.recording = 'ios';
   } catch {
     clip.recording = null;
@@ -536,6 +537,7 @@ async function settleTransitionFlicker(driver) {
 }
 
 const FLICKER_PIXELS = process.env.REPROIT_FLICKER_PIXELS === '1';
+const FLICKER_PRE_ROLL_MS = 1_000;
 
 // Screen recording is the only presented-frame authority exposed uniformly by
 // XCUITest and UiAutomator2. Capture one bounded action under the explicit
@@ -551,6 +553,8 @@ async function startTransitionFlicker(driver) {
       recording: null,
       proc: null,
       startAt: 0,
+      videoStartedAt: 0,
+      actionAtSeconds: null,
     };
     await startClipCapture(driver, capture);
     if (!capture.recording) {
@@ -568,7 +572,9 @@ async function finishTransitionFlicker(driver, capture) {
   if (!capture) return null;
   try {
     await stopClipCapture(driver, capture);
-    return classifyVideoFile(capture.mov);
+    return classifyVideoFile(capture.mov, {
+      actionAtSeconds: capture.actionAtSeconds,
+    });
   } catch (_) {
     return null;
   } finally {

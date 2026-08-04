@@ -4,8 +4,10 @@ const WIDTH = 160;
 const HEIGHT = 120;
 const CHANNELS = 3;
 const FRAME_BYTES = WIDTH * HEIGHT * CHANNELS;
-const MAX_FRAMES = 50;
-const STARTUP_FRAMES_TO_SKIP = 5;
+const FRAME_RATE = 20;
+const MAX_CAPTURE_SECONDS = 5;
+const MAX_FRAMES = FRAME_RATE * MAX_CAPTURE_SECONDS;
+const SETTLED_WINDOW_FRAMES = 8;
 
 function changedFraction(left, right) {
   if (!left || !right || left.length !== right.length || left.length === 0) return 1;
@@ -21,7 +23,7 @@ function changedFraction(left, right) {
   return changed / pixels;
 }
 
-function decodeFrames(inputArgs) {
+function decodeFrames(inputArgs, options) {
   let raw;
   try {
     raw = execFileSync(
@@ -32,7 +34,7 @@ function decodeFrames(inputArgs) {
         'error',
         ...inputArgs,
         '-vf',
-        `fps=20,scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=decrease,` +
+        `fps=${FRAME_RATE},scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=decrease,` +
           `pad=${WIDTH}:${HEIGHT}:(ow-iw)/2:(oh-ih)/2`,
         '-frames:v',
         String(MAX_FRAMES),
@@ -58,26 +60,59 @@ function decodeFrames(inputArgs) {
     const start = index * FRAME_BYTES;
     frames.push(raw.subarray(start, start + FRAME_BYTES));
   }
-  return classifyVideoFlicker(frames);
+  const actionFrameIndex = Number.isFinite(options?.actionAtSeconds)
+    ? Math.floor(options.actionAtSeconds * FRAME_RATE)
+    : undefined;
+  return classifyVideoFlicker(frames, { actionFrameIndex });
 }
 
-// A video finding needs a visual overshoot that persists for two consecutive
-// presented samples. Requiring persistence rejects an isolated encoder glitch,
-// while comparison with both endpoints rejects ordinary one-way transitions.
-export function classifyVideoFlicker(frames) {
+function medoidFrame(frames) {
+  if (frames.length === 0) return null;
+  let best = frames[0];
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const candidate of frames) {
+    let distance = 0;
+    for (const other of frames) distance += changedFraction(candidate, other);
+    if (distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function boundedActionFrameIndex(frames, requestedIndex) {
+  const fallback = Math.min(SETTLED_WINDOW_FRAMES, frames.length - 3);
+  if (!Number.isFinite(requestedIndex)) return fallback;
+  return Math.max(1, Math.min(Math.floor(requestedIndex), frames.length - 3));
+}
+
+// A video finding needs a visual overshoot after the measured action boundary
+// that persists for two consecutive presented samples and differs from both
+// settled endpoints. The bounded medoids reject encoder startup and finalization
+// frames without granting any single frame behavioral authority.
+export function classifyVideoFlicker(frames, options = {}) {
   if (!Array.isArray(frames) || frames.length < 4) return null;
-  const end = frames[frames.length - 1];
-  // Capture begins before the action with a 500ms pre-roll. simctl can still
-  // prepend black encoder-startup frames on loaded hosts, so use a bounded
-  // settled frame inside that pre-roll as behavioral authority.
-  const startIndex = Math.min(STARTUP_FRAMES_TO_SKIP, frames.length - 4);
-  const start = changedFraction(frames[startIndex], end);
-  const floor = Math.max(0.04, start > 0.04 ? start * 1.35 : 0.04);
+  const actionFrameIndex = boundedActionFrameIndex(frames, options.actionFrameIndex);
+  const preActionFrames = frames.slice(
+    Math.max(0, actionFrameIndex - SETTLED_WINDOW_FRAMES),
+    actionFrameIndex,
+  );
+  const tailFrames = frames.slice(-SETTLED_WINDOW_FRAMES);
+  const start = medoidFrame(preActionFrames);
+  const end = medoidFrame(tailFrames);
+  if (!start || !end) return null;
+
+  const endpointDifference = changedFraction(start, end);
+  const floor = Math.max(0.04, endpointDifference * 1.35);
   let peak = 0;
   let persistent = false;
   let previous = 0;
-  for (const frame of frames.slice(1, -1)) {
-    const difference = changedFraction(frame, end);
+  for (const frame of frames.slice(actionFrameIndex, -1)) {
+    const difference = Math.min(
+      changedFraction(frame, start),
+      changedFraction(frame, end),
+    );
     peak = Math.max(peak, difference);
     if (difference > floor && previous > floor) persistent = true;
     previous = difference;
@@ -88,6 +123,6 @@ export function classifyVideoFlicker(frames) {
 
 // Decode a bounded action-scoped recording through ffmpeg into fixed-size RGB
 // samples. Missing ffmpeg, corrupt video, and short captures all abstain.
-export function classifyVideoFile(path) {
-  return decodeFrames(['-t', '2.5', '-i', path]);
+export function classifyVideoFile(path, options = {}) {
+  return decodeFrames(['-t', String(MAX_CAPTURE_SECONDS), '-i', path], options);
 }

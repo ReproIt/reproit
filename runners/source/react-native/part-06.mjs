@@ -694,7 +694,11 @@
       // HANG timing window below so it doesn't inflate the blocked-time measure).
       const wlBefore = await sampleWakelocks(driver, pkg);
       const flickerCapture = clip ? null : await startTransitionFlicker(driver);
-      if (flickerCapture) await driver.pause(500);
+      if (flickerCapture) {
+        await driver.pause(FLICKER_PRE_ROLL_MS);
+        flickerCapture.actionAtSeconds =
+          (Date.now() - flickerCapture.videoStartedAt) / 1_000;
+      }
       // HANG: time the action's blocking wall-clock. We measure tap + settle only
       // (NOT the subsequent observe, which is a page-source round-trip whose latency
       // is unrelated to the app's responsiveness), so the floor reflects the app

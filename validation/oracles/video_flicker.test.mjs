@@ -61,6 +61,29 @@ test('encoder startup frames do not become the behavioral baseline', () => {
   assert.ok(classifyVideoFlicker(frames));
 });
 
+test('measured action boundary excludes a long encoder startup', () => {
+  const solid = (value) => Buffer.alloc(12, value);
+  const frames = [
+    ...Array.from({ length: 8 }, () => solid(0)),
+    ...Array.from({ length: 8 }, () => solid(96)),
+    ...Array.from({ length: 4 }, () => solid(255)),
+    ...Array.from({ length: 8 }, () => solid(96)),
+  ];
+
+  assert.ok(classifyVideoFlicker(frames, { actionFrameIndex: 16 }));
+});
+
+test('measured action boundary keeps a one-way transition silent', () => {
+  const solid = (value) => Buffer.alloc(12, value);
+  const frames = [
+    ...Array.from({ length: 8 }, () => solid(0)),
+    ...Array.from({ length: 8 }, () => solid(96)),
+    ...Array.from({ length: 12 }, () => solid(255)),
+  ];
+
+  assert.equal(classifyVideoFlicker(frames, { actionFrameIndex: 16 }), null);
+});
+
 test('fixed presentation is silent', () => {
   withVideo([['black', 1]], (path) => assert.equal(classifyVideoFile(path), null));
 });
