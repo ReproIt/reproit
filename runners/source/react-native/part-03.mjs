@@ -537,6 +537,7 @@ async function settleTransitionFlicker(driver) {
 }
 
 const FLICKER_PIXELS = process.env.REPROIT_FLICKER_PIXELS === '1';
+const FLICKER_DIAGNOSTICS = process.env.REPROIT_FLICKER_DIAGNOSTICS === '1';
 const FLICKER_PRE_ROLL_MS = 1_000;
 
 // Screen recording is the only presented-frame authority exposed uniformly by
@@ -574,6 +575,9 @@ async function finishTransitionFlicker(driver, capture) {
     await stopClipCapture(driver, capture);
     return classifyVideoFile(capture.mov, {
       actionAtSeconds: capture.actionAtSeconds,
+      onDiagnostics: FLICKER_DIAGNOSTICS
+        ? (details) => log('REPROIT:FLICKER_DIAGNOSTICS ' + JSON.stringify(details))
+        : undefined,
     });
   } catch (_) {
     return null;

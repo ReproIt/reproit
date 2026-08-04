@@ -106,16 +106,19 @@ fi
 
 printf '{"replay":["tap:key:flicker-positive"],"budget":1}' > "$WORK/flicker-positive.json"
 REPROIT_FUZZ_CONFIG="$WORK/flicker-positive.json" REPROIT_FLICKER_PIXELS=1 \
+  REPROIT_FLICKER_DIAGNOSTICS=1 \
   node "$ROOT/runners/rn/runner.mjs" | tee "$WORK/flicker-positive.log"
 grep -q '^EXPLORE:FLICKER ' "$WORK/flicker-positive.log"
 
 printf '{"replay":["tap:key:flicker-fixed"],"budget":1}' > "$WORK/flicker-fixed.json"
 REPROIT_FUZZ_CONFIG="$WORK/flicker-fixed.json" REPROIT_FLICKER_PIXELS=1 \
+  REPROIT_FLICKER_DIAGNOSTICS=1 \
   node "$ROOT/runners/rn/runner.mjs" | tee "$WORK/flicker-fixed.log"
 ! grep -q '^EXPLORE:FLICKER ' "$WORK/flicker-fixed.log"
 
 printf '{"replay":["tap:key:flicker-one-way"],"budget":1}' > "$WORK/flicker-one-way.json"
 REPROIT_FUZZ_CONFIG="$WORK/flicker-one-way.json" REPROIT_FLICKER_PIXELS=1 \
+  REPROIT_FLICKER_DIAGNOSTICS=1 \
   node "$ROOT/runners/rn/runner.mjs" | tee "$WORK/flicker-one-way.log"
 ! grep -q '^EXPLORE:FLICKER ' "$WORK/flicker-one-way.log"
 

@@ -84,6 +84,23 @@ test('measured action boundary keeps a one-way transition silent', () => {
   assert.equal(classifyVideoFlicker(frames, { actionFrameIndex: 16 }), null);
 });
 
+test('bounded diagnostics explain a clean classification', () => {
+  const diagnostics = [];
+  const solid = (value) => Buffer.alloc(12, value);
+  const frames = Array.from({ length: 12 }, () => solid(96));
+
+  const finding = classifyVideoFlicker(frames, {
+    actionFrameIndex: 6,
+    onDiagnostics: (details) => diagnostics.push(details),
+  });
+
+  assert.equal(finding, null);
+  assert.equal(diagnostics.length, 1);
+  assert.equal(diagnostics[0].outcome, 'clean');
+  assert.equal(diagnostics[0].frames, 12);
+  assert.ok(diagnostics[0].differences.length <= 100);
+});
+
 test('fixed presentation is silent', () => {
   withVideo([['black', 1]], (path) => assert.equal(classifyVideoFile(path), null));
 });

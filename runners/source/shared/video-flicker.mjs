@@ -23,6 +23,15 @@ function changedFraction(left, right) {
   return changed / pixels;
 }
 
+function emitDiagnostics(options, details) {
+  if (typeof options?.onDiagnostics !== 'function') return;
+  try {
+    options.onDiagnostics(details);
+  } catch (_) {
+    // Diagnostics are validation evidence, never behavioral authority.
+  }
+}
+
 function decodeFrames(inputArgs, options) {
   let raw;
   try {
@@ -51,10 +60,18 @@ function decodeFrames(inputArgs, options) {
       },
     );
   } catch (_) {
+    emitDiagnostics(options, { outcome: 'abstained', reason: 'decode-failed' });
     return null;
   }
   const count = Math.min(MAX_FRAMES, Math.floor(raw.length / FRAME_BYTES));
-  if (count < 4) return null;
+  if (count < 4) {
+    emitDiagnostics(options, {
+      outcome: 'abstained',
+      reason: 'short-capture',
+      frames: count,
+    });
+    return null;
+  }
   const frames = [];
   for (let index = 0; index < count; index++) {
     const start = index * FRAME_BYTES;
@@ -66,19 +83,21 @@ function decodeFrames(inputArgs, options) {
   return classifyVideoFlicker(frames, { actionFrameIndex });
 }
 
-function medoidFrame(frames) {
-  if (frames.length === 0) return null;
-  let best = frames[0];
+function medoidFrameIndex(frames, startIndex, endIndex) {
+  if (startIndex >= endIndex) return null;
+  let bestIndex = startIndex;
   let bestDistance = Number.POSITIVE_INFINITY;
-  for (const candidate of frames) {
+  for (let candidateIndex = startIndex; candidateIndex < endIndex; candidateIndex++) {
     let distance = 0;
-    for (const other of frames) distance += changedFraction(candidate, other);
+    for (let otherIndex = startIndex; otherIndex < endIndex; otherIndex++) {
+      distance += changedFraction(frames[candidateIndex], frames[otherIndex]);
+    }
     if (distance < bestDistance) {
-      best = candidate;
+      bestIndex = candidateIndex;
       bestDistance = distance;
     }
   }
-  return best;
+  return bestIndex;
 }
 
 function boundedActionFrameIndex(frames, requestedIndex) {
@@ -92,33 +111,60 @@ function boundedActionFrameIndex(frames, requestedIndex) {
 // settled endpoints. The bounded medoids reject encoder startup and finalization
 // frames without granting any single frame behavioral authority.
 export function classifyVideoFlicker(frames, options = {}) {
-  if (!Array.isArray(frames) || frames.length < 4) return null;
+  if (!Array.isArray(frames) || frames.length < 4) {
+    emitDiagnostics(options, {
+      outcome: 'abstained',
+      reason: 'short-capture',
+      frames: Array.isArray(frames) ? frames.length : 0,
+    });
+    return null;
+  }
   const actionFrameIndex = boundedActionFrameIndex(frames, options.actionFrameIndex);
-  const preActionFrames = frames.slice(
+  const startIndex = medoidFrameIndex(
+    frames,
     Math.max(0, actionFrameIndex - SETTLED_WINDOW_FRAMES),
     actionFrameIndex,
   );
-  const tailFrames = frames.slice(-SETTLED_WINDOW_FRAMES);
-  const start = medoidFrame(preActionFrames);
-  const end = medoidFrame(tailFrames);
-  if (!start || !end) return null;
+  const endIndex = medoidFrameIndex(
+    frames,
+    Math.max(0, frames.length - SETTLED_WINDOW_FRAMES),
+    frames.length,
+  );
+  if (startIndex === null || endIndex === null) return null;
+  const start = frames[startIndex];
+  const end = frames[endIndex];
 
   const endpointDifference = changedFraction(start, end);
   const floor = Math.max(0.04, endpointDifference * 1.35);
   let peak = 0;
   let persistent = false;
   let previous = 0;
+  const differences = [];
   for (const frame of frames.slice(actionFrameIndex, -1)) {
     const difference = Math.min(
       changedFraction(frame, start),
       changedFraction(frame, end),
     );
+    differences.push(Math.round(difference * 1_000) / 1_000);
     peak = Math.max(peak, difference);
     if (difference > floor && previous > floor) persistent = true;
     previous = difference;
   }
-  if (!persistent) return null;
-  return { peak: Math.round(peak * 1000) / 1000, frames: frames.length };
+  const finding = persistent
+    ? { peak: Math.round(peak * 1_000) / 1_000, frames: frames.length }
+    : null;
+  emitDiagnostics(options, {
+    outcome: finding ? 'finding' : 'clean',
+    frames: frames.length,
+    requestedActionFrameIndex: options.actionFrameIndex ?? null,
+    actionFrameIndex,
+    startIndex,
+    endIndex,
+    endpointDifference: Math.round(endpointDifference * 1_000) / 1_000,
+    floor: Math.round(floor * 1_000) / 1_000,
+    differences,
+  });
+  return finding;
 }
 
 // Decode a bounded action-scoped recording through ffmpeg into fixed-size RGB
