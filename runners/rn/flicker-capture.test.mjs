@@ -5,6 +5,7 @@ import test from 'node:test';
 
 import {
   acquireRecordingProcess,
+  stopRecordingProcess,
   waitForRecordingStarted,
 } from './runner.mjs';
 
@@ -12,6 +13,7 @@ function recordingProcess() {
   const proc = new EventEmitter();
   proc.stderr = new PassThrough();
   proc.exitCode = null;
+  proc.signalCode = null;
   proc.kill = () => {
     proc.exitCode = 0;
     proc.emit('exit', 0, null);
@@ -111,4 +113,23 @@ test('video capture reports every bounded attempt when unavailable', async () =>
       { attempt: 2, reason: 'recorder-exited', exitCode: 2 },
     ],
   );
+});
+
+test('video capture reports a recorder that exited before finalization', async () => {
+  const proc = recordingProcess();
+  proc.exitCode = 3;
+
+  assert.deepEqual(await stopRecordingProcess(proc, 10), {
+    status: 'already-exited',
+    exitCode: 3,
+  });
+});
+
+test('video capture records the bounded stop outcome', async () => {
+  const proc = recordingProcess();
+
+  assert.deepEqual(await stopRecordingProcess(proc, 10), {
+    status: 'stopped',
+    exitCode: 0,
+  });
 });

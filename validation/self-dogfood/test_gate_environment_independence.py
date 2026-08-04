@@ -39,6 +39,7 @@ WORKFLOW = ROOT / ".github/workflows/native-gates.yml"
 CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
 TAURI_DOCKERFILE = ROOT / "validation/backends/tauri.Dockerfile"
 TAURI_GATE = ROOT / "validation/backends/run-tauri.sh"
+REACT_NATIVE_IOS_GATE = ROOT / "validation/backends/run-react-native-ios.sh"
 ANDROID_HOST_TEST = ROOT / "sdk/reproit-android/run_host_test.sh"
 JAVA_CAPTURE_TEST = ROOT / (
     "sdk/reproit-backend-java/src/test/java/dev/reproit/backend/CaptureTest.java"
@@ -69,6 +70,12 @@ class GateEnvironmentIndependenceTests(unittest.TestCase):
         self.assertIn('REPROIT_TAURI_GATE_IMAGE_READY: "1"', workflow)
         self.assertIn("validation/backends/tauri.Dockerfile", gate)
         self.assertNotIn('cat > "$WORK/Dockerfile"', gate)
+
+    def test_ios_flicker_fixture_retries_only_exact_short_captures(self) -> None:
+        gate = REACT_NATIVE_IOS_GATE.read_text(encoding="utf-8", errors="replace")
+        self.assertIn("for attempt in 1 2; do", gate)
+        self.assertIn('grep -q \'"reason":"short-capture"\'', gate)
+        self.assertIn("exhausted its bounded two-attempt budget", gate)
 
     def test_the_rn_bundle_loads_without_the_appium_driver(self) -> None:
         bundle = RN_BUNDLE.read_text(encoding="utf-8", errors="replace")
@@ -339,8 +346,8 @@ def main() -> int:
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(GateEnvironmentIndependenceTests)
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     # Case accounting: an empty or short run is the failure this file exists for.
-    if result.testsRun != 7:
-        print(f"expected 7 cases, ran {result.testsRun}", file=sys.stderr)
+    if result.testsRun != 9:
+        print(f"expected 9 cases, ran {result.testsRun}", file=sys.stderr)
         return 1
     return 0 if result.wasSuccessful() else 1
 

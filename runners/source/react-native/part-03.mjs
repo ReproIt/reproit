@@ -540,25 +540,56 @@ export async function waitForRecordingStarted(
   });
 }
 
-async function stopRecordingProcess(proc, timeoutMs = RECORDING_STOP_TIMEOUT_MS) {
-  if (!proc || proc.exitCode !== null) return;
-  await new Promise((resolveStop) => {
+export async function stopRecordingProcess(
+  proc,
+  timeoutMs = RECORDING_STOP_TIMEOUT_MS,
+) {
+  if (!proc) return { status: 'unavailable', reason: 'recorder-process-missing' };
+  if (Number.isInteger(proc.exitCode) || proc.signalCode) {
+    return {
+      status: 'already-exited',
+      ...(Number.isInteger(proc.exitCode) ? { exitCode: proc.exitCode } : {}),
+      ...(proc.signalCode ? { signal: boundedRecordingText(proc.signalCode) } : {}),
+    };
+  }
+  return new Promise((resolveStop) => {
     let settled = false;
-    const finish = () => {
+    const finish = (result) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      proc.off('exit', finish);
-      proc.off('error', finish);
-      resolveStop();
+      proc.off('exit', onExit);
+      proc.off('error', onError);
+      resolveStop(result);
     };
-    const timer = setTimeout(finish, timeoutMs);
-    proc.once('exit', finish);
-    proc.once('error', finish);
+    const onExit = (exitCode, signal) =>
+      finish({
+        status: 'stopped',
+        ...(Number.isInteger(exitCode) ? { exitCode } : {}),
+        ...(signal ? { signal: boundedRecordingText(signal) } : {}),
+      });
+    const onError = (error) =>
+      finish({
+        status: 'stop-error',
+        detail: boundedRecordingText(error?.message || error),
+      });
+    const timer = setTimeout(() => {
+      try {
+        proc.kill('SIGKILL');
+      } catch {
+        /* the owned recorder may already have exited */
+      }
+      finish({ status: 'stop-timeout', timeoutMs, forced: true });
+    }, timeoutMs);
+    proc.once('exit', onExit);
+    proc.once('error', onError);
     try {
       proc.kill('SIGINT');
-    } catch {
-      finish();
+    } catch (error) {
+      finish({
+        status: 'stop-error',
+        detail: boundedRecordingText(error?.message || error),
+      });
     }
   });
 }
@@ -605,8 +636,9 @@ export async function acquireRecordingProcess(
 // returns base64 mp4 which we write to clip.mov. Never throws.
 async function stopClipCapture(driver, clip) {
   if (clip.recording === 'ios' && clip.proc) {
-    await stopRecordingProcess(clip.proc);
+    return stopRecordingProcess(clip.proc);
   }
+  return { status: 'unavailable', reason: 'recorder-process-missing' };
 }
 
 async function settleTransitionFlicker(driver) {
@@ -680,12 +712,17 @@ async function startTransitionFlicker(driver) {
 
 async function finishTransitionFlicker(driver, capture) {
   if (!capture) return null;
+  let recorder;
   try {
-    await stopClipCapture(driver, capture);
+    recorder = await stopClipCapture(driver, capture);
     return classifyVideoFile(capture.mov, {
       actionAtSeconds: capture.actionAtSeconds,
       onDiagnostics: FLICKER_DIAGNOSTICS
-        ? (details) => log('REPROIT:FLICKER_DIAGNOSTICS ' + JSON.stringify(details))
+        ? (details) =>
+            log(
+              'REPROIT:FLICKER_DIAGNOSTICS ' +
+                JSON.stringify({ ...details, recorder }),
+            )
         : undefined,
     });
   } catch (error) {
@@ -696,6 +733,7 @@ async function finishTransitionFlicker(driver, capture) {
             outcome: 'abstained',
             reason: 'classification-exception',
             detail: boundedRecordingText(error?.message || error),
+            ...(recorder ? { recorder } : {}),
           }),
       );
     }

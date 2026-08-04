@@ -105,10 +105,26 @@ if grep -q "EXCEPTION CAUGHT BY RN RUNNER" "$WORK/run.log"; then
 fi
 
 printf '{"replay":["tap:key:flicker-positive"],"budget":1}' > "$WORK/flicker-positive.json"
-REPROIT_FUZZ_CONFIG="$WORK/flicker-positive.json" REPROIT_FLICKER_PIXELS=1 \
-  REPROIT_FLICKER_DIAGNOSTICS=1 \
-  node "$ROOT/runners/rn/runner.mjs" | tee "$WORK/flicker-positive.log"
-grep -q '^EXPLORE:FLICKER ' "$WORK/flicker-positive.log"
+positive_flicker_captured=0
+for attempt in 1 2; do
+  positive_log="$WORK/flicker-positive-attempt-$attempt.log"
+  REPROIT_FUZZ_CONFIG="$WORK/flicker-positive.json" REPROIT_FLICKER_PIXELS=1 \
+    REPROIT_FLICKER_DIAGNOSTICS=1 \
+    node "$ROOT/runners/rn/runner.mjs" | tee "$positive_log"
+  if grep -q '^EXPLORE:FLICKER ' "$positive_log"; then
+    positive_flicker_captured=1
+    break
+  fi
+  if ! grep -q '"reason":"short-capture"' "$positive_log"; then
+    echo "positive flicker did not produce a finding or an exact short-capture abstention" >&2
+    exit 1
+  fi
+  echo "positive flicker capture attempt $attempt abstained with short-capture" >&2
+done
+if [[ "$positive_flicker_captured" != "1" ]]; then
+  echo "positive flicker capture exhausted its bounded two-attempt budget" >&2
+  exit 1
+fi
 
 printf '{"replay":["tap:key:flicker-fixed"],"budget":1}' > "$WORK/flicker-fixed.json"
 REPROIT_FUZZ_CONFIG="$WORK/flicker-fixed.json" REPROIT_FLICKER_PIXELS=1 \
