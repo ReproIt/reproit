@@ -25,7 +25,7 @@ jobs:
       - name: Install AT-SPI dev library (for the Linux desktop runner)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libatspi2.0-dev
+          sudo apt-get install -y ffmpeg libatspi2.0-dev
       - name: Cache cargo
         uses: actions/cache@v6
         with:
