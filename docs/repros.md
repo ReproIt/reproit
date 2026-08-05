@@ -56,7 +56,7 @@ stored graph cannot drift from the executable artifact.
 
 ## Environment minimization
 
-After causal reduction, Reproit tests captured, non-secret runtime defines one at a time by omitting
+After causal reduction, Repro It tests captured, non-secret runtime defines one at a time by omitting
 them from a cold replay. The work is bounded to 32 dimensions and eight replay attempts. A dimension
 is relaxed only when the same finding identity reproduces. If the candidate does not reproduce, the
 baseline is replayed again before the dimension may be called required. Runner errors, incomplete
@@ -87,7 +87,7 @@ The local key is random and per-machine. That is right for a candidate capsule n
 open, and wrong for a guard your team shares, because the ciphertext can travel and the key cannot.
 
 `REPROIT_CAPSULE_KEY` (64 hexadecimal characters) is a team-held key. Set it wherever the capsule
-store is shared, including CI, and the same capsule opens on any machine that holds it. Reproit
+store is shared, including CI, and the same capsule opens on any machine that holds it. Repro It
 reads that key and never writes it: no copy is left in the checkout, and automatic rotation is
 disabled while it is set, because re-keying the store would lock out everyone else holding it. A
 value that is set but malformed is an error rather than a quiet fall back to the local key, since
@@ -139,12 +139,12 @@ automatic or an SDK transport hook is required.
   guarded capsule into the simulator build and Flutter logs carry the universal markers back to the
   host.
 - Native iOS/macOS: the Swift SDK automatically registers a Foundation `URLProtocol` only during a
-  ReproIt causal run. Appium injects the guarded capsule and actor into the app process; Foundation
+  Repro It causal run. Appium injects the guarded capsule and actor into the app process; Foundation
   requests are captured or fulfilled fail-closed without application-specific harness code.
 - Terminal apps: the TypeScript, Go, Python, and Rust SDKs ship causal transport adapters.
   TypeScript, Go, and Python install them from the normal Reporter constructor; Rust exposes a
   library-neutral `CausalTransport` because the Rust ecosystem has no single global HTTP client.
-- Native Linux: the Reporter installs a process-wide `urllib` adapter during a ReproIt run and
+- Native Linux: the Reporter installs a process-wide `urllib` adapter during a Repro It run and
   restores it on disposal; GTK and Qt share this transport.
 - Native Android: `ReproIt.causalHttp` is dependency-free. Appium injects the capsule and drives an
   actor-local system-property action clock.

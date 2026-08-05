@@ -1,6 +1,6 @@
 # Security and data handling
 
-For anyone deciding whether to put ReproIt in production. The short answer: the SDK
+For anyone deciding whether to put Repro It in production. The short answer: the SDK
 captures the **structure of what happened** (which screens, which controls, in what order) so a
 crash can be reproduced, and it is designed so that **user input values and personal data never
 leave your app**.
@@ -137,7 +137,7 @@ included artifact.
 
 Encryption does not make evidence exportable. Default collection marks artifacts
 `local-analysis-only` and `unredacted-restricted`. `--exportable` is the operator's assertion that
-redaction already happened at source and that policy permits export. Reproit does not infer consent
+redaction already happened at source and that policy permits export. Repro It does not infer consent
 from a filename, file type, encryption setting, or destination.
 
 Imported strings, paths from the source environment, logs, dump contents, and manifest labels are

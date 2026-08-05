@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "company-name-is-repro-it",
+  "changeType": "maintenance",
+  "detail": "Spell the company name as 'Repro It' in every prose surface, per the founder's instruction: never 'Reproit' or 'ReproIt'. The rename covers all markdown documentation, the generated compatibility surfaces (the generator strings changed and the surfaces regenerated), the CLI update notice, and the GitHub release title. Machine tokens keep their exact spelling because a space would break them: the reproit command and binary, reproit.yaml, reproit.com, the ReproIt GitHub organization path, crate and SDK identifiers such as ReproitMiddleware and ReproIt.init, environment variables, and the Reproit-Dogfood and Reproit-Guard-Retire trailers the policy gate parses. Frozen evidence records under validation/field/evidence and validation/self-dogfood records stay byte-identical because their digests are pinned at their declaring commits.",
+  "evidence": [
+    {
+      "path": "README.md",
+      "sha256": "sha256:93a5c85ec8927ef5cb0a3be99caec11ffa80c6e50677aeca78aef782c12150e2"
+    },
+    {
+      "path": "validation/compatibility/check.py",
+      "sha256": "sha256:cd0dec8cd411d6e6eab9b8852cd6af0590af14b22f013bd47435263dc2592196"
+    },
+    {
+      "path": "crates/reproit/src/adapters/update.rs",
+      "sha256": "sha256:520f7bf0c8f9f6f680af4a000e6b8223554d0696eb093b7a69fba4b8b2a97ef1"
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "sha256": "sha256:399540c193759549cb0546640a24a5afdcf5716aecb649544fcf91fa54d9189f"
+    }
+  ]
+}

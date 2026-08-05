@@ -36,4 +36,4 @@ a new unrelated bug.
 
 None of the above replaces `reproit check` in your own pipeline. Cloud tells you which bugs matter;
 the committed guard suite is what stops them from coming back, and it runs with no credentials at
-all. See [ReproIt in CI](../ci.md).
+all. See [Repro It in CI](../ci.md).

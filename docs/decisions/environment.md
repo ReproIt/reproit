@@ -60,7 +60,7 @@ substitutes into generated files (see the last section).
 | `REPROIT_CAPSULE` | `runners/source/react-native/part-06.mjs` | Path to the causal capsule staged for hermetic replay. |
 | `REPROIT_CAPSULE_JSON` | `crates/reproit/src/adapters/drive.rs` | Capsule passed as a Flutter `--dart-define`. |
 | `REPROIT_NETWORK_FILE` | `sdk/reproit-tui-go/causal.go` | Side file with provisioned network recordings for causal replay. |
-| `REPROIT_CAUSAL` | `crates/reproit/src/adapters/drive.rs` | Set to 1 during a Reproit run so instrumentation installs before app bootstrap. |
+| `REPROIT_CAUSAL` | `crates/reproit/src/adapters/drive.rs` | Set to 1 during a Repro It run so instrumentation installs before app bootstrap. |
 | `REPROIT_UNDER_FUZZER` | `crates/reproit/src/adapters/atspi/capture.rs` | Set to 1 on the launched child; the SDK's fuzzer-detection gate. |
 | `REPROIT_BACKEND` | `crates/reproit/src/adapters/drive.rs` | Set to 1 for backend runs. Undocumented beyond the call site. |
 | `REPROIT_BACKEND_ORIGINS` | `crates/reproit/src/adapters/drive.rs` | Origins handed to the runner for backend correlation. Undocumented beyond the call site. |

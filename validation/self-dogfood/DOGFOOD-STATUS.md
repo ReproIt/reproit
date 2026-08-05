@@ -1,4 +1,4 @@
-# Self-dogfood status: what ReproIt actually guards about itself
+# Self-dogfood status: what Repro It actually guards about itself
 
 Written 2026-07-31. This is a scoreboard, not marketing. It is meant to be
 usable as evidence against us, so every number here is the honest one and the
@@ -7,7 +7,7 @@ gaps are stated in more detail than the wins.
 ## The measured starting point
 
 Roughly fifteen defects were found and fixed in this project on 2026-07-30 and
-2026-07-31. **ReproIt guards caught zero of them.** What caught them was
+2026-07-31. **Repro It guards caught zero of them.** What caught them was
 acceptance scripts, CI, the protocol validator, and running on real devices and
 emulators. The declaration ledger showed it plainly: six `not-a-fix`, five
 `exception`, three `no-repro`, and **zero `guard:`**.

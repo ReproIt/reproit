@@ -2,7 +2,7 @@
 
 Imported evidence may describe what must be reproduced, but it never grants permission to run a
 command. Commands come only from `execution.providers` in the checkout-owned `reproit.yaml`.
-Reproit validates the catalog before planning or execution and pins each selected provider into the
+Repro It validates the catalog before planning or execution and pins each selected provider into the
 reproduction plan.
 
 Run `reproit doctor` after editing the catalog. Doctor reports these states separately:
@@ -82,7 +82,7 @@ an arbitrary choice.
 
 Every `reset` and `seed` provider must define `stateFingerprint`. The fingerprint command runs only
 after the state-changing command exits cleanly. It must exit zero and write a deterministic,
-canonical state representation to stdout. Reproit hashes those exact bytes and compares them with
+canonical state representation to stdout. Repro It hashes those exact bytes and compares them with
 `expectedSha256`. Timeout, nonzero exit, output truncation, and hash mismatch all fail as
 infrastructure errors. A successful reset process without matching state evidence never counts as a
 clean starting state.
@@ -120,7 +120,7 @@ source:
   sha256: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
 
-The path is normalized and checkout-relative. Reproit recomputes the digest before execution.
+The path is normalized and checkout-relative. Repro It recomputes the digest before execution.
 Changing a pinned mechanism makes the plan stale until it is explicitly refreshed.
 
 Environment values support the same config interpolation as the rest of `reproit.yaml`. Do not
@@ -137,7 +137,7 @@ cell or Compose edit makes an existing plan stale instead of silently changing i
 The Docker Compose driver requires the Compose file and all bind mounts to stay inside the
 checkout. Every selected service must use a digest-pinned image, unless `allowLocalBuild` explicitly
 permits a checkout build. Published ports must bind only to loopback. Privileged containers, host
-networking, host PID or IPC namespaces, and device mappings are rejected. Reproit adds ownership
+networking, host PID or IPC namespaces, and device mappings are rejected. Repro It adds ownership
 labels and an internal network, starts dependencies before reset and seed, starts the application
 before readiness, waits for declared Compose health checks within the cell timeout, and tears down
 containers, networks, and volumes on every exit path. Cleanup is
@@ -155,7 +155,7 @@ Add a `debug` profile to the cell, then run:
 reproit debug occ_0123456789abcdef
 ```
 
-Reproit starts a fresh cell with the debugger command override, maps its debugger port to a dynamic
+Repro It starts a fresh cell with the debugger command override, maps its debugger port to a dynamic
 loopback port, prints the source mapping, and pauses before the recorded trigger. Attach the
 debugger and press Enter to fire the trigger. A VS Code `launch.json` or generic JSON descriptor is
 written beside the cell receipt.
@@ -194,12 +194,12 @@ execution:
         targetSourceRoot: /workspace
 ```
 
-The trusted debug command owns the trigger in diagnostic mode. Reproit starts it, requires its
+The trusted debug command owns the trigger in diagnostic mode. Repro It starts it, requires its
 debug endpoint on `127.0.0.1`, opens the IDE session, and releases that same process after
 attachment. The authoritative run continues to use the provider's ordinary `argv`. Device and VM
-providers may perform their port forwarding inside the trusted debug command. Reproit does not
+providers may perform their port forwarding inside the trusted debug command. Repro It does not
 infer a public endpoint or execute debugger commands supplied by captured evidence.
 
 The provider mechanism is source-neutral. Node Inspector, Chrome DevTools, GDB, LLDB, JDWP, .NET,
-and language-specific descriptors are debugger capabilities, not separate Reproit commands. When
+and language-specific descriptors are debugger capabilities, not separate Repro It commands. When
 an occurrence has no trusted debug capability, `reproit debug explain` identifies that exact gap.

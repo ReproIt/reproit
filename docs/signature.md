@@ -233,7 +233,7 @@ treats it as value-bearing through the same path.
 ## Terminals without an accessibility tree
 
 Most surfaces have an accessibility tree to walk. A terminal instead exposes a grid of character
-cells. Reproit derives the descriptor from that structural source, then hashes it with the same
+cells. Repro It derives the descriptor from that structural source, then hashes it with the same
 FNV-1a primitive and 8-hex output. The source differs by necessity, but the hash family is
 identical, so every signature lives in one comparable namespace. This is intentional and fully
 deterministic, not a fallback.

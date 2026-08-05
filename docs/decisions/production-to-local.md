@@ -1,27 +1,27 @@
 # Production to local customer journey
 
-The customer should start from the bug they already have. ReproIt should not ask
+The customer should start from the bug they already have. Repro It should not ask
 them to recreate the report, copy stack traces, invent test data, or manually
 translate a production event into a test.
 
 ## Target journey
 
-The ReproIt SDK is the production capture authority. It records the trigger,
+The Repro It SDK is the production capture authority. It records the trigger,
 dependency exchanges, deterministic inputs, observation point, and exact
 failure identity needed for replay. Imported diagnostics may add optional
 context for a person or agent, but cannot replace SDK capture and can never make
 an occurrence executable.
 
-1. The customer installs the ReproIt SDK and deploys it with a project-scoped,
+1. The customer installs the Repro It SDK and deploys it with a project-scoped,
    write-only capture key.
-2. A failing captured operation is normalized into an immutable ReproIt
-   occurrence. ReproIt groups occurrences for prioritization, but keeps the
+2. A failing captured operation is normalized into an immutable Repro It
+   occurrence. Repro It groups occurrences for prioritization, but keeps the
    exact occurrence as the reproduction identity.
-3. ReproIt assesses the SDK occurrence automatically:
+3. Repro It assesses the SDK occurrence automatically:
    - `eligible`: enough source-neutral evidence exists to reproduce it.
    - `incomplete`: one or more named facts are missing.
    - `environment-bound`: the failure needs controlled remote infrastructure.
-   - `unsupported`: ReproIt preserves the evidence without pretending it can run.
+   - `unsupported`: Repro It preserves the evidence without pretending it can run.
 4. The issue page presents one primary action:
 
    ```text
@@ -31,7 +31,7 @@ an occurrence executable.
 5. In a trusted checkout, the CLI downloads and verifies that occurrence. The
    package contains facts, fixtures, observations, and replay actions. It cannot
    introduce a process command from captured production evidence.
-6. The local checkout selects the trusted app adapter and launch policy. ReproIt
+6. The local checkout selects the trusted app adapter and launch policy. Repro It
    synthesizes safe fixture values, performs the replay, checks the same failure
    identity, and writes the result beside the occurrence.
 7. After the fix, the developer runs the same command. A clean result can be kept
@@ -45,9 +45,9 @@ an occurrence executable.
 Production evidence describes what happened. The checkout decides how code may
 run. This separation is the core safety rule:
 
-- The ReproIt SDK may provide occurrence facts and content-addressed artifacts.
+- The Repro It SDK may provide occurrence facts and content-addressed artifacts.
 - Imported diagnostics may provide non-authoritative context only.
-- ReproIt Cloud may store, assess, group, and distribute those facts.
+- Repro It Cloud may store, assess, group, and distribute those facts.
 - Only a trusted checkout or approved remote adapter may supply executable
   commands, credentials, infrastructure, or destructive reset behavior.
 
@@ -70,7 +70,7 @@ must show why execution is blocked when no exact trusted adapter is available.
 
 ## How this differs from the traditional path
 
-| Traditional issue flow | ReproIt flow |
+| Traditional issue flow | Repro It flow |
 | --- | --- |
 | Alert is a stack trace and prose ticket. | Alert becomes a typed occurrence package. |
 | Developer guesses which user state mattered. | Fixture classes and path evidence are retained. |

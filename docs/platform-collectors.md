@@ -73,12 +73,12 @@ services:
       REPROIT_CONTAINER_ID: ${HOSTNAME}
 ```
 
-Application ports remain internal. Reproit publishes only dynamically assigned
+Application ports remain internal. Repro It publishes only dynamically assigned
 loopback debugger ports.
 
 ## Amazon ECS
 
-ECS tasks expose `ECS_CONTAINER_METADATA_URI_V4`. Reproit fetches its `/task`
+ECS tasks expose `ECS_CONTAINER_METADATA_URI_V4`. Repro It fetches its `/task`
 document with a bounded request and accepts only the documented link-local
 address or loopback test endpoints. It never forwards task credentials.
 

@@ -1,6 +1,6 @@
-# Reproit
+# Repro It
 
-Reproit turns a software failure into an executable reproduction. Run the
+Repro It turns a software failure into an executable reproduction. Run the
 repro, fix the bug, run it again to verify, keep it as a regression guard.
 
 ```sh
@@ -86,7 +86,7 @@ this repository runs its own suite on every push. A failure fails the build.
 Per-target gates, platforms, and evidence live in
 [compatibility](docs/compatibility.md).
 
-## Where Reproit runs
+## Where Repro It runs
 
 <!-- generated:platforms -->
 
@@ -114,8 +114,8 @@ Per-target gates, platforms, and evidence live in
 ## Documentation
 
 - [CLI reference](docs/cli.md): every command, and the exit-code contract
-- [ReproIt in CI](docs/ci.md): the gate, and capturing a red build
-- [Add ReproIt to a backend](docs/backend-sdk.md): install and one middleware, per language
+- [Repro It in CI](docs/ci.md): the gate, and capturing a red build
+- [Add Repro It to a backend](docs/backend-sdk.md): install and one middleware, per language
 - [What a repro is made of](docs/repros.md): the proof contract and platform coverage
 - [Oracle reference](docs/oracles.md): what counts as a bug, and why
 - [Security and data handling](docs/security.md): what leaves your machine
@@ -123,7 +123,7 @@ Per-target gates, platforms, and evidence live in
 - [Migrating to 1.0](docs/1.0-migration.md): compatibility and evidence changes
 - [Screen signatures](docs/signature.md): the cross-SDK identity spec
 - [Configuration examples](docs/examples): a `reproit.yaml` per framework, gated by a test
-- [ReproIt Cloud](docs/cloud/README.md): signup, SDKs, the dashboard, the API
+- [Repro It Cloud](docs/cloud/README.md): signup, SDKs, the dashboard, the API
 
 Decision records (why things are the way they are, not how to use them) live
 in [docs/decisions](docs/decisions).

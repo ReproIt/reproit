@@ -84,7 +84,7 @@ def markdown_status(status: dict) -> str:
         "",
         "Generated from `validation/support-manifest.json`. Do not edit by hand.",
         "",
-        f"Reproit declares {len(status['targets'])} atomic targets.",
+        f"Repro It declares {len(status['targets'])} atomic targets.",
         "",
     ]
     for target in status["targets"]:
@@ -187,7 +187,7 @@ def target_section(status: dict) -> str:
 
 def support_claim(status: dict) -> str:
     names = [target["displayName"] for target in status["targets"]]
-    lines = [f"Reproit supports {len(names)} atomic platform targets:"]
+    lines = [f"Repro It supports {len(names)} atomic platform targets:"]
     lines.extend(f"- {name}" for name in names)
     lines.extend(
         [

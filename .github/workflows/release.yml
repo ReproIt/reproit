@@ -489,7 +489,7 @@ jobs:
           gh release create "$TAG" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "ReproIt ${TAG#v}" \
+            --title "Repro It ${TAG#v}" \
             --generate-notes \
             --latest
       - name: Move the stable major Action tag

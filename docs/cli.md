@@ -140,7 +140,7 @@ reproit login [--cloud URL] [--key KEY]
 production identities, never unverified telemetry.
 
 `doctor` checks the platform, runner, target, credentials, and native toolchain, and every failed
-check carries a repair when Reproit knows a safe one. `--json` carries the same `detail` and `fix`
+check carries a repair when Repro It knows a safe one. `--json` carries the same `detail` and `fix`
 fields.
 
 For backend projects it also validates the checkout-owned trusted execution catalog, reports phase

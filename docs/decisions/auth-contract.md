@@ -12,7 +12,7 @@ object attributes.
 Immediate-mode apps use the same identifier through `REPROIT_INPUT_PURPOSE("otp", "verification")`.
 Terminal apps have no retained widget tree, so the TypeScript SDK exposes
 `authInput("otp", "verification")`. The terminal runner transports that declaration through a
-private temporary file; it never renders metadata into the PTY and is a no-op outside ReproIt
+private temporary file; it never renders metadata into the PTY and is a no-op outside Repro It
 execution.
 
 When a surface cannot expose native purpose metadata, use the universal stable identifier

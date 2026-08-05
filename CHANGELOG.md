@@ -1,6 +1,6 @@
 # Changelog
 
-All notable user-facing changes are recorded here. ReproIt follows semantic
+All notable user-facing changes are recorded here. Repro It follows semantic
 versioning for the CLI surface, saved repro contract, wire protocol, and
 versioned SDK source APIs documented in `docs/compatibility.md`.
 
@@ -14,7 +14,7 @@ versioned SDK source APIs documented in `docs/compatibility.md`.
 4. Run `reproit doctor` in each configured application.
 5. Run `reproit check` before accepting the upgrade in CI.
 
-ReproIt refreshes regenerable map state when the CLI or application inputs
+Repro It refreshes regenerable map state when the CLI or application inputs
 change. Do not delete saved repros to resolve an upgrade problem. Report a
 compatibility defect with the prior and new CLI versions.
 

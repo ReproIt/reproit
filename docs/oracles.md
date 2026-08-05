@@ -1,6 +1,6 @@
 # Oracle reference
 
-An oracle is a rule ReproIt uses to decide whether an observation is a bug. ReproIt separates
+An oracle is a rule Repro It uses to decide whether an observation is a bug. Repro It separates
 finding unusual behavior from proving incorrect behavior. This is the boundary that keeps normal
 product behavior out of the confirmed bug list.
 
@@ -27,7 +27,7 @@ outcomes, not finding or reproduction statuses:
 | ----------- | ------------------------------------------------------------- |
 | `VIOLATION` | Authoritative evidence violates an exact rule.                |
 | `SATISFIED` | The evidence proves that exact rule currently holds.          |
-| `ABSTAIN`   | Evidence cannot support either claim, so Reproit stays silent. |
+| `ABSTAIN`   | Evidence cannot support either claim, so Repro It stays silent. |
 
 A violation is still not public until a clean replay returns the same exact identity. Reproduction
 has its own statuses: `REPRODUCED`, `NOT_REPRODUCED`, `FLAKY`, `STALE`, and `COULD_NOT_REPLAY`.
@@ -153,7 +153,7 @@ DOM applications declare only the boundary whose contents must remain inside it:
 The container needs a stable `id` or `data-testid`. Descendant text can use its own stable ID or a
 bounded structural path under the container. Set `data-reproit-overflow="scroll"` or
 `data-reproit-overflow="truncate"` when that behavior is intentional. Those policies abstain.
-Without the containment declaration ReproIt does not infer intent from borders, colors, or a
+Without the containment declaration Repro It does not infer intent from borders, colors, or a
 screenshot.
 
 ## Backend oracles
@@ -292,7 +292,7 @@ Detailed event and configuration examples live in
 ## A2UI oracles
 
 An A2UI target is validated as a v0.9 message stream and rendered through the official React and Lit
-integrations. ReproIt checks protocol structure, renderer behavior, and equivalence under
+integrations. Repro It checks protocol structure, renderer behavior, and equivalence under
 transformations that should preserve meaning.
 
 | Finding                  | Proves                                                                                                                   |
@@ -310,14 +310,14 @@ exact repair context, and replay predicate. Unsupported catalog behavior and amb
 mapping abstain instead of guessing.
 
 DynamicValue function results currently `ABSTAIN`. The v0.9 schema does not define recursive array
-evaluation, and React and Lit share the same executable function implementation, so ReproIt does
+evaluation, and React and Lit share the same executable function implementation, so Repro It does
 not treat that implementation as independent proof of its own semantics. Integration, conformance,
 and CI examples live in
 [`runners/a2ui/README.md`](../runners/a2ui/README.md).
 
 ## Scan, fuzz, shrink, and replay
 
-The command changes how ReproIt obtains evidence, not what an oracle means:
+The command changes how Repro It obtains evidence, not what an oracle means:
 
 | Command                | Role                                                                                                          |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------- |
@@ -330,7 +330,7 @@ shorter sequence that produces a different failure is not accepted as the same b
 
 ## Platform limitations
 
-ReproIt never fabricates a signal a platform does not expose. Important limits include:
+Repro It never fabricates a signal a platform does not expose. Important limits include:
 
 - Firefox and WebKit do not expose Chromium's precise heap domain, so browser leak confirmation uses
   Chromium.

@@ -2,7 +2,7 @@
 
 Twenty SDK directories ship in this repository. Every one of them is fully
 supported. There is no core tier, no community tier, and no unmaintained tier:
-if an SDK is in ReproIt then its suite runs on every push and a failure fails
+if an SDK is in Repro It then its suite runs on every push and a failure fails
 the build.
 
 This file replaces `docs/sdk-tiers.md`. That file said three different things

@@ -1,4 +1,4 @@
-# Add ReproIt to a backend
+# Add Repro It to a backend
 
 Install, mount one middleware, done. Everything below is the framework adapter your SDK already
 ships, so you keep your own router, your own HTTP client, and your own database driver.
@@ -196,5 +196,5 @@ underneath. Every benchmark fails the build if its noise or cost crosses its exp
 ## Next
 
 A captured failure replays with `reproit check <capture.json> --exec "<your boot command>"`, with
-the database stopped and the network denied. See [ReproIt in CI](ci.md) for the gate, and
+the database stopped and the network denied. See [Repro It in CI](ci.md) for the gate, and
 [what a repro is made of](repros.md) for what the capture has to contain to be replayable.

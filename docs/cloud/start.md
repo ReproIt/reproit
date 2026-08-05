@@ -58,4 +58,4 @@ reproit keep occ_8f3a2c91
 reproit check                 # every kept repro, in CI
 ```
 
-That last step is the point of the whole loop. See [ReproIt in CI](../ci.md).
+That last step is the point of the whole loop. See [Repro It in CI](../ci.md).

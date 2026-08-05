@@ -25,7 +25,7 @@ ReproIt.start({
 ## React Native
 
 ```js
-import { ReproIt } from 'reproit-react-native';
+import { Repro It } from 'reproit-react-native';
 
 ReproIt.init({
   appId: 'your-app',
@@ -55,7 +55,7 @@ app.add_middleware(ReproitMiddleware, capture=capture)
 ```
 
 Every language, with its install line and where to reach the trace, is in
-[Add ReproIt to a backend](../backend-sdk.md).
+[Add Repro It to a backend](../backend-sdk.md).
 
 Each SDK ships an acceptance test pinning all four verdicts on a real failure. See
 [what a repro is made of](../repros.md).

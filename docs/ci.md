@@ -1,4 +1,4 @@
-# ReproIt in CI
+# Repro It in CI
 
 Two separate jobs, and they are worth keeping separate: a **gate** that proves saved failures are
 still fixed, and **capture** that turns a red build into something you can run on a laptop.

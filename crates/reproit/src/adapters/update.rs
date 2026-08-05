@@ -51,7 +51,7 @@ pub fn notice_and_schedule(current: &str, quiet: bool, json: bool) {
         && now().saturating_sub(cache.notified_at) >= CHECK_INTERVAL_SECS
     {
         eprintln!(
-            "ReproIt {} is available. Run `reproit update`.",
+            "Repro It {} is available. Run `reproit update`.",
             cache.latest.as_deref().unwrap_or_default()
         );
         cache.notified_at = now();

@@ -1,4 +1,4 @@
-# ReproIt Cloud
+# Repro It Cloud
 
 Cloud groups production failures into stable bugs and hands out occurrence ids that reproduce on
 your machine:

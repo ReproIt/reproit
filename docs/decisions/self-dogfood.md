@@ -1,17 +1,17 @@
 # Self-dogfood policy
 
-Reproit reproduces, proves, and retains its own defects with Reproit. This
+Repro It reproduces, proves, and retains its own defects with Repro It. This
 document is the enforceable version of that rule. The gate is
 `validation/self-dogfood/check-fix-policy.py`, run by the `dogfood-policy` CI
 job on every pull request and direct push to `main`.
 
 ## The rule
 
-> Every confirmed Reproit defect enters the reproduction funnel. Every eligible
-> defect must become an exact Reproit reproduction and a committed
+> Every confirmed Repro It defect enters the reproduction funnel. Every eligible
+> defect must become an exact Repro It reproduction and a committed
 > `reproit check` guard before it is considered closed.
 
-"Eligible" is load-bearing. Some failures need a capability Reproit does not
+"Eligible" is load-bearing. Some failures need a capability Repro It does not
 implement yet. Those produce a typed record and a named capability gap. They
 are backlog inputs, not passing guards, and they are never described as
 reproduced.
@@ -20,7 +20,7 @@ reproduced.
 
 Every self-dogfood execution has two explicit versions:
 
-- **controller**: a pinned known-good Reproit build that captures, executes,
+- **controller**: a pinned known-good Repro It build that captures, executes,
   replays, and evaluates;
 - **subject**: the checkout, binary, runner, SDK, service, or deployment being
   tested.
@@ -29,7 +29,7 @@ The controller must never silently resolve to the subject binary. A case whose
 controller artifact digest equals either subject artifact digest is rejected.
 
 When the defect is in the controller's own evaluation logic, the fixed
-candidate must pass both the Reproit replay and an independent authority: an
+candidate must pass both the Repro It replay and an independent authority: an
 existing failing test, an upstream specification, an externally observed exit
 status or database state, a prior known-good release, or a small verifier that
 does not reuse the affected evaluator.
@@ -45,7 +45,7 @@ Documentation and retained evidence do not need a declaration.
 | --- | --- | --- |
 | `guard:rep_<12 hex>` | A committed guard proves affected versus fixed | `.reproit/repros/<id>/meta.json` exists in that commit's tree with `status: required` |
 | `exception:<code>:<id>` | A typed eligibility exception | The exception record validates and every retained artifact exists with its declared SHA-256 digest |
-| `no-repro:<id>` | No stable Reproit reproduction is practical | The record, test, affected evidence, command, and timeout validate; the test fails with the declared result on the parent and passes on the fix |
+| `no-repro:<id>` | No stable Repro It reproduction is practical | The record, test, affected evidence, command, and timeout validate; the test fails with the declared result on the parent and passes on the fix |
 | `not-a-fix:<id>` | The change is not a bug fix | A changed typed record explains the change and binds at least one changed evidence artifact by SHA-256 |
 
 A missing trailer fails the gate. Two trailers fail the gate. There is no

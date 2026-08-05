@@ -20,7 +20,7 @@ this section by hand cannot add a target.
 
 <!-- generated:support-claim -->
 
-Reproit supports 21 atomic platform targets:
+Repro It supports 21 atomic platform targets:
 - Backend contracts
 - Jetpack Compose Android
 - Electron

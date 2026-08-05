@@ -1,4 +1,4 @@
-# Reproit CLI architecture
+# Repro It CLI architecture
 
 The CLI is organized so correctness-sensitive logic can be tested without a device, network,
 process-global arguments, or terminal output.

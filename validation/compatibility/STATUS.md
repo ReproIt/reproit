@@ -2,7 +2,7 @@
 
 Generated from `validation/support-manifest.json`. Do not edit by hand.
 
-Reproit declares 21 atomic targets.
+Repro It declares 21 atomic targets.
 
 ## Backend contracts
 
