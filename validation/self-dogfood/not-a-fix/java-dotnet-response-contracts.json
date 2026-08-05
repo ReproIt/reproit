@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "java-dotnet-response-contracts",
+  "changeType": "feature",
+  "detail": "Closes the two per-language derivation gaps from the Phase 2 typed pass: java_ast and dotnet_ast collected request-side facts only, so Spring and ASP.NET services never armed the response-status or response-shape oracles. Both readers now fill responses and serializers through the shared response_facts vocabulary, split into java_types.rs and dotnet_types.rs at the go_types boundary. Spring pairs ResponseEntity<T> with its factory calls, @ResponseStatus, and thrown ResponseStatusException; ASP.NET pairs ActionResult<T> with the ControllerBase helpers and reads [ProducesResponseType] as the declared pair, applying the CamelCase wire policy. Fail-closed rules proven live: reference-typed fields claim presence not type (both frameworks write null), top-level strings are text/plain, the Jackson getter gate, and whole-class abstention on inheritance or custom serialization. Validated against a real Spring Boot 3.2.5 jar and an ASP.NET 8 container: healthy controls 0 findings; planted 202 regressions confirmed as fnd_7ba40a1ff2da and fnd_55ba8462de14. No behavior fix; this is new derivation coverage.",
+  "evidence": [
+    {
+      "path": "validation/field/init-ground-truth.md",
+      "sha256": "sha256:6421abd3e18acc5a8262a6e7f5d89356a62b3b71a759cfaecd934fd6f1157415"
+    }
+  ]
+}

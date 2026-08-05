@@ -11,9 +11,11 @@
 //! the declaration below it, and a class-level prefix that applies to THAT
 //! class body only.
 
+use super::dotnet_types;
 use super::extract::Family;
 use super::field_facts::{bare_type, drop_ambiguous, record, FieldFact};
 use super::grammar::{self, SourceRead, MAX_FIELDS};
+use super::response_facts::{ResponseFact, Serializers, WireField};
 use super::route_path::join_segments as join;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -25,12 +27,26 @@ const MAX_GROUP_DEPTH: usize = 8;
 const OPAQUE: &str = "\u{1}opaque";
 type Groups = BTreeMap<String, (String, String)>;
 
+/// Everything the class walk collects, one bundle so a visitor names one
+/// argument instead of six.
+#[derive(Default)]
+struct Collected {
+    /// type name -> its data-annotation constrained properties (request side).
+    shapes: BTreeMap<String, BTreeMap<String, FieldFact>>,
+    ambiguous: BTreeSet<String>,
+    /// type name -> its serialized wire properties (response side).
+    wire: Serializers,
+    wire_ambiguous: BTreeSet<String>,
+    /// action method -> the `[FromBody]` type it accepts.
+    handler_body: BTreeMap<String, String>,
+    /// action method -> the response statuses and bodies its code states.
+    responses: BTreeMap<String, ResponseFact>,
+    found: Vec<(String, &'static str, Option<String>)>,
+}
+
 pub(super) fn read(root: &Path) -> SourceRead {
     let mut source = SourceRead::default();
-    let mut shapes: BTreeMap<String, BTreeMap<String, FieldFact>> = BTreeMap::new();
-    let mut ambiguous: BTreeSet<String> = BTreeSet::new();
-    let mut handler_body: BTreeMap<String, String> = BTreeMap::new();
-    let mut found: Vec<(String, &'static str, Option<String>)> = Vec::new();
+    let mut collected = Collected::default();
 
     grammar::read_files(
         root,
@@ -48,33 +64,33 @@ pub(super) fn read(root: &Path) -> SourceRead {
                 }
             });
             grammar::walk(root_node, &mut |node| match node.kind() {
-                "invocation_expression" => minimal_api(node, text, &groups, &mut found),
-                "class_declaration" => collect_class(
-                    node,
-                    text,
-                    &mut shapes,
-                    &mut ambiguous,
-                    &mut handler_body,
-                    &mut found,
-                ),
+                "invocation_expression" => minimal_api(node, text, &groups, &mut collected.found),
+                "class_declaration" => collect_class(node, text, &mut collected),
+                "record_declaration" => collect_record(node, text, &mut collected),
                 _ => {}
             });
         },
     );
-    drop_ambiguous(&mut shapes, &ambiguous);
+    drop_ambiguous(&mut collected.shapes, &collected.ambiguous);
+    drop_ambiguous(&mut collected.wire, &collected.wire_ambiguous);
 
-    for (path, method, handler) in found {
+    for (path, method, handler) in collected.found {
         source.routes.push((path, method, handler.clone()));
         if let Some(handler) = handler {
-            if let Some(fields) = handler_body
+            if let Some(fields) = collected
+                .handler_body
                 .get(&handler)
-                .and_then(|name| shapes.get(name))
+                .and_then(|name| collected.shapes.get(name))
                 .cloned()
             {
-                source.bodies.insert(handler, fields);
+                source.bodies.insert(handler.clone(), fields);
+            }
+            if let Some(fact) = collected.responses.get(&handler) {
+                source.responses.insert(handler, fact.clone());
             }
         }
     }
+    source.serializers = collected.wire;
     source
 }
 
@@ -222,53 +238,132 @@ fn substitute_action(template: &str, handler: &str) -> String {
 }
 
 /// A controller class, or a DTO whose properties carry validation attributes.
-fn collect_class(
-    node: Node,
-    text: &str,
-    shapes: &mut BTreeMap<String, BTreeMap<String, FieldFact>>,
-    ambiguous: &mut BTreeSet<String>,
-    handler_body: &mut BTreeMap<String, String>,
-    found: &mut Vec<(String, &'static str, Option<String>)>,
-) {
+///
+/// The wire (response) side abstains from a class it cannot read whole: a
+/// base list may name a class whose properties this type inherits, and a
+/// custom `[JsonConverter]` rewrites the output past what the properties
+/// state. A partial wire shape would claim fields the type does not
+/// serialize, so those classes state nothing. Same rule as serde `flatten`
+/// and Go embedding; it also keeps controllers themselves out, since every
+/// controller extends `ControllerBase`.
+fn collect_class(node: Node, text: &str, collected: &mut Collected) {
     let Some(name) = grammar::field(node, text, "name") else {
         return;
     };
+    let attributes = attributes_of(node, text);
     // `[Route("api/users")]` prefixes this class body only. `[controller]` is
     // substituted by ASP.NET with the class name minus the Controller suffix.
-    let prefix = attributes_of(node, text)
-        .into_iter()
+    let prefix = attributes
+        .iter()
         .find(|(attribute, _)| attribute == "Route")
-        .and_then(|(_, argument)| argument)
+        .and_then(|(_, argument)| argument.clone())
         .map(|route| substitute_tokens(&route, &name))
         .unwrap_or_default();
+    let abstain_wire = has_base_list(node)
+        || attributes
+            .iter()
+            .any(|(attribute, _)| attribute == "JsonConverter");
     let Some(body) = node.child_by_field_name("body") else {
         return;
     };
     let mut members = Vec::new();
     grammar::children(body, &mut members);
     let mut fields = BTreeMap::new();
+    let mut wire = BTreeMap::new();
     for member in members {
         match member.kind() {
-            "method_declaration" => collect_action(member, text, &prefix, handler_body, found),
+            "method_declaration" => collect_action(member, text, &prefix, collected),
             "property_declaration" | "field_declaration" => {
-                collect_property(member, text, &mut fields)
+                collect_property(member, text, &mut fields, &mut wire)
             }
             _ => {}
         }
     }
     if !fields.is_empty() {
-        record(shapes, ambiguous, name, fields);
+        record(
+            &mut collected.shapes,
+            &mut collected.ambiguous,
+            name.clone(),
+            fields,
+        );
+    }
+    if !wire.is_empty() && !abstain_wire {
+        record(
+            &mut collected.wire,
+            &mut collected.wire_ambiguous,
+            name,
+            wire,
+        );
     }
 }
 
+/// A record DTO: its positional components serialize as properties named as
+/// written, and a body may add ordinary properties on top.
+fn collect_record(node: Node, text: &str, collected: &mut Collected) {
+    let Some(name) = grammar::field(node, text, "name") else {
+        return;
+    };
+    if has_base_list(node) {
+        return;
+    }
+    let mut wire = BTreeMap::new();
+    let mut children = Vec::new();
+    grammar::children(node, &mut children);
+    for child in children {
+        if child.kind() != "parameter_list" {
+            continue;
+        }
+        let mut components = Vec::new();
+        grammar::children(child, &mut components);
+        for component in components {
+            if component.kind() != "parameter" || wire.len() >= MAX_FIELDS {
+                continue;
+            }
+            let (Some(component_name), Some(ty)) = (
+                grammar::field(component, text, "name"),
+                grammar::field(component, text, "type"),
+            ) else {
+                continue;
+            };
+            let wire_name = attributes_of(component, text)
+                .into_iter()
+                .find(|(attribute, _)| attribute == "JsonPropertyName")
+                .and_then(|(_, argument)| argument)
+                .unwrap_or_else(|| dotnet_types::camel_case(&component_name));
+            wire.insert(wire_name, dotnet_types::wire_field(&ty, false));
+        }
+    }
+    if let Some(body) = node.child_by_field_name("body") {
+        let mut members = Vec::new();
+        grammar::children(body, &mut members);
+        let mut fields = BTreeMap::new();
+        for member in members {
+            if matches!(member.kind(), "property_declaration" | "field_declaration") {
+                collect_property(member, text, &mut fields, &mut wire);
+            }
+        }
+    }
+    if !wire.is_empty() {
+        record(
+            &mut collected.wire,
+            &mut collected.wire_ambiguous,
+            name,
+            wire,
+        );
+    }
+}
+
+/// Whether a type declaration names bases (a class it inherits, or interfaces).
+/// An interface adds no serialized state, but which kind a bare name is cannot
+/// be resolved here, so any base list abstains.
+fn has_base_list(node: Node) -> bool {
+    let mut children = Vec::new();
+    grammar::children(node, &mut children);
+    children.iter().any(|child| child.kind() == "base_list")
+}
+
 /// `[HttpGet("{id}")] public IActionResult Get(int id)`.
-fn collect_action(
-    node: Node,
-    text: &str,
-    prefix: &str,
-    handler_body: &mut BTreeMap<String, String>,
-    found: &mut Vec<(String, &'static str, Option<String>)>,
-) {
+fn collect_action(node: Node, text: &str, prefix: &str, collected: &mut Collected) {
     let Some(handler) = grammar::field(node, text, "name") else {
         return;
     };
@@ -337,15 +432,28 @@ fn collect_action(
                     "identifier" | "generic_name" | "qualified_name"
                 )
             }) {
-                handler_body.insert(handler.clone(), bare_type(grammar::text(*ty, text)));
+                collected
+                    .handler_body
+                    .insert(handler.clone(), bare_type(grammar::text(*ty, text)));
             }
         }
     }
-    found.push((path, method, Some(handler)));
+    // What this action states it returns, from its return type, the helper
+    // calls in its body, and its `[ProducesResponseType]` declarations.
+    if let Some(fact) = dotnet_types::response_of(node, text, &attributes) {
+        collected.responses.insert(handler.clone(), fact);
+    }
+    collected.found.push((path, method, Some(handler)));
 }
 
-/// A DTO property and whatever its data-annotation attributes constrain.
-fn collect_property(node: Node, text: &str, fields: &mut BTreeMap<String, FieldFact>) {
+/// A DTO property: what its data-annotation attributes constrain on the
+/// request side, and what the serializer writes for it on the response side.
+fn collect_property(
+    node: Node,
+    text: &str,
+    fields: &mut BTreeMap<String, FieldFact>,
+    wire_fields: &mut BTreeMap<String, WireField>,
+) {
     if fields.len() >= MAX_FIELDS {
         return;
     }
@@ -354,12 +462,14 @@ fn collect_property(node: Node, text: &str, fields: &mut BTreeMap<String, FieldF
             .and_then(|declarator| grammar::field(declarator, text, "name"))
     });
     let Some(name) = name else { return };
+    let attributes = attributes_of(node, text);
     let mut fact = FieldFact::default();
-    for (attribute, argument) in attributes_of(node, text) {
+    for (attribute, argument) in &attributes {
         match attribute.as_str() {
             "Required" => fact.required = true,
             "Range" => {
                 let bounds: Vec<Option<f64>> = argument
+                    .clone()
                     .unwrap_or_default()
                     .split(',')
                     .map(|part| grammar::number(part.trim()))
@@ -373,12 +483,39 @@ fn collect_property(node: Node, text: &str, fields: &mut BTreeMap<String, FieldF
         }
     }
     // `[JsonPropertyName("blocked_type")]` is the wire name.
-    let wire = attributes_of(node, text)
-        .into_iter()
+    let rename = attributes
+        .iter()
         .find(|(attribute, _)| attribute == "JsonPropertyName")
-        .and_then(|(_, argument)| argument)
-        .unwrap_or(name);
+        .and_then(|(_, argument)| argument.clone());
+    let wire = rename.clone().unwrap_or_else(|| name.clone());
+    // The response side reads PROPERTIES only: System.Text.Json does not
+    // serialize fields by default, so a field states nothing it can claim.
+    // A bare `[JsonIgnore]` never serializes; one with a condition argument
+    // serializes conditionally, so the field stays with `required` dropped.
+    // A static property never serializes at all.
+    let ignored = attributes
+        .iter()
+        .any(|(attribute, argument)| attribute == "JsonIgnore" && argument.is_none())
+        || is_static(node, text);
+    if node.kind() == "property_declaration" && !ignored && wire_fields.len() < MAX_FIELDS {
+        let conditional = attributes
+            .iter()
+            .any(|(attribute, argument)| attribute == "JsonIgnore" && argument.is_some());
+        if let Some(ty) = grammar::field(node, text, "type") {
+            let written = rename.unwrap_or_else(|| dotnet_types::camel_case(&name));
+            wire_fields.insert(written, dotnet_types::wire_field(&ty, conditional));
+        }
+    }
     fields.insert(wire, fact);
+}
+
+/// Whether a member declaration carries the `static` modifier.
+fn is_static(node: Node, text: &str) -> bool {
+    let mut children = Vec::new();
+    grammar::children(node, &mut children);
+    children
+        .iter()
+        .any(|child| child.kind() == "modifier" && grammar::text(*child, text) == "static")
 }
 
 /// The attributes on a declaration, each with its single literal argument.
@@ -629,5 +766,142 @@ public class UsersController : ControllerBase
         );
         assert_eq!(source.files_parsed, 1);
         assert_eq!(source.files_unreadable, 1);
+    }
+
+    use super::super::response_facts::WireShape;
+
+    #[test]
+    fn action_result_helpers_state_status_and_body() {
+        let source = read_source(
+            "responses",
+            &[
+                (
+                    "ItemsController.cs",
+                    "[ApiController]\n[Route(\"api/items\")]\n\
+                     public class ItemsController : ControllerBase\n{\n\
+                     \x20   [HttpGet(\"{id}\")]\n\
+                     \x20   public ActionResult<ItemDto> Get(int id)\n    {\n\
+                     \x20       if (id == 0) { return NotFound(); }\n\
+                     \x20       return Ok(item);\n    }\n\
+                     \x20   [HttpPost]\n\
+                     \x20   [ProducesResponseType(typeof(ItemDto), StatusCodes.Status201Created)]\n\
+                     \x20   public IActionResult Create([FromBody] ItemDto body)\n    {\n\
+                     \x20       return CreatedAtAction(nameof(Get), new { id = 1 }, body);\n    }\n\
+                     \x20   [HttpDelete(\"{id}\")]\n\
+                     \x20   public async Task<IActionResult> Remove(int id)\n    {\n\
+                     \x20       return NoContent();\n    }\n}\n",
+                ),
+                (
+                    "ItemDto.cs",
+                    "public class ItemDto\n{\n    public string Name { get; set; }\n\
+                     \x20   public int Size { get; set; }\n    public string? Note { get; set; }\n}\n",
+                ),
+            ],
+        );
+        let get = source.responses.get("Get").expect("stated");
+        assert_eq!(get.statuses[&200], WireShape::Named("ItemDto".into()));
+        assert_eq!(
+            get.statuses[&404],
+            WireShape::Unknown,
+            "NotFound() states no body"
+        );
+        let create = source.responses.get("Create").expect("stated");
+        assert_eq!(
+            create.statuses[&201],
+            WireShape::Named("ItemDto".into()),
+            "[ProducesResponseType] types what the helper alone cannot"
+        );
+        let remove = source.responses.get("Remove").expect("stated");
+        assert_eq!(remove.statuses[&204], WireShape::Unknown);
+        // ASP.NET writes camelCase by default, so the wire names are not the
+        // C# spellings.
+        let dto = source.serializers.get("ItemDto").expect("collected");
+        assert_eq!(
+            dto["name"].shape,
+            WireShape::Unknown,
+            "a reference property may write null, so it claims presence, not type"
+        );
+        assert_eq!(dto["size"].shape, WireShape::Primitive("integer"));
+        assert_eq!(
+            dto["note"].shape,
+            WireShape::Unknown,
+            "nullable claims no type"
+        );
+        assert!(
+            dto["note"].required,
+            "null is written, so the property is present"
+        );
+    }
+
+    #[test]
+    fn a_plain_return_type_is_the_stated_default_and_string_abstains() {
+        let source = read_source(
+            "plain-returns",
+            &[(
+                "C.cs",
+                "[Route(\"api/things\")]\npublic class ThingsController : ControllerBase\n{\n\
+                 \x20   [HttpGet]\n\
+                 \x20   public IEnumerable<ItemDto> List() => _items;\n\
+                 \x20   [HttpGet(\"name\")]\n\
+                 \x20   public string GetName() => \"x\";\n}\n",
+            )],
+        );
+        let list = source.responses.get("List").expect("stated");
+        assert_eq!(
+            list.statuses[&200],
+            WireShape::Array(Box::new(WireShape::Named("ItemDto".into())))
+        );
+        let name = source.responses.get("GetName").expect("stated");
+        assert_eq!(
+            name.statuses[&200],
+            WireShape::Unknown,
+            "a string return is text/plain, not a JSON claim"
+        );
+    }
+
+    #[test]
+    fn the_wire_side_reads_records_and_abstains_on_inheritance() {
+        let source = read_source(
+            "wire-honesty",
+            &[
+                (
+                    "OrderDto.cs",
+                    "public record OrderDto(Guid Id, List<ItemDto> Items);\n",
+                ),
+                (
+                    "Sub.cs",
+                    "public class Sub : Base\n{\n    public string Own { get; set; }\n}\n",
+                ),
+                (
+                    "Marked.cs",
+                    "public class Marked\n{\n    [JsonPropertyName(\"item_id\")]\n\
+                     \x20   public string ItemId { get; set; }\n    [JsonIgnore]\n\
+                     \x20   public string Secret { get; set; }\n\
+                     \x20   public static string Counter { get; set; }\n}\n",
+                ),
+            ],
+        );
+        let order = source.serializers.get("OrderDto").expect("collected");
+        assert_eq!(
+            order["id"].shape,
+            WireShape::Primitive("string"),
+            "a Guid is never null"
+        );
+        assert_eq!(
+            order["items"].shape,
+            WireShape::Unknown,
+            "a collection is a reference: null is possible, so no type claim"
+        );
+        assert!(
+            !source.serializers.contains_key("Sub"),
+            "a base list may inherit unreadable properties, so the class abstains"
+        );
+        let marked = source.serializers.get("Marked").expect("collected");
+        assert!(marked.contains_key("item_id"), "the wire name wins");
+        assert!(
+            !marked.contains_key("secret"),
+            "[JsonIgnore] never serializes"
+        );
+        assert!(!marked.contains_key("counter"), "static never serializes");
     }
 }

@@ -925,3 +925,65 @@ change, not a reader one, and this pass is the reader.
 - `emit::a_query_parameter_read_from_source_becomes_a_named_input`, which asserts the
   draft_yaml round-trip still holds AND that a non-scalar query value fails the imported
   input domain, encoding the coverage regression above so it cannot come back.
+
+## Java and C# response contracts (2026-08-05)
+
+Closes the two per-language derivation gaps the Phase 2 typed pass left open:
+`java_ast`/`dotnet_ast` collected request-side facts only, so a Spring or ASP.NET
+service could never arm the response-status or response-shape oracles. Both readers
+now fill `responses` and `serializers`, through the same `response_facts` vocabulary
+Go and Rust use, split into `java_types.rs` / `dotnet_types.rs` at the same boundary
+as `go_types`.
+
+What each language states:
+
+- Spring: `ResponseEntity<T>` types the body, and the factory calls name the
+  statuses (`ok(v)`, `status(HttpStatus.CREATED).body(v)`, `notFound().build()`,
+  `new ResponseEntity<>(v, HttpStatus.X)`). `@ResponseStatus` replaces the implicit
+  200 of a plain return type. A thrown `ResponseStatusException(HttpStatus.X, ...)`
+  states X. `void` with no `@ResponseStatus` states nothing.
+- ASP.NET: `ActionResult<T>` types the body, and the `ControllerBase` helpers name
+  the statuses (`Ok(v)`, `CreatedAtAction(..., v)`, `NoContent()`, `StatusCode(n)`).
+  `[ProducesResponseType(typeof(T), StatusCodes.Status201Created)]` is the developer
+  declaring the pair outright and is read as exactly that. Wire names apply the
+  serializer's CamelCase policy (`Name` -> `name`), which the C# spelling would
+  falsify on every response.
+
+What was honestly left underived, each pinned by a unit test:
+
+- A reference-typed field claims presence, never a type: a fresh `Item` writes
+  `{"name":null}` (verified live in BOTH frameworks), so `type: string` there is a
+  schema a healthy response violates. Only never-null types carry a type claim
+  (Java unboxed primitives; C# value types). Same rule as a Go bare-pointer field.
+- A top-level `String`/`string` return is text/plain in both frameworks and states
+  its status with no body claim.
+- Jackson serializes through getters: a private field with no getter, no Lombok
+  `@Data`/`@Getter`/`@Value`, and no `public` modifier is not claimed. The first
+  live run proved the rule from the failure side: with Lombok's processor missing,
+  Spring answered 406 for the very fields a field-based reading would have claimed.
+- A class with a superclass (Java) or any base list (C#), a Jackson annotation on a
+  method, or a `[JsonConverter]` abstains from the wire side entirely, the serde
+  `flatten` / Go embedding rule. `[ProducesResponseType]` with a status behind a
+  variable states nothing.
+
+End to end against real frameworks, both directions:
+
+- Spring Boot 3.2.5 (mvn jar, Lombok DTO): `reproit init` derived 4 operations with
+  inferred 200/201/204/404 entries; every live status and body matched the draft.
+  Healthy control: `reproit find` -> 0 confirmed findings. Planted regression
+  (`list()` changed to `ResponseEntity.accepted()`, schema untouched):
+  `fnd_7ba40a1ff2da get_items: operation reported successful status 202 outside its
+  declared success statuses [200]`.
+- ASP.NET 8 (dotnet sdk container): same shape. Live wire wrote camelCase and null
+  reference properties exactly as the draft claims. Healthy control -> 0 findings.
+  Planted 202 -> `fnd_55ba8462de14 get_api_items: ... 202 outside its declared
+  success statuses [200]`.
+
+### Covered by CI
+
+- `java_types`: factory pairing, implicit-200/`@ResponseStatus`/void/String rules,
+  wire-side abstentions (superclass, getter gate, `@JsonIgnore`, static,
+  `@JsonInclude`), shape and status tables.
+- `dotnet_ast`/`dotnet_types`: helper pairing, `[ProducesResponseType]`, camelCase
+  policy, record components, nullable and reference properties, base-list
+  abstention, shape and status tables.

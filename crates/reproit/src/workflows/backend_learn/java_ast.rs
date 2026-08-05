@@ -15,6 +15,8 @@
 use super::extract::Family;
 use super::field_facts::{apply_rename_all, bare_type, drop_ambiguous, record, FieldFact};
 use super::grammar::{self, SourceRead, MAX_FIELDS};
+use super::java_types;
+use super::response_facts::{ResponseFact, Serializers, WireField};
 use super::route_path::join_segments as join;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -30,19 +32,31 @@ const MAPPINGS: [(&str, &str); 5] = [
 ];
 const MAX_MAPPING_VALUES: usize = 64;
 
+/// Everything the class walk collects, one bundle so a visitor names one
+/// argument instead of seven.
+#[derive(Default)]
+struct Collected {
+    /// type name -> its Bean Validation constrained fields (request side).
+    shapes: BTreeMap<String, BTreeMap<String, FieldFact>>,
+    ambiguous: BTreeSet<String>,
+    /// type name -> its Jackson wire fields (response side).
+    wire: Serializers,
+    wire_ambiguous: BTreeSet<String>,
+    /// enum name -> its constants, so an enum-typed field is a closed set.
+    enums: BTreeMap<String, Vec<String>>,
+    /// handler method -> the `@RequestBody` type it accepts.
+    handler_body: BTreeMap<String, String>,
+    /// handler method -> the response statuses and bodies its code states.
+    responses: BTreeMap<String, ResponseFact>,
+    /// (type, wire field) -> the enum type it is declared as, resolved once
+    /// every file has been read: the constants live in another declaration.
+    pending: Vec<(String, String, String)>,
+    found: Vec<(String, &'static str, Option<String>)>,
+}
+
 pub(super) fn read(root: &Path) -> SourceRead {
     let mut source = SourceRead::default();
-    // type name -> its Bean Validation constrained fields.
-    let mut shapes: BTreeMap<String, BTreeMap<String, FieldFact>> = BTreeMap::new();
-    let mut ambiguous: BTreeSet<String> = BTreeSet::new();
-    // enum name -> its constants, so an enum-typed field is a closed value set.
-    let mut enums: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    // handler method -> the `@RequestBody` type it accepts.
-    let mut handler_body: BTreeMap<String, String> = BTreeMap::new();
-    // (type, wire field) -> the enum type it is declared as, resolved once
-    // every file has been read: the constants live in another declaration.
-    let mut pending: Vec<(String, String, String)> = Vec::new();
-    let mut found: Vec<(String, &'static str, Option<String>)> = Vec::new();
+    let mut collected = Collected::default();
 
     grammar::read_files(
         root,
@@ -52,47 +66,53 @@ pub(super) fn read(root: &Path) -> SourceRead {
         |root_node, text, _path| {
             grammar::walk(root_node, &mut |node| match node.kind() {
                 "class_declaration" | "record_declaration" => {
-                    collect_class(
-                        node,
-                        text,
-                        &mut shapes,
-                        &mut ambiguous,
-                        &mut handler_body,
-                        &mut found,
-                        &mut pending,
-                    );
+                    collect_class(node, text, &mut collected);
                 }
-                "enum_declaration" => collect_enum(node, text, &mut enums),
+                "enum_declaration" => collect_enum(node, text, &mut collected.enums),
                 _ => {}
             });
         },
     );
-    drop_ambiguous(&mut shapes, &ambiguous);
+    drop_ambiguous(&mut collected.shapes, &collected.ambiguous);
+    drop_ambiguous(&mut collected.wire, &collected.wire_ambiguous);
     // An enum-typed field's accepted set is the enum's constants. A type that
     // is not a known enum stays open rather than becoming an empty set: not
     // finding the declaration is not evidence that the field accepts nothing.
-    for (owner, field, enum_type) in pending {
-        let Some(values) = enums.get(&enum_type).filter(|values| values.len() > 1) else {
+    for (owner, field, enum_type) in collected.pending {
+        let Some(values) = collected
+            .enums
+            .get(&enum_type)
+            .filter(|values| values.len() > 1)
+        else {
             continue;
         };
-        if let Some(fact) = shapes.get_mut(&owner).and_then(|f| f.get_mut(&field)) {
+        if let Some(fact) = collected
+            .shapes
+            .get_mut(&owner)
+            .and_then(|f| f.get_mut(&field))
+        {
             fact.allowed = Some(values.clone());
             fact.evidence = Some("an enum-typed field".to_string());
         }
     }
 
-    for (path, method, handler) in found {
+    for (path, method, handler) in collected.found {
         source.routes.push((path, method, handler.clone()));
         if let Some(handler) = handler {
-            if let Some(fields) = handler_body
+            if let Some(fields) = collected
+                .handler_body
                 .get(&handler)
-                .and_then(|name| shapes.get(name))
+                .and_then(|name| collected.shapes.get(name))
                 .cloned()
             {
-                source.bodies.insert(handler, fields);
+                source.bodies.insert(handler.clone(), fields);
+            }
+            if let Some(fact) = collected.responses.get(&handler) {
+                source.responses.insert(handler, fact.clone());
             }
         }
     }
+    source.serializers = collected.wire;
     source
 }
 
@@ -100,15 +120,14 @@ pub(super) fn read(root: &Path) -> SourceRead {
 ///
 /// The prefix applies to this class body only. A file holding a controller and
 /// a DTO used to leak the controller's `@RequestMapping` onto the DTO.
-fn collect_class(
-    node: Node,
-    text: &str,
-    shapes: &mut BTreeMap<String, BTreeMap<String, FieldFact>>,
-    ambiguous: &mut BTreeSet<String>,
-    handler_body: &mut BTreeMap<String, String>,
-    found: &mut Vec<(String, &'static str, Option<String>)>,
-    pending: &mut Vec<(String, String, String)>,
-) {
+///
+/// The wire (response) side abstains from a class it cannot read whole: a
+/// superclass promotes fields declared elsewhere, and a Jackson annotation on
+/// a METHOD (`@JsonIgnore` on a getter, `@JsonValue`) reshapes the output past
+/// what the fields state. A partial wire shape would claim fields the type
+/// does not serialize, so those classes state nothing. Same rule as serde
+/// `flatten` and Go embedding.
+fn collect_class(node: Node, text: &str, collected: &mut Collected) {
     let Some(name) = grammar::field(node, text, "name") else {
         return;
     };
@@ -118,42 +137,99 @@ fn collect_class(
         .find(|(name, _)| name == "RequestMapping")
         .and_then(|(_, argument)| argument.clone())
         .unwrap_or_default();
+    let mut context = java_types::WireContext {
+        // A class-level `@JsonInclude` makes every field's omission conditional.
+        conditional: annotations.iter().any(|(name, _)| name == "JsonInclude"),
+        // Lombok generates the getters the fields alone do not state.
+        exposed: annotations
+            .iter()
+            .any(|(name, _)| matches!(name.as_str(), "Data" | "Getter" | "Value")),
+        getters: BTreeSet::new(),
+    };
+    let mut abstain_wire = node.child_by_field_name("superclass").is_some()
+        || annotations
+            .iter()
+            .any(|(name, _)| name == "JsonSerialize" || name == "JsonTypeInfo");
     let Some(body) = node.child_by_field_name("body") else {
         return;
     };
     let mut members = Vec::new();
     grammar::children(body, &mut members);
+    // Pre-pass: the getters this class declares, and the Jackson method
+    // annotations that make its output unreadable from the fields.
+    for member in &members {
+        if member.kind() != "method_declaration" {
+            continue;
+        }
+        if let Some(method) = grammar::field(*member, text, "name") {
+            context.getters.insert(method);
+        }
+        if annotations_of(*member, text).iter().any(|(name, _)| {
+            matches!(
+                name.as_str(),
+                "JsonIgnore" | "JsonProperty" | "JsonValue" | "JsonAnyGetter"
+            )
+        }) {
+            abstain_wire = true;
+        }
+    }
     let mut fields = BTreeMap::new();
+    let mut wire = BTreeMap::new();
     for member in members {
         match member.kind() {
             "method_declaration" => {
-                collect_method(member, text, &prefix, handler_body, found);
+                collect_method(member, text, &prefix, collected);
             }
-            "field_declaration" => collect_field(member, text, &name, &mut fields, pending),
+            "field_declaration" => collect_field(
+                member,
+                text,
+                &name,
+                &mut fields,
+                &mut wire,
+                &context,
+                collected,
+            ),
             _ => {}
         }
     }
-    // A record states its components as parameters, not as fields.
+    // A record states its components as parameters, not as fields; every
+    // component serializes, so the getter gate does not apply.
     if let Some(parameters) = node.child_by_field_name("parameters") {
+        context.exposed = true;
         let mut components = Vec::new();
         grammar::children(parameters, &mut components);
         for component in components {
-            collect_field(component, text, &name, &mut fields, pending);
+            collect_field(
+                component,
+                text,
+                &name,
+                &mut fields,
+                &mut wire,
+                &context,
+                collected,
+            );
         }
     }
     if !fields.is_empty() {
-        record(shapes, ambiguous, name, fields);
+        record(
+            &mut collected.shapes,
+            &mut collected.ambiguous,
+            name.clone(),
+            fields,
+        );
+    }
+    if !wire.is_empty() && !abstain_wire {
+        record(
+            &mut collected.wire,
+            &mut collected.wire_ambiguous,
+            name,
+            wire,
+        );
     }
 }
 
 /// `@PostMapping("/blocks") ResponseEntity<Void> createBlock(@RequestBody T b)`
-fn collect_method(
-    node: Node,
-    text: &str,
-    prefix: &str,
-    handler_body: &mut BTreeMap<String, String>,
-    found: &mut Vec<(String, &'static str, Option<String>)>,
-) -> Option<()> {
+fn collect_method(node: Node, text: &str, prefix: &str, collected: &mut Collected) -> Option<()> {
     let handler = grammar::field(node, text, "name")?;
     let annotations = annotations_of(node, text);
     let mapping = annotations.iter().find_map(|(name, _)| {
@@ -191,19 +267,33 @@ fn collect_method(
                 .any(|(name, _)| name == "RequestBody");
             if takes_body {
                 if let Some(ty) = grammar::field(parameter, text, "type") {
-                    handler_body.insert(handler.clone(), bare_type(&ty));
+                    collected
+                        .handler_body
+                        .insert(handler.clone(), bare_type(&ty));
                 }
             }
         }
     }
+    // What this handler states it returns. `@ResponseStatus` names its code in
+    // an argument the lone-literal annotation reader cannot carry (an enum
+    // constant), so the argument list is read here by its own rule.
+    let declared = annotation_arguments(node, text, "ResponseStatus")
+        .and_then(|arguments| java_types::status_of(grammar::text(arguments, text)));
+    if let Some(fact) = java_types::response_of(node, text, declared) {
+        collected.responses.insert(handler.clone(), fact);
+    }
     if paths.is_empty() {
         for verb in verbs {
-            found.push((join(prefix, ""), verb, Some(handler.clone())));
+            collected
+                .found
+                .push((join(prefix, ""), verb, Some(handler.clone())));
         }
     } else {
         for path in paths {
             for verb in &verbs {
-                found.push((join(prefix, &path), *verb, Some(handler.clone())));
+                collected
+                    .found
+                    .push((join(prefix, &path), *verb, Some(handler.clone())));
             }
         }
     }
@@ -250,13 +340,16 @@ fn request_verbs(node: Node, text: &str) -> Vec<&'static str> {
     verbs
 }
 
-/// A field or record component, with whatever its annotations constrain.
+/// A field or record component: what its annotations constrain on the
+/// request side, and what Jackson writes for it on the response side.
 fn collect_field(
     node: Node,
     text: &str,
     owner: &str,
     fields: &mut BTreeMap<String, FieldFact>,
-    pending: &mut Vec<(String, String, String)>,
+    wire_fields: &mut BTreeMap<String, WireField>,
+    context: &java_types::WireContext,
+    collected: &mut Collected,
 ) {
     if fields.len() >= MAX_FIELDS {
         return;
@@ -304,7 +397,21 @@ fn collect_field(
     // An enum type names a closed set, but the constants live in another
     // declaration, so the resolution waits until every file has been read.
     if !is_builtin(&bare) {
-        pending.push((owner.to_string(), wire.clone(), bare));
+        collected
+            .pending
+            .push((owner.to_string(), wire.clone(), bare));
+    }
+    // The response side: what Jackson writes for this field. A static or
+    // transient field never serializes, `@JsonIgnore` says so explicitly, a
+    // field with no getter is unreachable, and a field-level `@JsonInclude`
+    // makes its omission conditional.
+    let ignored = annotations.iter().any(|(name, _)| name == "JsonIgnore")
+        || java_types::has_modifier(node, text, &["static", "transient"])
+        || !context.serializes(node, text, &name);
+    if !ignored && wire_fields.len() < MAX_FIELDS {
+        let field_conditional =
+            context.conditional || annotations.iter().any(|(name, _)| name == "JsonInclude");
+        wire_fields.insert(wire.clone(), java_types::wire_field(&ty, field_conditional));
     }
     fields.insert(wire, fact);
 }
