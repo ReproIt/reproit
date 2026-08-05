@@ -28,7 +28,7 @@ SDK source dependencies must use an immutable `v1.x.y` tag. Keep the CLI and SDK
 on the same minor version when practical; the version 1 wire protocol permits
 independent patch updates.
 
-## 1.0.0 - Unreleased
+## 1.0.0 - 2026-08-04
 
 ### Hardened: version 1 contract
 
