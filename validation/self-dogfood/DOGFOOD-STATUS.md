@@ -164,3 +164,32 @@ In rough order of value per unit of work:
 3. **Promote a retained process capsule into the required Linux corpus.** The
    keep and check routes now exist. The remaining work is typed environment
    selection plus a committed affected-versus-fixed process guard.
+
+## Update 2026-08-05: the corpus dispatch is the product path
+
+The corpus replay step in CI is now plain `target/debug/reproit check`, the
+exact command a customer copies. `run-required-guards.py` is deleted; its four
+honesty checks moved into the product where every user gets them:
+
+- `reproit check` suite enumeration is fail-closed (`domain/repro/corpus.rs`):
+  a store directory that is not content-addressed, a missing or mismatched
+  meta.json, or a guard with no replay route fails the run instead of
+  dropping out of it.
+- Kept process-capsule and hermetic-capture guards replay as suite cases, so
+  no guard format silently vanishes from `reproit check`.
+- Guards now carry a typed environment requirement (`requires` in meta.json,
+  closed vocabulary, currently `os`). A guard whose requirement does not hold
+  is reported NOT APPLICABLE, loudly, and never counts as a pass. This is the
+  capability group 2 above named as the prerequisite for a required
+  process-capsule guard; the corpus can now hold a linux-only guard honestly.
+- The app (map refresh, device selection) boots only for work that drives it,
+  so a suite of source-neutral guards checks without building an app in CI.
+
+`check`'s flag vocabulary shrank to match: `--strict`, `--junit`, `--service`,
+`--changed`, and `--auto` are gone (each had zero real callers). The
+`required-corpus-dispatch` and `direct-push-policy` guards were re-pinned over
+the updated verifier; identity, alias and history preserved.
+
+Still open from the list above: wrapping SDK acceptance scripts as guards
+(group 1) and promoting a retained Linux process capsule into the required
+corpus (group 4), both now unblocked by environment gating.

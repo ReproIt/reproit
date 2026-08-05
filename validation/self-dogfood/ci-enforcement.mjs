@@ -38,21 +38,31 @@ async function requiredCorpusIsEnforced(root) {
   const step = workflowJob(
     workflow,
     '      - name: Replay the complete required self-dogfood guard corpus',
-    '      - name: Test the self-dogfood validation scripts',
+    '      - name: ',
   );
-  if (!step.includes('validation/self-dogfood/run-required-guards.py')) {
+  // The dispatch is the product path a customer copies: plain `reproit
+  // check`, no wrapper script and no flag vocabulary.
+  if (
+    !step.includes('target/debug/reproit check') ||
+    step.includes('run-required-guards.py')
+  ) {
     return false;
   }
-  const runner = await readBounded(
-    resolve(root, 'validation/self-dogfood/run-required-guards.py'),
+  // Plain `check` only enforces the corpus if its enumeration is fail-closed
+  // in the product: strict store validation, wired into the suite paths.
+  const corpus = await readBounded(
+    resolve(root, 'crates/reproit/src/domain/repro/corpus.rs'),
+    MAX_RUNNER_BYTES,
+  );
+  const suite = await readBounded(
+    resolve(root, 'crates/reproit/src/workflows/check.rs'),
     MAX_RUNNER_BYTES,
   );
   return (
-    runner.includes('"check"') &&
-    runner.includes('"--strict"') &&
-    runner.includes('"--runs"') &&
-    runner.includes('"3"') &&
-    runner.includes('status == "required"')
+    corpus.includes('pub fn load_corpus') &&
+    corpus.includes('is not a content-addressed guard directory') &&
+    corpus.includes('does not identify its directory') &&
+    suite.includes('repro::load_corpus(&loaded.root)')
   );
 }
 

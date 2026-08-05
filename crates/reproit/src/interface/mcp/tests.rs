@@ -35,7 +35,8 @@ fn the_full_cloud_loop_tools_are_present() {
 
 #[test]
 fn reproduce_dispatches_hermetic_check_or_direct_reference() {
-    // With an exec override: the capture routes through check --exec --auto.
+    // With an exec override: the capture routes through check --exec
+    // (headless follows from the non-TTY dispatcher, not a flag).
     let with_exec = argv(
         "reproit_reproduce",
         json!({"reference": "capture.json", "exec": "node server.js"}),
@@ -44,7 +45,6 @@ fn reproduce_dispatches_hermetic_check_or_direct_reference() {
     assert!(with_exec.contains(&"capture.json".to_string()));
     assert!(with_exec.contains(&"--exec".to_string()));
     assert!(with_exec.contains(&"node server.js".to_string()));
-    assert!(with_exec.contains(&"--auto".to_string()));
     assert!(with_exec.contains(&"--json".to_string()));
     // Without: the reference resolves its own recipe (occ_ routing, kept
     // guard hermetic.json), exactly like a human typing `reproit <ref>`.

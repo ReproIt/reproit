@@ -9,16 +9,13 @@ import test from 'node:test';
 const execFileAsync = promisify(execFile);
 const verifier = new URL('./ci-enforcement.mjs', import.meta.url);
 
-async function fixture(workflow, runner = null) {
+async function fixture(workflow, sources = {}) {
   const root = await mkdtemp(join(tmpdir(), 'reproit-ci-enforcement-'));
   await mkdir(join(root, '.github/workflows'), { recursive: true });
   await writeFile(join(root, '.github/workflows/ci.yml'), workflow);
-  if (runner !== null) {
-    await mkdir(join(root, 'validation/self-dogfood'), { recursive: true });
-    await writeFile(
-      join(root, 'validation/self-dogfood/run-required-guards.py'),
-      runner,
-    );
+  for (const [path, content] of Object.entries(sources)) {
+    await mkdir(join(root, path, '..'), { recursive: true });
+    await writeFile(join(root, path), content);
   }
   return root;
 }
@@ -36,24 +33,51 @@ async function run(check, root) {
 }
 
 test('required corpus dispatch distinguishes affected and fixed workflows', async () => {
-  const affected = await fixture(`
-      - name: Replay the complete required self-dogfood guard corpus
-        run: target/debug/reproit --json --yes check --strict --runs 3
-      - name: Test the self-dogfood validation scripts
-  `);
-  const fixed = await fixture(
+  const failClosedSources = {
+    'crates/reproit/src/domain/repro/corpus.rs': `
+pub fn load_corpus(root: &Path) -> Result<Vec<Meta>> {
+    // "{} is not a content-addressed guard directory"
+    // "guard {name}'s meta.json does not identify its directory"
+}
+  `,
+    'crates/reproit/src/workflows/check.rs': `
+        let all = repro::load_corpus(&loaded.root)?;
+  `,
+  };
+  // Affected: the corpus step dispatches the retired wrapper script instead
+  // of the product path, so a customer's one-liner is not what CI proves.
+  const affected = await fixture(
     `
       - name: Replay the complete required self-dogfood guard corpus
         run: python3 validation/self-dogfood/run-required-guards.py target/debug/reproit
       - name: Test the self-dogfood validation scripts
   `,
+    failClosedSources,
+  );
+  // Also affected: the product dispatch without fail-closed enumeration in
+  // the product would replay whatever happens to parse, silently.
+  const vacuous = await fixture(
     `
-if status == "required":
-command = ["check", guard, "--strict", "--runs", "3"]
+      - name: Replay the complete required self-dogfood guard corpus
+        run: target/debug/reproit check
+      - name: Test the self-dogfood validation scripts
   `,
+    {
+      'crates/reproit/src/domain/repro/corpus.rs': 'pub fn load_corpus() {}',
+      'crates/reproit/src/workflows/check.rs': 'repro::list(&loaded.root)',
+    },
+  );
+  const fixed = await fixture(
+    `
+      - name: Replay the complete required self-dogfood guard corpus
+        run: target/debug/reproit check
+      - name: Test the self-dogfood validation scripts
+  `,
+    failClosedSources,
   );
 
   assert.equal((await run('required-guard-corpus-dispatch', affected)).code, 17);
+  assert.equal((await run('required-guard-corpus-dispatch', vacuous)).code, 17);
   assert.equal((await run('required-guard-corpus-dispatch', fixed)).code, 0);
 });
 

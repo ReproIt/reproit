@@ -1,4 +1,5 @@
 version: 1
+cells: {}
 providers:
   local-occ_faf210ef8c7e2aae:
     authority: explicit-local-approval
@@ -6,7 +7,7 @@ providers:
     capabilities: []
     source:
       path: validation/self-dogfood/ci-enforcement.mjs
-      sha256: sha256:68d1f30d2214bbcd66fb86357fc99de6a8ef7f0f013965a73d9f69274b2a5cfa
+      sha256: sha256:7a9e73e5db1c441168ecd2b78a0c86fa7efd2904eed3f433f0f580c8aaab5b00
     argv:
     - node
     - validation/self-dogfood/ci-enforcement.mjs

@@ -331,28 +331,11 @@ pub(crate) enum Cmd {
         /// Optional sub-variant, passed as --dart-define=PROMPT_KIND=<kind>
         #[arg(long, hide = true)]
         kind: Option<String>,
-        /// Write JUnit XML results to this path (for CI)
-        #[arg(long)]
-        junit: Option<PathBuf>,
-        /// Gate several services in one command: repeat for each service's
-        /// reproit.yaml. Exits non-zero if ANY of them fails, so a repo with
-        /// more than one service needs one CI step instead of N chained ones.
-        #[arg(long, value_name = "CONFIG")]
-        service: Vec<PathBuf>,
-        /// Treat a quarantined (reported, non-blocking) repro's failure as
-        /// blocking too, so it gates the exit code like a required repro.
-        #[arg(long)]
-        strict: bool,
         /// Contract override for config-less suite gates (the cloud repo's
         /// guard corpus has no reproit.yaml to hold gate.runs). Projects use
         /// the `gate:` config section instead.
         #[arg(long, hide = true)]
         runs: Option<u32>,
-        /// Headless reproduction: report the verdict and exit without holding
-        /// the replayed app for inspection. This is automatic for CI, agents,
-        /// and scripts (non-TTY, --json, --yes); the flag forces it on a TTY.
-        #[arg(long)]
-        auto: bool,
         /// Hermetic re-execution for a capture file: boot this command with
         /// REPROIT_REPLAY pointed at the capture, fire the recorded request,
         /// and verdict from the live response (reproduced / fixed / diverged /
@@ -370,17 +353,6 @@ pub(crate) enum Cmd {
         /// Scan recorded video for transient render glitches.
         #[arg(long, requires = "record_video", hide = true)]
         flicker: bool,
-        /// Run repros connected to files changed since BASE first, then run the
-        /// rest of the full suite. With no value, BASE defaults to HEAD^. This
-        /// changes feedback order only and never skips an unmapped repro.
-        #[arg(
-            long,
-            value_name = "BASE",
-            num_args = 0..=1,
-            default_missing_value = "HEAD^",
-            conflicts_with = "repro"
-        )]
-        changed: Option<String>,
         /// Backend CI gate: record the current findings as the accepted baseline
         /// and exit 0, so later `check` runs block only on new or regressed
         /// findings.

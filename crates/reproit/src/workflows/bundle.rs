@@ -339,18 +339,13 @@ pub(crate) async fn run_occurrence(
                 devices: 1,
                 kind: None,
                 runs: Some(1),
-                junit: None,
-                service: Vec::new(),
-                strict: false,
                 locale: None,
                 target: None,
                 device: None,
                 record_video: false,
                 flicker: false,
-                changed: None,
                 update_baseline: false,
                 exec: None,
-                auto: true,
             },
         )
         .await;
@@ -497,6 +492,7 @@ fn persist_legacy_occurrence(
         oracle: Some(observation_oracle(observation.kind).to_string()),
         record_url: None,
         record_action: None,
+        requires: None,
     };
     let fixture = crate::domain::fixture::synthesize(&legacy.fixture);
     let replay = super::triage::build_replay_json(seed, &legacy.actions, &fixture);
@@ -689,6 +685,7 @@ fn persist_compiled_package(
             oracle: Some("exact-occurrence".into()),
             record_url: None,
             record_action: None,
+            requires: None,
         }
     };
     crate::domain::repro::save_meta(root, &meta)?;

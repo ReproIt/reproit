@@ -84,6 +84,7 @@ impl Finding {
             oracle: None,
             record_url: None,
             record_action: None,
+            requires: None,
         }
     }
 }
@@ -440,6 +441,7 @@ pub(super) fn adopt_simplified(
         oracle: meta.oracle.clone(),
         record_url: meta.record_url.clone(),
         record_action: meta.record_action.clone(),
+        requires: meta.requires.clone(),
     };
     repro::save_meta(root, &new_meta)?;
     // Carry the discovering report and retire the superseded KEPT repro (a

@@ -1,3 +1,4 @@
+use super::corpus::HostOs;
 use super::*;
 
 #[test]
@@ -72,6 +73,7 @@ fn resolve_accepts_public_repro_ids_and_aliases() {
         oracle: Some("crash".to_string()),
         record_url: None,
         record_action: None,
+        requires: None,
     };
     save_meta(&root, &meta).unwrap();
     assert!(resolve(&root, "abcdef123456").is_none());
@@ -690,4 +692,104 @@ fn guard_identity_is_the_failure_not_the_mechanism() {
     assert_ne!(before, guard_repro_id("occ_00e941e87a6d9542"));
     assert_eq!(before.len(), 12);
     assert!(before.chars().all(|c| c.is_ascii_hexdigit()));
+}
+
+fn corpus_root(tag: &str) -> std::path::PathBuf {
+    let root =
+        std::env::temp_dir().join(format!("reproit-load-corpus-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join(".reproit/repros")).unwrap();
+    root
+}
+
+fn write_corpus_guard(root: &std::path::Path, id: &str, status: &str, requires: Option<&str>) {
+    let dir = root.join(".reproit/repros").join(id);
+    std::fs::create_dir_all(&dir).unwrap();
+    let requires = requires
+        .map(|os| format!(",\"requires\":{{\"os\":[\"{os}\"]}}"))
+        .unwrap_or_default();
+    std::fs::write(
+        dir.join("meta.json"),
+        format!(
+            "{{\"id\":\"{id}\",\"status\":\"{status}\",\"seed\":0,\
+             \"created\":\"2026-08-05T00:00:00Z\"{requires}}}"
+        ),
+    )
+    .unwrap();
+}
+
+/// The suite gate enumerates strictly: every malformation is an error, never
+/// a skip, because a guard that silently drops out of the suite is a guard
+/// that silently stopped guarding.
+#[test]
+fn load_corpus_is_fail_closed_over_malformation() {
+    let root = corpus_root("failclosed");
+    write_corpus_guard(&root, "aaaaaaaaaaaa", "required", None);
+    assert_eq!(load_corpus(&root).unwrap().len(), 1);
+
+    // A directory that is not content-addressed fails the corpus.
+    std::fs::create_dir_all(root.join(".reproit/repros/not-a-guard")).unwrap();
+    assert!(load_corpus(&root).is_err());
+    std::fs::remove_dir_all(root.join(".reproit/repros/not-a-guard")).unwrap();
+
+    // A guard directory without meta.json fails the corpus.
+    std::fs::create_dir_all(root.join(".reproit/repros/cccccccccccc")).unwrap();
+    assert!(load_corpus(&root).is_err());
+
+    // A meta that does not identify its directory fails the corpus.
+    std::fs::write(
+        root.join(".reproit/repros/cccccccccccc/meta.json"),
+        "{\"id\":\"dddddddddddd\",\"status\":\"required\",\"seed\":0,\
+         \"created\":\"2026-08-05T00:00:00Z\"}",
+    )
+    .unwrap();
+    assert!(load_corpus(&root).is_err());
+
+    // A misspelled environment requirement fails meta parsing, so a typo can
+    // never quietly gate nothing.
+    std::fs::remove_dir_all(root.join(".reproit/repros/cccccccccccc")).unwrap();
+    write_corpus_guard(&root, "bbbbbbbbbbbb", "required", Some("beos"));
+    assert!(load_corpus(&root).is_err());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn load_corpus_treats_a_missing_store_as_empty_and_sorts_by_id() {
+    let root = corpus_root("empty");
+    std::fs::remove_dir_all(root.join(".reproit/repros")).unwrap();
+    assert!(load_corpus(&root).unwrap().is_empty());
+    std::fs::create_dir_all(root.join(".reproit/repros")).unwrap();
+    write_corpus_guard(&root, "bbbbbbbbbbbb", "quarantined", None);
+    write_corpus_guard(&root, "aaaaaaaaaaaa", "required", None);
+    let metas = load_corpus(&root).unwrap();
+    assert_eq!(metas.len(), 2);
+    assert_eq!(metas[0].id, "aaaaaaaaaaaa");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A guard is required where its typed environment holds and honestly not
+/// applicable elsewhere; no requirement means it runs everywhere.
+#[test]
+fn environment_requirements_gate_by_host_os() {
+    let host = HostOs::current().expect("test hosts are in the os vocabulary");
+    let other = match host {
+        HostOs::Linux => HostOs::Macos,
+        _ => HostOs::Linux,
+    };
+    assert!(Requires { os: vec![host] }.satisfied_here());
+    assert!(!Requires { os: vec![other] }.satisfied_here());
+    assert!(Requires::default().satisfied_here());
+    assert_eq!(
+        Requires {
+            os: vec![HostOs::Linux]
+        }
+        .describe(),
+        "os linux"
+    );
+
+    let root = corpus_root("requires");
+    write_corpus_guard(&root, "aaaaaaaaaaaa", "required", Some(other.as_str()));
+    let metas = load_corpus(&root).unwrap();
+    assert!(!metas[0].applicable_here());
+    let _ = std::fs::remove_dir_all(&root);
 }

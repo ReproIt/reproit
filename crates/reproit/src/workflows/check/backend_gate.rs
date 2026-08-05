@@ -4,7 +4,7 @@
 
 use super::CheckArgs;
 use crate::domain::repro;
-use crate::interface::cli::context::{Ctx, Exit};
+use crate::interface::cli::context::Ctx;
 use crate::workflows::{backend_headless, backend_learn, backend_target};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
@@ -96,12 +96,6 @@ async fn run_gate_and_guards(
 ) -> Result<ExitCode> {
     backend_target::apply_target_precedence(args.target.as_deref(), config.target.as_deref())?;
     let mut vars = vec![("REPROIT_GATE".to_string(), "1".to_string())];
-    if let Some(junit) = &args.junit {
-        vars.push((
-            "REPROIT_GATE_JUNIT".to_string(),
-            junit.to_string_lossy().into_owned(),
-        ));
-    }
     if args.update_baseline {
         vars.push(("REPROIT_GATE_BASELINE".to_string(), "1".to_string()));
     }
@@ -114,57 +108,4 @@ async fn run_gate_and_guards(
         Some(code) if gate == ExitCode::SUCCESS => code,
         _ => gate,
     })
-}
-
-/// Gate every named service and aggregate into one exit code.
-///
-/// A repo with more than one service needed `reproit check` per config plus
-/// hand-written `&&` in CI, which loses a failure the moment someone adds a
-/// third service and forgets to extend the chain. This runs each in turn,
-/// reports a per-service line, and fails if ANY service fails: the aggregate is
-/// pessimistic by construction, so a service that could not even be resolved
-/// counts as a failure rather than being skipped.
-pub(super) async fn run_repo_gate(ctx: &Ctx, args: &CheckArgs) -> Result<ExitCode> {
-    let mut failures = Vec::new();
-    let mut outcomes = Vec::new();
-    for service in &args.service {
-        if !service.is_file() {
-            failures.push(service.display().to_string());
-            outcomes.push((service.clone(), "config not found".to_string()));
-            continue;
-        }
-        ctx.say(format!("=== {} ===", service.display()));
-        // Each service resolves its OWN target. `apply_target_precedence`
-        // publishes the winner through REPROIT_BACKEND_URL, and env beats
-        // config, so without clearing it here service 2 would silently be
-        // scanned against service 1's URL and report its schema as violated.
-        let outcome = {
-            let _scoped = crate::adapters::scoped_env::ScopedEnv::cleared(&["REPROIT_BACKEND_URL"]);
-            run_backend_gate(ctx, Some(service), args).await
-        };
-        let label = match &outcome {
-            Ok(code) if *code == ExitCode::SUCCESS => "pass".to_string(),
-            Ok(_) => "FAIL".to_string(),
-            // A service whose gate could not run at all is a failure, never a
-            // skip: an unreachable service must not silently widen the merge.
-            Err(error) => format!("ERROR {error}"),
-        };
-        if label != "pass" {
-            failures.push(service.display().to_string());
-        }
-        outcomes.push((service.clone(), label));
-    }
-    ctx.say(format!(
-        "repo gate: {}/{} service(s) passed",
-        outcomes.len() - failures.len(),
-        outcomes.len()
-    ));
-    for (service, label) in &outcomes {
-        ctx.say(format!("  {label:<6} {}", service.display()));
-    }
-    if failures.is_empty() {
-        Ok(ExitCode::SUCCESS)
-    } else {
-        Ok(Exit::Regression.code())
-    }
 }

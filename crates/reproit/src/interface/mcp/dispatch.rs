@@ -118,7 +118,8 @@ pub(super) fn build_argv(
             // Hermetic reproduce: verdict from re-executed code. A capture
             // file with an exec override routes through check --exec; every
             // other reference (occ_, guard id) resolves its recipe from
-            // repo-local config or the guard's stored hermetic.json.
+            // repo-local config or the guard's stored hermetic.json. Headless
+            // is automatic (the dispatcher is never a TTY), not a flag.
             let reference = args
                 .get("reference")
                 .and_then(Value::as_str)
@@ -128,7 +129,6 @@ pub(super) fn build_argv(
                 argv.push(reference.to_string());
                 argv.push("--exec".into());
                 argv.push(exec.to_string());
-                argv.push("--auto".into());
             } else {
                 argv.push(reference.to_string());
             }

@@ -4,7 +4,7 @@
   "status": "required",
   "seed": 0,
   "created": "2026-07-29T20:26:46.724249+00:00",
-  "last_checked": "2026-08-02T21:30:47.193166-07:00",
+  "last_checked": "2026-08-05T06:44:48.431276-07:00",
   "last_result": "pass",
   "trigger_index": 0,
   "trigger_sig": "ci:direct-push-dogfood-policy",

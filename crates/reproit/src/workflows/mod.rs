@@ -36,7 +36,6 @@ mod backend_learn;
 pub(crate) use backend_learn::inferred_exec as inferred_backend_exec;
 mod backend_target;
 mod capture;
-mod change_selection;
 mod check;
 mod checkpoint;
 mod cloud;
@@ -129,16 +128,11 @@ where
             reference,
             kind,
             runs,
-            junit,
-            service,
-            strict,
             target,
             record_video,
             flicker,
-            changed,
             update_baseline,
             exec,
-            auto,
         } => {
             // Project-shaped choices (device matrix, locale, repeat count)
             // come from reproit.yaml's `gate:` section, not flags; a missing
@@ -159,18 +153,13 @@ where
                     // applies its own default (gate.runs under a config,
                     // one run for config-less suites).
                     runs,
-                    junit,
-                    service,
-                    strict,
                     locale: gate.locale,
                     target,
                     device: gate.device,
                     record_video,
                     flicker,
-                    changed,
                     update_baseline,
                     exec,
-                    auto,
                 },
             )
             .await

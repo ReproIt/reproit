@@ -77,6 +77,7 @@ pub async fn keep_capsule_guard(
         oracle: Some(capsule.oracle.clone()),
         record_url: None,
         record_action: None,
+        requires: None,
     };
     crate::domain::repro::save_meta(&root, &meta)?;
     ctx.emit(&json!({

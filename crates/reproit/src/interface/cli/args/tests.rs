@@ -68,27 +68,17 @@ fn documented_fuzz_invocation(document: &str) -> Option<&str> {
     Some(&tail[..end.unwrap_or(tail.len())])
 }
 
+/// The check surface is deliberately flagless for CI: the removed knobs
+/// (`--strict`, `--junit`, `--service`, `--changed`, `--auto`) must not parse,
+/// so a stale invocation fails loudly instead of silently meaning less.
 #[test]
-fn changed_check_defaults_the_base_and_stays_suite_only() {
-    let cli = Cli::parse_args(["reproit", "check", "--changed"]);
-    assert!(matches!(
-        cli.command,
-        Cmd::Check {
-            repro: None,
-            changed: Some(ref base),
-            ..
-        } if base == "HEAD^"
-    ));
-
-    let cli = Cli::parse_args(["reproit", "check", "--changed", "origin/main"]);
-    assert!(matches!(
-        cli.command,
-        Cmd::Check {
-            repro: None,
-            changed: Some(ref base),
-            ..
-        } if base == "origin/main"
-    ));
+fn check_refuses_the_removed_flag_vocabulary() {
+    for flag in ["--strict", "--junit", "--service", "--changed", "--auto"] {
+        assert!(
+            Cli::try_parse_from(["reproit", "check", flag]).is_err(),
+            "check {flag} must not parse"
+        );
+    }
 }
 
 #[test]
@@ -135,7 +125,6 @@ fn parser_boundary_applies_direct_bug_id_rewriting() {
         Cmd::Check {
             repro: Some(ref alias),
             record_video: true,
-            changed: None,
             ..
         } if alias == "checkout-crash"
     ));

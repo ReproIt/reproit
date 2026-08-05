@@ -609,6 +609,7 @@ pub fn materialize_pull(pkg: &Value, as_name: &str, created: &str) -> Result<Pul
         oracle: Some(oracle),
         record_url: None,
         record_action: None,
+        requires: None,
     };
     // Property-matched replay (tier 3): synthesize the concrete locale + per-field
     // values from the cloud's `fixtureSpec`, the SAME way `reproduce` does, so a

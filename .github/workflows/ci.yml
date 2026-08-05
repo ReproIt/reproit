@@ -55,21 +55,13 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
-      # Changed guards run first for fast feedback. The corpus runner then
-      # selects every required guard from committed metadata and replays each
-      # one explicitly under --strict with three runs.
-      - name: Replay changed Reproit self-dogfood guards first
-        env:
-          REPROIT_NO_UPDATE_CHECK: "1"
-        run: |
-          target/debug/reproit --json --yes check \
-            self-dogfood-cli-backend-root
+      # The corpus replay is the product path, exactly what a customer runs:
+      # plain `reproit check`. The suite enumerates .reproit/repros fail-closed
+      # (a malformed or routeless guard fails the run), replays every guard
+      # with gate.runs from .reproit/reproit.yaml, blocks on required guards,
+      # and reports environment-gated guards as not-applicable, never passed.
       - name: Replay the complete required self-dogfood guard corpus
-        env:
-          REPROIT_NO_UPDATE_CHECK: "1"
-        run: |
-          python3 validation/self-dogfood/run-required-guards.py \
-            target/debug/reproit
+        run: target/debug/reproit check
       # The ledger lists this as the proof for harness-case-accounting, but no
       # workflow ran it, so the invariant was recorded and unenforced. It is
       # cheap and pure-python. (The sibling gate over dead internal-command

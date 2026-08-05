@@ -6,7 +6,7 @@ still fixed, and **capture** that turns a red build into something you can run o
 ## The gate
 
 ```yaml
-- run: reproit check --junit reports/reproit.xml
+- run: reproit check
 ```
 
 `check` runs every saved guard and exits with the suite's worst outcome:
@@ -27,27 +27,18 @@ stays one line and the policy stays reviewable in the repo.
 
 A new guard lands **quarantined**: it runs and reports but does not block until its first green
 run. That is what stops a freshly recorded guard from breaking the build on the commit that adds
-it. `--strict` makes quarantined failures block too. `keep --strict` skips quarantine for a guard
-you want blocking immediately.
+it. `keep --strict` skips quarantine for a guard you want blocking immediately.
 
-### Faster feedback without a smaller suite
-
-```yaml
-- run: reproit check --changed ${{ github.event.pull_request.base.sha }}
-```
-
-`--changed` runs guards connected to the changed files first, then the rest of the suite. It
-changes order only. It never skips an unmapped guard, so a passing run still means the whole suite
-passed.
+A guard can declare a typed environment requirement (`requires` in its meta.json, e.g.
+`{"os": ["linux"]}` for an LD_PRELOAD replay). On a host where the requirement does not hold the
+guard is reported **not applicable**, loudly, and never counts as a pass; it blocks only where it
+actually runs. The suite enumeration itself is fail-closed: a malformed guard directory fails the
+run rather than silently dropping out of it.
 
 ### More than one service in a repo
 
-```yaml
-- run: reproit check --service api/reproit.yaml --service worker/reproit.yaml
-```
-
-One step, non-zero if any of them fails. Chaining N steps hides which one failed behind the first
-red.
+Run `reproit check` once per service directory, one step each. Each step's exit code names the
+failing service directly.
 
 ### Backend baseline
 

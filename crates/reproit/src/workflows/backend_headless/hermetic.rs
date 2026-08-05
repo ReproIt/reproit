@@ -442,6 +442,7 @@ pub async fn keep_capture_guard(
         oracle: Some(outcome.oracle.clone()),
         record_url: None,
         record_action: None,
+        requires: None,
     };
     crate::domain::repro::save_meta(&root, &meta)?;
     ctx.emit(&json!({

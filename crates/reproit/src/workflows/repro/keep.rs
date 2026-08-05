@@ -149,6 +149,7 @@ pub(in crate::workflows) fn keep_repro(
         oracle,
         record_url,
         record_action,
+        requires: None,
     };
     repro::save_meta(root, &meta)?;
     let (ci_workflow, ci_wiring) = wire_ci(root)?;

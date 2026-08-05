@@ -97,12 +97,9 @@ of it or what counts as failure.
 ## check
 
 ```sh
-reproit check                       # the whole saved suite
+reproit check                       # the whole saved suite; this IS the CI step
 reproit check capture.json          # re-evaluate one capture offline
 reproit check capture.json --exec "node server.js"   # re-execute it
-reproit check --changed [BASE]      # changed-first ordering, never a subset
-reproit check --junit report.xml    # CI report
-reproit check --service a/reproit.yaml --service b/reproit.yaml
 ```
 
 Exit codes are the contract:
@@ -117,9 +114,12 @@ Exit codes are the contract:
 Infrastructure failures and different-failure results are reported separately in `--json` output.
 Read the `outcome` field, not the exit code alone, when you need to tell them apart.
 
-`--changed` changes execution order only and never skips the rest of the suite. `--strict` makes a
-quarantined failure block the exit code. Repeat count and the device matrix come from the `gate:`
-section of reproit.yaml, not from flags.
+Repeat count and the device matrix come from the `gate:` section of reproit.yaml, not from flags.
+The suite enumeration is fail-closed: a malformed guard directory fails the run instead of
+dropping out of it, and a guard whose typed environment requirement (`requires` in its meta.json,
+e.g. a linux-only replay shim) does not hold on this host is reported not applicable, loudly,
+never as a pass. Headless behavior is automatic for CI, agents, and scripts (non-TTY, `--json`,
+`--yes`).
 
 `check <capture.json>` alone re-evaluates the captured events offline. `--exec` re-executes them:
 it boots the named command with `REPROIT_REPLAY` pointed at the capture, the SDK serves every

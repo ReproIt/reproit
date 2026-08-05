@@ -11,9 +11,10 @@ pub(crate) struct ScopedEnv {
 
 impl ScopedEnv {
     /// Restore these variables on drop, having removed them for the scope.
-    /// Used when a sequential run must NOT inherit the previous iteration's
-    /// value: leaving one set makes iteration N silently reuse iteration N-1's
-    /// target.
+    /// Used when a run must NOT inherit an ambient value: leaving one set
+    /// makes the scope silently reuse the caller's environment. Test-only
+    /// since the per-service repo gate (its last production caller) left.
+    #[cfg(test)]
     pub(crate) fn cleared(keys: &[&str]) -> Self {
         let mut prior = Vec::with_capacity(keys.len());
         for key in keys {

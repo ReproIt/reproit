@@ -125,14 +125,17 @@ replacement must be present in the required corpus and therefore replay in CI.
 
 ## Guard execution order in CI
 
-Changed guards run first for fast feedback. The complete required corpus runs
-before merge and again on direct pushes. The corpus runner validates every
-committed guard directory, selects required guards, and replays each explicitly
-under `--strict` with three runs.
+The complete required corpus runs before merge and again on direct pushes,
+through the product path a customer copies: plain `reproit check`. The suite
+enumerates `.reproit/repros` fail-closed (a malformed or routeless guard fails
+the run), replays every guard with `gate.runs` from `.reproit/reproit.yaml`,
+blocks on required guards while quarantined ones report without blocking, and
+reports an environment-gated guard as not applicable rather than passed. The
+wrapper script this replaced (`run-required-guards.py`) died when its four
+honesty checks moved into the product.
 
 ```sh
-target/debug/reproit --json --yes check self-dogfood-cli-backend-root --strict
-python3 validation/self-dogfood/run-required-guards.py target/debug/reproit
+target/debug/reproit check
 ```
 
 A guard passes only under the `exact-observation-v1` contract: every run

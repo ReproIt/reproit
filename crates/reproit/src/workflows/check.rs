@@ -10,17 +10,20 @@ use crate::adapters::execution;
 use crate::domain::execution::ExecutionVerdict;
 use crate::domain::repro;
 use crate::interface::cli::context::{exit_with, Ctx, Exit};
-use crate::interface::junit;
 use crate::workflows::{a2ui, backend_headless, flicker, journey};
 use anyhow::{Context, Result};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::ExitCode;
 
 mod backend_gate;
 mod package_routing;
+mod source_neutral;
 mod verification;
-use backend_gate::{backend_replay_with_boot, run_backend_gate, run_repo_gate};
-use package_routing::has_compiled_plan;
+use backend_gate::{backend_replay_with_boot, run_backend_gate};
+use package_routing::{
+    execute_kept_guard, has_compiled_plan, kept_route, not_applicable_execution,
+};
+use source_neutral::{run_source_neutral_suite, source_neutral_suite};
 use verification::{guard_verification_summary, plan_verification_summary};
 
 pub(super) struct CheckArgs {
@@ -28,22 +31,15 @@ pub(super) struct CheckArgs {
     pub(super) devices: usize,
     pub(super) kind: Option<String>,
     pub(super) runs: Option<u32>,
-    pub(super) junit: Option<PathBuf>,
-    pub(super) service: Vec<PathBuf>,
-    pub(super) strict: bool,
     pub(super) locale: Option<String>,
     pub(super) target: Option<String>,
     pub(super) device: Option<String>,
     pub(super) record_video: bool,
     pub(super) flicker: bool,
-    pub(super) changed: Option<String>,
     pub(super) update_baseline: bool,
     /// Hermetic re-execution: boot this command with `REPROIT_REPLAY` set to
     /// the capture and verdict from the live response. Capture files only.
     pub(super) exec: Option<String>,
-    /// Headless: never hold the replayed app for inspection. Forced on for
-    /// non-TTY, `--json`, and `--yes` runs regardless of this flag.
-    pub(super) auto: bool,
 }
 
 pub(super) async fn run(
@@ -57,7 +53,7 @@ pub(super) async fn run(
         }
     }
     if args.repro.is_none() && config_path.is_none() {
-        if let Some((root, metas)) = source_neutral_suite() {
+        if let Some((root, metas)) = source_neutral_suite()? {
             return run_source_neutral_suite(ctx, &root, &args, &metas).await;
         }
     }
@@ -73,7 +69,7 @@ pub(super) async fn run(
         }
         // A kept hermetic capture guard replays through its stored exec
         // recipe, needing no live target at all.
-        if let Some(code) = backend_headless::try_replay_hermetic_guard(ctx, id, args.auto).await? {
+        if let Some(code) = backend_headless::try_replay_hermetic_guard(ctx, id, false).await? {
             if args.record_video {
                 anyhow::bail!("backend captures do not produce screen video evidence");
             }
@@ -95,12 +91,6 @@ pub(super) async fn run(
     // Backend project + no saved repro: `reproit check` is the CI gate. Run a
     // scan and block only on new or regressed findings (the lifecycle gate), so a
     // PR that introduces a reproducible bug fails while a known finding does not.
-    // Gate the whole repo: one exit code across several services, so CI does not
-    // have to run N commands and AND the codes itself (and quietly lose a
-    // failure when someone forgets one).
-    if !args.service.is_empty() {
-        return run_repo_gate(ctx, &args).await;
-    }
     if args.repro.is_none() && super::backend_target::find(config_path)?.is_some() {
         return run_backend_gate(ctx, config_path, &args).await;
     }
@@ -127,7 +117,7 @@ pub(super) async fn run(
                         ctx,
                         Path::new(reference),
                         exec,
-                        args.auto,
+                        false,
                     )
                     .await;
                 }
@@ -159,7 +149,7 @@ pub(super) async fn run(
                             ctx,
                             Path::new(reference),
                             exec,
-                            args.auto,
+                            false,
                         )
                         .await;
                     }
@@ -177,7 +167,7 @@ pub(super) async fn run(
                      how to run the program"
                 );
             };
-            return super::process_capsule::check_exec(ctx, Path::new(reference), exec, args.auto)
+            return super::process_capsule::check_exec(ctx, Path::new(reference), exec, false)
                 .await;
         }
         if routes_to_capture_file(&loaded, reference) {
@@ -209,76 +199,50 @@ pub(super) async fn run(
                     ctx,
                     Path::new(reference),
                     &exec,
-                    args.auto,
+                    false,
                 )
                 .await;
             }
             return backend_headless::check_capture(ctx, Path::new(reference));
         }
     }
-    ensure_app_map(ctx, &loaded, "explore").await?;
-    if let Some(code) = try_multi_target(ctx, &loaded, &args).await? {
-        return Ok(code);
-    }
-    select_device(ctx, &loaded, &args).await;
     let times = args.runs.unwrap_or(loaded.config.gate.runs).max(1);
-    if let Some(code) = try_journey(ctx, &loaded, &args, times).await? {
-        return Ok(code);
+    // The app (map refresh, device selection) boots only for work that drives
+    // it: an explicit device target, a journey, or an action-replay repro. A
+    // suite of source-neutral guards checks without an app, so a CI runner
+    // never builds one just to replay plan guards.
+    let mut app_ready = false;
+    if args.target.is_some() || is_journey_reference(&loaded, &args) {
+        ensure_app_map(ctx, &loaded, "explore").await?;
+        if let Some(code) = try_multi_target(ctx, &loaded, &args).await? {
+            return Ok(code);
+        }
+        select_device(ctx, &loaded, &args).await;
+        app_ready = true;
+        if let Some(code) = try_journey(ctx, &loaded, &args, times).await? {
+            return Ok(code);
+        }
     }
-    let mut metas = resolve_metas(ctx, &loaded, args.repro.as_deref())?;
-    if let Some(base) = args.changed.as_deref() {
-        metas = super::change_selection::prioritize(ctx, &loaded.root, metas, base);
+    let metas = resolve_metas(ctx, &loaded, args.repro.as_deref())?;
+    let needs_app = metas.iter().any(|meta| {
+        !has_compiled_plan(&loaded.root, meta) && kept_route(&loaded.root, meta).is_none()
+    });
+    if !app_ready && needs_app {
+        ensure_app_map(ctx, &loaded, "explore").await?;
+        select_device(ctx, &loaded, &args).await;
     }
     run_repro_matrix(ctx, &loaded, &args, times, &metas).await
 }
 
-fn source_neutral_suite() -> Option<(PathBuf, Vec<repro::Meta>)> {
-    let mut root = std::env::current_dir().ok()?;
-    loop {
-        let metas = repro::list(&root)
-            .into_iter()
-            .filter(|meta| has_compiled_plan(&root, meta))
-            .collect::<Vec<_>>();
-        let has_config =
-            root.join("reproit.yaml").is_file() || root.join(".reproit/reproit.yaml").is_file();
-        if !metas.is_empty() && !has_config {
-            return Some((root, metas));
-        }
-        if !root.pop() {
-            return None;
-        }
-    }
-}
-
-async fn run_source_neutral_suite(
-    ctx: &Ctx,
-    root: &Path,
-    args: &CheckArgs,
-    metas: &[repro::Meta],
-) -> Result<ExitCode> {
-    let times = args.runs.unwrap_or(1).max(1);
-    let mut cases = Vec::new();
-    let mut results = Vec::new();
-    let mut worst = repro::Outcome::Pass;
-    for meta in metas {
-        let execution = execute_plan_guard(ctx, root, args, times, meta, None).await?;
-        worst = worst.max(execution.effective);
-        cases.push(execution.case);
-        results.push(execution.json);
-    }
-    write_junit(ctx, args.junit.as_deref(), &cases);
-    ctx.emit(&serde_json::json!({
-        "command": "check",
-        "repros": results,
-        "outcome": worst.as_str(),
-        "exit": worst.exit_code(),
-    }));
-    ctx.say(format!(
-        "\ncheck: {} ({} repro(s))",
-        worst.as_str().to_uppercase(),
-        metas.len()
-    ));
-    Ok(exit_with(Exit::from(worst)))
+/// A `check <name>` reference that resolves to neither a saved repro nor a
+/// pending finding but names a journey; the one whole-app route a bare
+/// reference can take.
+fn is_journey_reference(loaded: &config::Loaded, args: &CheckArgs) -> bool {
+    args.repro.as_deref().is_some_and(|reference| {
+        repro::resolve(&loaded.root, reference).is_none()
+            && find_finding_by_id(loaded, reference).is_none()
+            && journey::exists(&loaded.root, reference)
+    })
 }
 
 async fn run_execution_plan(
@@ -288,6 +252,12 @@ async fn run_execution_plan(
     package: &reproit_protocol::ReproductionPackage,
     args: &CheckArgs,
 ) -> Result<ExitCode> {
+    if let Some(execution) = not_applicable_execution(ctx, meta) {
+        // An explicitly named guard still reports its non-execution honestly:
+        // loud, machine-readable, and exit 0 only because nothing gated.
+        ctx.emit(&serde_json::json!({ "command": "check", "repros": [execution.json] }));
+        return Ok(exit_with(Exit::from(execution.effective)));
+    }
     if args.record_video {
         anyhow::bail!("this source-neutral reproduction plan does not produce screen video");
     }
@@ -547,7 +517,9 @@ fn resolve_metas(
     reference: Option<&str>,
 ) -> Result<Vec<repro::Meta>> {
     let Some(reference) = reference else {
-        let all = repro::list(&loaded.root);
+        // Whole-suite runs gate CI, so enumeration is strict: a malformed
+        // guard directory fails the run instead of dropping out of it.
+        let all = repro::load_corpus(&loaded.root)?;
         if !all.is_empty() {
             return Ok(all);
         }
@@ -594,7 +566,7 @@ async fn run_repro_matrix(
         locales.iter().map(String::as_str).map(Some).collect()
     };
     let mut results = Vec::new();
-    let mut cases = Vec::new();
+    let mut executed = 0usize;
     let mut worst = repro::Outcome::Pass;
     let mut failed_by_id = std::collections::BTreeMap::<String, Vec<String>>::new();
     for locale in &locale_runs {
@@ -612,23 +584,29 @@ async fn run_repro_matrix(
                         .push((*locale).to_string());
                 }
             }
-            cases.push(execution.case);
+            executed += usize::from(execution.executed);
             results.push(execution.json);
         }
     }
     report_locale_diff(ctx, metas, locale_runs.len(), &failed_by_id);
-    write_junit(ctx, args.junit.as_deref(), &cases);
+    let not_applicable = results.len() - executed;
     ctx.emit(&serde_json::json!({
         "command": "check",
         "repros": results,
+        "not_applicable": not_applicable,
         "outcome": worst.as_str(),
         "exit": worst.exit_code(),
     }));
     let verb = "check";
     ctx.say(format!(
-        "\n{verb}: {} ({} repro(s))",
+        "\n{verb}: {} ({} repro(s){})",
         worst.as_str().to_uppercase(),
-        metas.len()
+        executed,
+        if not_applicable > 0 {
+            format!(", {not_applicable} not applicable here")
+        } else {
+            String::new()
+        }
     ));
     Ok(exit_with(Exit::from(worst)))
 }
@@ -636,7 +614,9 @@ async fn run_repro_matrix(
 struct CaseExecution {
     effective: repro::Outcome,
     failed: bool,
-    case: junit::Case,
+    /// False for a not-applicable guard: a case that did not execute must
+    /// never count as a run, let alone a pass.
+    executed: bool,
     json: serde_json::Value,
 }
 
@@ -648,8 +628,14 @@ async fn execute_case(
     meta: &repro::Meta,
     locale: Option<&str>,
 ) -> Result<CaseExecution> {
+    if let Some(execution) = not_applicable_execution(ctx, meta) {
+        return Ok(execution);
+    }
     if has_compiled_plan(&loaded.root, meta) {
         return execute_plan_guard(ctx, &loaded.root, args, times, meta, locale).await;
+    }
+    if let Some(route) = kept_route(&loaded.root, meta) {
+        return execute_kept_guard(ctx, &loaded.root, args, meta, locale, route).await;
     }
     let label = locale.map_or_else(
         || check_label(meta),
@@ -678,7 +664,7 @@ async fn execute_case(
     // Video analysis is supporting evidence. It must never replace the exact
     // repro's detector verdict or report an unrelated visual signal as this bug.
     let outcome = result.outcome;
-    let blocks = args.strict || args.repro.is_some() || meta.status != repro::Status::Quarantined;
+    let blocks = args.repro.is_some() || meta.status != repro::Status::Quarantined;
     let effective = if blocks {
         outcome
     } else {
@@ -705,20 +691,6 @@ async fn execute_case(
             ""
         }
     ));
-    let case = junit::Case {
-        name: format!("{verb} {label}"),
-        passed: outcome == repro::Outcome::Pass,
-        time_s: 0.0,
-        message: match result.reason.as_deref() {
-            Some(reason) => format!("{}: {reason}", outcome.as_str()),
-            None => format!(
-                "{} ({}); evidence: {}",
-                outcome.as_str(),
-                result.rate(),
-                run_dir.display()
-            ),
-        },
-    };
     let json = serde_json::json!({
         "id": public_json_id(meta),
         "kind": public_json_kind(meta),
@@ -739,7 +711,7 @@ async fn execute_case(
     Ok(CaseExecution {
         effective,
         failed: outcome != repro::Outcome::Pass,
-        case,
+        executed: true,
         json,
     })
 }
@@ -772,7 +744,7 @@ async fn execute_plan_guard(
     let result = plan_check_result(&runs);
     let outcome = result.outcome;
     let rate = result.rate();
-    let blocks = args.strict || args.repro.is_some() || meta.status != repro::Status::Quarantined;
+    let blocks = args.repro.is_some() || meta.status != repro::Status::Quarantined;
     let effective = if blocks {
         outcome
     } else {
@@ -780,16 +752,6 @@ async fn execute_plan_guard(
     };
     let (updated, promoted) = mark_checked(root, meta, outcome)?;
     let evidence = repro::repro_dir(root, &meta.id).join("plan-runs");
-    let case = junit::Case {
-        name: format!("check {label}"),
-        passed: outcome == repro::Outcome::Pass,
-        time_s: 0.0,
-        message: format!(
-            "{} ({rate}); evidence: {}",
-            outcome.as_str(),
-            evidence.display()
-        ),
-    };
     let json = serde_json::json!({
         "id": public_json_id(meta),
         "kind": public_json_kind(meta),
@@ -819,7 +781,7 @@ async fn execute_plan_guard(
     Ok(CaseExecution {
         effective,
         failed: outcome != repro::Outcome::Pass,
-        case,
+        executed: true,
         json,
     })
 }
@@ -856,24 +818,11 @@ fn report_locale_diff(
     }
 }
 
-fn write_junit(ctx: &Ctx, path: Option<&Path>, cases: &[junit::Case]) {
-    let Some(path) = path else {
-        return;
-    };
-    if let Err(error) = junit::write(path, "check", cases) {
-        ctx.say(format!(
-            "  warn: could not write junit {}: {error}",
-            path.display()
-        ));
-    } else {
-        ctx.say(format!("  junit: {}", path.display()));
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::path::PathBuf;
 
     fn loaded_at(root: PathBuf) -> config::Loaded {
         config::parse_str(
@@ -945,6 +894,7 @@ mod tests {
             oracle: Some("crash".into()),
             record_url: None,
             record_action: None,
+            requires: None,
         };
         repro::save_meta(&root, &meta).unwrap();
         assert!(!routes_to_capture_file(&loaded, &reference));

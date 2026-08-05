@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "check-is-the-ci-gate",
+  "changeType": "tooling",
+  "detail": "Make plain `reproit check` the self-dogfood corpus gate, replacing run-required-guards.py. The wrapper existed because the product path was fail-open in four ways, so its honesty moved into the product: suite enumeration is strict (domain/repro/corpus.rs fails on a non-content-addressed directory, a missing or mismatched meta.json, and bounds the store), a guard with no replay route fails the suite instead of silently dropping out (the same harness-stops-early-looks-like-a-pass class this project has now hit five times), kept process-capsule and hermetic-capture guards replay as suite cases, and guards gained a typed environment requirement (requires.os, closed vocabulary) that reports NOT APPLICABLE loudly on a non-matching host and never counts as a pass, the capability DOGFOOD-STATUS ranks first because it unblocks a required linux-only process-capsule guard. The app map no longer refreshes for a suite of source-neutral guards, which is what made the bare command CI-viable: before, every source change re-drove the web runner inside `check`. check's flag vocabulary shrank to match the one-command contract: --strict, --junit, --service, --changed and --auto are deleted, each with zero real callers (the only consumers were docs examples and the wrapper being deleted); a parser test now pins that they stay gone. ci-enforcement.mjs asserts the new dispatch (plain `target/debug/reproit check`) AND the fail-closed markers in the product source, so a vacuous dispatch reads as the defect; both guards pinning that verifier were re-pinned via keep --refresh with identity, alias and history preserved, and the full corpus replays green through the product path (5 guards, 3/3 runs each). Verified locally: cargo test --workspace (0 failures), clippy -D warnings clean, source-size gate clean, corpus RED directions proven end to end in a scratch store (routeless guard, malformed directory, id mismatch, wrong-os gating).",
+  "evidence": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "sha256:7494a992b52da63f0e34927bd659503fce5a120aa76c465192f66a13a094140b"
+    },
+    {
+      "path": "crates/reproit/src/domain/repro/corpus.rs",
+      "sha256": "sha256:91a646325e1f835a4dc6c5f5cdba938311cb21c797bb389e6fd14334ff13731b"
+    },
+    {
+      "path": "crates/reproit/src/workflows/check/source_neutral.rs",
+      "sha256": "sha256:5eeac16f07ed32ef3bc51f3d7b424dcefc2a411554bbc06bb98bd08588f63f5e"
+    },
+    {
+      "path": "validation/self-dogfood/ci-enforcement.mjs",
+      "sha256": "sha256:7a9e73e5db1c441168ecd2b78a0c86fa7efd2904eed3f433f0f580c8aaab5b00"
+    },
+    {
+      "path": "docs/ci.md",
+      "sha256": "sha256:24f79f0fc4cf67ba283adc36f836c0172ee6d72f2cd5ff1f14d0032c36acecb8"
+    }
+  ]
+}

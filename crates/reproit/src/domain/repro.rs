@@ -63,6 +63,9 @@ impl Status {
     }
 }
 
+mod corpus;
+pub use corpus::{load_corpus, Requires};
+
 /// The persisted `meta.json` for a saved repro.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Meta {
@@ -125,6 +128,17 @@ pub struct Meta {
     /// Single transition action to replay from `record_url`, when applicable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub record_action: Option<String>,
+    /// Typed environment requirement. None means the guard replays anywhere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requires: Option<Requires>,
+}
+
+impl Meta {
+    /// Can this guard's replay mechanism run on the current host? A guard
+    /// with no requirement runs everywhere.
+    pub fn applicable_here(&self) -> bool {
+        self.requires.as_ref().is_none_or(Requires::satisfied_here)
+    }
 }
 
 /// The normalized action sequence: trim each action, drop blanks. This is the
