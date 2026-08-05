@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "init-graphql-url",
+  "changeType": "feature",
+  "detail": "reproit init <url> now accepts GraphQL both ways a real service serves it. A plain SDL body classifies as a schema (snapshotted as schema.graphql) with the same zero-operations honesty bail as the other formats. A live endpoint that answers the GET with an error or an unclassifiable body gets one bounded introspection POST (standard introspection document, same timeout, redirect, and size caps) when the URL path names graphql or --platform backend was passed; a successful introspection snapshots as schema.graphql.json exactly like the existing path. The should-try-introspection decision is a pure tested function. Failure messages state that introspection was attempted so the bail stays honest.",
+  "evidence": [
+    {
+      "path": "crates/reproit/src/workflows/init_command.rs",
+      "sha256": "sha256:c0da4510df78e067452598a8ba5c73e18f765b125a9d3a21b1dc7ad860325f8b"
+    }
+  ]
+}

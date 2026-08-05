@@ -79,14 +79,14 @@ pub(super) async fn run(
         Some("web") => init_web_url(ctx, &root, &url, force)?,
         None | Some("backend") => {
             let backend_only = platform.is_some();
-            let fetched = fetch(&url).await?;
-            match classify_fetched(&fetched.content_type, &fetched.bytes) {
+            let (classified, bytes, introspected) = classify_url(&url, backend_only).await?;
+            match classified {
                 Classified::Schema { snapshot_name } => {
                     ctx.say(format!("  {url} is a service schema"));
                     project_scaffold::init_backend_url(
                         &root,
                         snapshot_name,
-                        &fetched.bytes,
+                        &bytes,
                         &url_origin(&url)?,
                         force,
                     )?;
@@ -103,11 +103,19 @@ pub(super) async fn run(
                      the schema URL (e.g. /openapi.json)"
                 ),
                 Classified::Html => init_web_url(ctx, &root, &url, force)?,
-                Classified::Ambiguous => bail!(
-                    "{url} is neither a parseable backend schema (OpenAPI, GraphQL \
-                     introspection, protobuf descriptor) nor an HTML page; pass --platform \
-                     backend or --platform web to say which workflow you mean"
-                ),
+                Classified::Ambiguous => {
+                    let attempted = if introspected {
+                        ", and a GraphQL introspection POST returned no schema either"
+                    } else {
+                        ""
+                    };
+                    bail!(
+                        "{url} is neither a parseable backend schema (OpenAPI, GraphQL SDL, \
+                         GraphQL introspection, protobuf descriptor) nor an HTML \
+                         page{attempted}; pass --platform backend or --platform web to say \
+                         which workflow you mean"
+                    )
+                }
             }
         }
         Some(other) => bail!(
@@ -128,19 +136,98 @@ struct Fetched {
     bytes: Vec<u8>,
 }
 
+/// GET the init URL and classify the body. When the GET finds no schema (a
+/// fetch error, or an Ambiguous body) and the URL or --platform hints GraphQL,
+/// retry as an introspection POST: live GraphQL endpoints usually answer GET
+/// with an error status or a playground page. The bool reports whether an
+/// introspection POST was attempted, so bail messages can say so.
+async fn classify_url(url: &str, backend_only: bool) -> Result<(Classified, Vec<u8>, bool)> {
+    let fetched = match fetch(url).await {
+        Ok(fetched) => fetched,
+        Err(error) => {
+            if !should_try_introspection(url, backend_only) {
+                return Err(error);
+            }
+            return match introspect_schema(url).await {
+                Some((classified, bytes)) => Ok((classified, bytes, true)),
+                None => Err(error.context(
+                    "a GraphQL introspection POST was also attempted and returned no schema",
+                )),
+            };
+        }
+    };
+    let classified = classify_fetched(&fetched.content_type, &fetched.bytes);
+    if classified == Classified::Ambiguous && should_try_introspection(url, backend_only) {
+        if let Some((classified, bytes)) = introspect_schema(url).await {
+            return Ok((classified, bytes, true));
+        }
+        return Ok((Classified::Ambiguous, fetched.bytes, true));
+    }
+    Ok((classified, fetched.bytes, false))
+}
+
+/// Whether a schemaless GET result warrants a GraphQL introspection POST:
+/// only when the URL names a graphql path segment or the user explicitly
+/// asked for the backend workflow. Anything else stays a single GET.
+fn should_try_introspection(url: &str, backend_only: bool) -> bool {
+    if backend_only {
+        return true;
+    }
+    url.parse::<reqwest::Url>().is_ok_and(|parsed| {
+        parsed
+            .path_segments()
+            .into_iter()
+            .flatten()
+            .any(|segment| segment.eq_ignore_ascii_case("graphql"))
+    })
+}
+
+/// POST the standard introspection query; Some only when the response body
+/// classifies as a schema (empty schemas included, so their honest bail with
+/// the 0-operations message still fires).
+async fn introspect_schema(url: &str) -> Option<(Classified, Vec<u8>)> {
+    let fetched = introspect(url).await.ok()?;
+    let classified = classify_fetched(&fetched.content_type, &fetched.bytes);
+    matches!(
+        classified,
+        Classified::Schema { .. } | Classified::EmptySchema { .. }
+    )
+    .then_some((classified, fetched.bytes))
+}
+
 /// Bounded fetch of an init URL: capped size, capped time, limited redirects.
 async fn fetch(url: &str) -> Result<Fetched> {
-    let client = reqwest::Client::builder()
-        .timeout(FETCH_TIMEOUT)
-        .redirect(reqwest::redirect::Policy::limited(3))
-        .build()?;
-    let mut response = client
+    let response = client()?
         .get(url)
         .send()
         .await
         .with_context(|| format!("fetching {url}"))?
         .error_for_status()
         .with_context(|| format!("fetching {url}"))?;
+    read_bounded(url, response).await
+}
+
+/// Bounded introspection POST, with the same caps as `fetch`.
+async fn introspect(url: &str) -> Result<Fetched> {
+    let response = client()?
+        .post(url)
+        .json(&serde_json::json!({ "query": INTROSPECTION_QUERY }))
+        .send()
+        .await
+        .with_context(|| format!("introspecting {url}"))?
+        .error_for_status()
+        .with_context(|| format!("introspecting {url}"))?;
+    read_bounded(url, response).await
+}
+
+fn client() -> Result<reqwest::Client> {
+    Ok(reqwest::Client::builder()
+        .timeout(FETCH_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::limited(3))
+        .build()?)
+}
+
+async fn read_bounded(url: &str, mut response: reqwest::Response) -> Result<Fetched> {
     let content_type = response
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
@@ -159,6 +246,36 @@ async fn fetch(url: &str) -> Result<Fetched> {
         bytes,
     })
 }
+
+/// The standard introspection document, shaped to the fields the schema
+/// importer reads (roots, fields, args, input fields, enum and union members).
+const INTROSPECTION_QUERY: &str = "\
+query IntrospectionQuery {
+  __schema {
+    queryType { name }
+    mutationType { name }
+    subscriptionType { name }
+    types {
+      kind
+      name
+      fields(includeDeprecated: true) {
+        name
+        args { name type { ...TypeRef } }
+        type { ...TypeRef }
+      }
+      inputFields { name type { ...TypeRef } }
+      enumValues(includeDeprecated: true) { name }
+      possibleTypes { name }
+    }
+  }
+}
+fragment TypeRef on __Type {
+  kind
+  name
+  ofType { kind name ofType { kind name ofType { kind name ofType {
+    kind name ofType { kind name ofType { kind name ofType { kind name } } }
+  } } } }
+}";
 
 #[derive(Debug, PartialEq)]
 enum Classified {
@@ -208,6 +325,29 @@ fn classify_fetched(content_type: &str, bytes: &[u8]) -> Classified {
         || head.starts_with("<html")
     {
         return Classified::Html;
+    }
+    // A served schema.graphql: GraphQL SDL is neither JSON nor an HTML page,
+    // so it lands here. The parser accepts an empty document, so require at
+    // least one type definition before believing the body is SDL at all.
+    if let Some(document) = std::str::from_utf8(bytes)
+        .ok()
+        .and_then(|raw| backend::graphql_sdl_document(raw).ok())
+    {
+        let has_types = document
+            .pointer("/data/__schema/types")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|types| !types.is_empty());
+        if has_types {
+            return if backend::import_service_schema(&document).is_empty() {
+                Classified::EmptySchema {
+                    kind: "GraphQL SDL",
+                }
+            } else {
+                Classified::Schema {
+                    snapshot_name: "schema.graphql",
+                }
+            };
+        }
     }
     Classified::Ambiguous
 }
@@ -265,6 +405,49 @@ mod tests {
             classify_fetched("application/json", br#"{"openapi":"3.1.0","paths":{}}"#),
             Classified::EmptySchema { kind: "OpenAPI" }
         );
+    }
+
+    #[test]
+    fn sdl_bodies_route_to_backend_with_empty_schema_honesty() {
+        let sdl = b"type Query {\n  order(id: ID!): String\n}\n";
+        assert_eq!(
+            classify_fetched("text/plain", sdl),
+            Classified::Schema {
+                snapshot_name: "schema.graphql"
+            }
+        );
+        // Parseable SDL with types but no executable root operations.
+        assert_eq!(
+            classify_fetched("text/plain", b"scalar DateTime\n"),
+            Classified::EmptySchema {
+                kind: "GraphQL SDL"
+            }
+        );
+        // An empty body parses as an empty SDL document; that is not evidence.
+        assert_eq!(classify_fetched("text/plain", b""), Classified::Ambiguous);
+        assert_eq!(
+            classify_fetched("text/plain", b"just some prose, not a schema"),
+            Classified::Ambiguous
+        );
+    }
+
+    #[test]
+    fn introspection_attempt_needs_a_graphql_hint() {
+        assert!(should_try_introspection("http://api.local/graphql", false));
+        assert!(should_try_introspection(
+            "http://api.local/api/GraphQL",
+            false
+        ));
+        assert!(should_try_introspection("http://api.local/graphql/", false));
+        // --platform backend is an explicit hint on its own.
+        assert!(should_try_introspection("http://api.local/orders", true));
+        assert!(!should_try_introspection("http://api.local/orders", false));
+        // A graphql query parameter or fragment is not a path segment.
+        assert!(!should_try_introspection(
+            "http://api.local/docs?tab=graphql",
+            false
+        ));
+        assert!(!should_try_introspection("not a url", false));
     }
 
     #[test]

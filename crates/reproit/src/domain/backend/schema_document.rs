@@ -68,7 +68,7 @@ fn read_schema_document(path: &Path) -> Result<Value> {
     }
 }
 
-pub(super) fn graphql_sdl_document(raw: &str) -> Result<Value> {
+pub(crate) fn graphql_sdl_document(raw: &str) -> Result<Value> {
     use graphql_parser::schema::{Definition, Type, TypeDefinition};
     let document = graphql_parser::schema::parse_schema::<String>(raw)
         .map_err(|error| anyhow::anyhow!(error.to_string()))?;
