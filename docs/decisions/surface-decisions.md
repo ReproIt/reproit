@@ -18,10 +18,10 @@ is not mine.
 ## SDKs
 
 Every SDK blocks a release through the gate in `sdk/INVENTORY.json`.
-The canonical support manifest defines platform qualification. A target is
-qualified only when its field benchmark and all required evidence are
-complete. Preview is an evidence state. It does not make a failing SDK
-non-blocking. The recommendations below describe how much surface to keep.
+The canonical support manifest defines each target's evidence record. The
+generated status names any absent evidence as a gap. A gap does not make a
+failing SDK non-blocking. The recommendations below describe how much
+surface to keep.
 
 | SDK | lines | commits | CI job | released | recommendation |
 | --- | ---: | ---: | --- | --- | --- |

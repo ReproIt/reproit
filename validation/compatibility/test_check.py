@@ -29,12 +29,15 @@ class CompatibilityContractTests(unittest.TestCase):
             self.assertTrue(target["nativeGates"], target["id"])
             self.assertTrue(target["bounds"]["platforms"], target["id"])
 
-    def test_qualification_is_derived_from_completed_field_evidence(self):
+    def test_evidence_gaps_are_recorded_facts_not_status_labels(self):
         status = CHECK.status_document(self.support)
-        levels = {target["id"]: target["qualification"] for target in status["targets"]}
-        self.assertEqual(levels["backend-contract"], "qualified")
-        self.assertEqual(levels["react-native-ios"], "preview")
-        self.assertEqual(levels["tauri-linux"], "preview")
+        gaps = {target["id"]: target["evidenceGaps"] for target in status["targets"]}
+        self.assertEqual(gaps["backend-contract"], [])
+        self.assertTrue(gaps["react-native-ios"])
+        self.assertTrue(gaps["tauri-linux"])
+        for target in status["targets"]:
+            self.assertNotIn("qualification", target)
+            self.assertNotIn("qualificationGaps", target)
 
     def test_every_owned_gate_is_release_gated(self):
         for target_id, target in self.support["targets"].items():
@@ -148,7 +151,7 @@ class CompatibilityContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "displayName is duplicated"):
             CHECK.validate_support(candidate, self.gates)
 
-    def test_generated_surfaces_carry_every_target_and_qualification(self):
+    def test_generated_surfaces_carry_every_target_and_no_tier_labels(self):
         status = CHECK.status_document(self.support)
         table = CHECK.readme_platforms(status)
         claim = CHECK.support_claim(status)
@@ -164,13 +167,12 @@ class CompatibilityContractTests(unittest.TestCase):
             self.assertIn(target["displayName"], claim)
             self.assertIn(target["displayName"], section)
             self.assertIn(f"`{target['id']}`", document)
-            self.assertIn(target["qualification"], section)
-            self.assertIn(target["qualification"], document)
         self.assertNotIn("Backend |", table)
-        self.assertIn("qualified", table)
-        self.assertIn("preview", table)
-        self.assertIn("qualified", claim)
-        self.assertIn("Preview", claim)
+        # A tier label states a quality ranking the product does not have.
+        # Every declared target is supported. Gaps are named facts.
+        for surface in (table, claim, section, document):
+            self.assertNotIn("qualified", surface.lower())
+            self.assertNotIn("preview", surface.lower())
 
     def test_render_is_deterministic(self):
         first = CHECK.render()

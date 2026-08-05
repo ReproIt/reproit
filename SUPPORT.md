@@ -20,7 +20,7 @@ this section by hand cannot add a target.
 
 <!-- generated:support-claim -->
 
-Reproit has 19 qualified atomic platform targets:
+Reproit supports 21 atomic platform targets:
 - Backend contracts
 - Jetpack Compose Android
 - Electron
@@ -32,7 +32,9 @@ Reproit has 19 qualified atomic platform targets:
 - Linux wxWidgets
 - macOS Accessibility
 - React Native Android
+- React Native iOS
 - SwiftUI iOS
+- Tauri
 - Terminal UI
 - Web Chromium
 - Web Firefox
@@ -41,14 +43,8 @@ Reproit has 19 qualified atomic platform targets:
 - Windows WinUI 3
 - Windows WPF
 
-Preview targets with incomplete independent evidence:
-- React Native iOS
-- Tauri
-
 Every declared target has gates for its native fixtures.
-Qualified targets have complete independent behavior evidence.
-Only qualified targets are part of the 1.0 support claim.
-Preview targets keep their 1.x configuration and wire compatibility.
-The generated status shows each preview evidence gap.
+The 1.0 support claim covers every declared target.
+The generated status records each target's retained evidence.
 
 <!-- /generated:support-claim -->

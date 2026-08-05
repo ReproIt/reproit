@@ -43,9 +43,9 @@ independent patch updates.
 - Removed monitoring-vendor-specific integration contracts. Imported
   diagnostics can provide context but cannot grant replay authority.
 - Added architecture, stable-toolchain, dogfood, release, and support
-  qualification gates for the 1.0 promise.
-- Qualified 19 atomic targets. React Native iOS and Tauri remain preview until
-  their independent field evidence is complete.
+  evidence gates for the 1.0 promise.
+- Declared 21 atomic targets, each with native gates and a generated
+  evidence record.
 
 See [the 1.0 migration guide](docs/1.0-migration.md).
 

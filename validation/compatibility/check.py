@@ -37,7 +37,6 @@ def status_document(support: dict) -> dict:
     for target_id in sorted(support["targets"]):
         target = support["targets"][target_id]
         evidence = target["evidence"]
-        qualification, qualification_gaps = target_qualification(evidence)
         targets.append(
             {
                 "id": target_id,
@@ -47,8 +46,7 @@ def status_document(support: dict) -> dict:
                 "nativeGates": target["ownedGates"],
                 "releaseGates": target["releaseGates"],
                 "fieldBenchmark": evidence["fieldBenchmark"],
-                "qualification": qualification,
-                "qualificationGaps": qualification_gaps,
+                "evidenceGaps": evidence_gaps(evidence),
                 "evidence": {
                     slot: evidence[slot]["kind"] for slot in EVIDENCE_SLOTS
                 },
@@ -62,7 +60,9 @@ def status_document(support: dict) -> dict:
     }
 
 
-def target_qualification(evidence: dict) -> tuple[str, list[str]]:
+def evidence_gaps(evidence: dict) -> list[str]:
+    """Recorded facts about absent evidence. Facts, never a status label:
+    every declared target is supported, and a gap names work, not a tier."""
     gaps = [
         f"{slot} evidence is missing"
         for slot in EVIDENCE_SLOTS
@@ -75,7 +75,7 @@ def target_qualification(evidence: dict) -> tuple[str, list[str]]:
         benchmark = load_json(ROOT / benchmark_path)
         if benchmark.get("status") != "complete":
             gaps.append("independent field benchmark is pending")
-    return ("qualified", []) if not gaps else ("preview", gaps)
+    return gaps
 
 
 def markdown_status(status: dict) -> str:
@@ -95,7 +95,6 @@ def markdown_status(status: dict) -> str:
                 "",
                 f"- Target id: `{target['id']}`",
                 f"- Family: {target['family']}",
-                f"- Qualification: {target['qualification']}",
                 *textwrap.wrap(
                     f"- Scope: {target['scope']}",
                     width=100,
@@ -114,8 +113,8 @@ def markdown_status(status: dict) -> str:
                 "- Evidence slots:",
             ]
         )
-        for gap in target["qualificationGaps"]:
-            lines.append(f"- Qualification gap: {gap}")
+        for gap in target["evidenceGaps"]:
+            lines.append(f"- Evidence gap: {gap}")
         for slot in EVIDENCE_SLOTS:
             lines.append(f"  - {slot}: {target['evidence'][slot]}")
         lines.append("")
@@ -140,27 +139,22 @@ def readme_platforms(status: dict) -> str:
     with rather than by how CI happens to be sharded: a framework that runs on
     two platforms is one entry naming both, not two entries named after runners.
     """
-    platforms: dict[str, dict[str, list[str]]] = {}
+    platforms: dict[str, list[str]] = {}
     first_family: dict[str, str] = {}
     for target in status["targets"]:
         bounds = target["bounds"]
         for framework in bounds["framework"]:
             first_family.setdefault(framework, target["family"])
             for platform in bounds["platforms"]:
-                by_level = platforms.setdefault(framework, {})
-                reach = by_level.setdefault(target["qualification"], [])
+                reach = platforms.setdefault(framework, [])
                 if platform not in reach:
                     reach.append(platform)
     unordered = sorted(set(first_family.values()) - set(README_FAMILY_ORDER))
     lines = []
     for family in (*README_FAMILY_ORDER, *unordered):
-        for framework, by_level in platforms.items():
+        for framework, reach in platforms.items():
             if first_family[framework] == family:
-                claims = []
-                for level in ("qualified", "preview"):
-                    if level in by_level:
-                        claims.append(f"{', '.join(by_level[level])} ({level})")
-                lines.append(f"- **{framework}**: {', '.join(claims)}")
+                lines.append(f"- **{framework}**: {', '.join(reach)}")
     return "\n".join(lines)
 
 
@@ -170,13 +164,13 @@ def target_section(status: dict) -> str:
     lines = [
         f"Declared atomic targets: {len(status['targets'])}.",
         "",
-        "| Target | Qualification | Framework | Platforms | Driving runtime |",
-        "|---|---|---|---|---|",
+        "| Target | Framework | Platforms | Driving runtime |",
+        "|---|---|---|---|",
     ]
     for target in status["targets"]:
         bounds = target["bounds"]
         lines.append(
-            f"| {target['displayName']} | {target['qualification']} | "
+            f"| {target['displayName']} | "
             f"{', '.join(bounds['framework'])} | "
             f"{', '.join(bounds['platforms'])} | {', '.join(bounds['runtime'])} |"
         )
@@ -192,30 +186,15 @@ def target_section(status: dict) -> str:
 
 
 def support_claim(status: dict) -> str:
-    qualified = [
-        target["displayName"]
-        for target in status["targets"]
-        if target["qualification"] == "qualified"
-    ]
-    preview = [
-        target["displayName"]
-        for target in status["targets"]
-        if target["qualification"] == "preview"
-    ]
-    lines = [f"Reproit has {len(qualified)} qualified atomic platform targets:"]
-    lines.extend(f"- {name}" for name in qualified)
-    lines.extend(["", "Preview targets with incomplete independent evidence:"])
-    lines.extend(f"- {name}" for name in preview)
-    if not preview:
-        lines.append("- None")
+    names = [target["displayName"] for target in status["targets"]]
+    lines = [f"Reproit supports {len(names)} atomic platform targets:"]
+    lines.extend(f"- {name}" for name in names)
     lines.extend(
         [
             "",
             "Every declared target has gates for its native fixtures.",
-            "Qualified targets have complete independent behavior evidence.",
-            "Only qualified targets are part of the 1.0 support claim.",
-            "Preview targets keep their 1.x configuration and wire compatibility.",
-            "The generated status shows each preview evidence gap.",
+            "The 1.0 support claim covers every declared target.",
+            "The generated status records each target's retained evidence.",
         ]
     )
     return "\n".join(lines)

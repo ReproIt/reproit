@@ -92,8 +92,8 @@ pub fn classify(finding: &Value) -> Oracle {
 }
 
 /// An oracle include/exclude filter built from `--only` / `--no`. Default
-/// (neither set) is the stable, high-confidence product set. `--only` can opt
-/// into any preview/experimental detector; `--no`
+/// (neither set) is the product set. `--only` can opt
+/// into any detector outside the default set; `--no`
 /// removes the listed set. When both are given, `--only` is applied first then
 /// `--no` subtracts, so `--only crash,jank --no jank` == `crash`.
 #[derive(Clone, Debug)]

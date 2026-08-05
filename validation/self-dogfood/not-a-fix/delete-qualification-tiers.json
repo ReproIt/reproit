@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "delete-qualification-tiers",
+  "changeType": "tooling",
+  "detail": "Delete the qualified/preview tier vocabulary from every surface, per the founder's standing rule (third statement): no quality tiers anywhere, delete the concept, never rename it. The compatibility validator no longer derives a per-target level. It records absent evidence as named facts (evidenceGaps) in the validation surfaces only. The README platforms block, the docs/compatibility.md table, and the SUPPORT.md claim list every declared target uniformly: 21 targets, one support claim. test_check.py now asserts that no generated surface contains the words qualified or preview. Hand-written passages in docs/compatibility.md, docs/1.0-migration.md, docs/decisions/surface-decisions.md, the CHANGELOG 1.0.0 entry, and one oracle.rs doc comment lost the tier wording. The README is also rewritten to be succinct: the loop, the use cases, the four properties, install, SDKs, platforms, documentation, in Simplified Technical English. Evidence enforcement is unchanged: native gates, release evidence directories, field benchmarks, and the exact-commit provenance checks all still gate as before.",
+  "evidence": [
+    {
+      "path": "validation/compatibility/check.py",
+      "sha256": "sha256:7a728c64d0183a87bb125675cb40799752ddb0af4d2382bdbf1d01556b6d0db3"
+    },
+    {
+      "path": "validation/compatibility/status.json",
+      "sha256": "sha256:c3fcb233a0395821a1766822d7dfd02c9834ad80fdc055130a1afba1b12928b0"
+    },
+    {
+      "path": "README.md",
+      "sha256": "sha256:335853df43ed7eb3e7ecaf284853d0ad629a0ed3fcaa2a97ff32a7c2eb9e238f"
+    },
+    {
+      "path": "SUPPORT.md",
+      "sha256": "sha256:f9aad87f74a9695a95fdc892ccf8fda13cd45c135fd17b3f49c735fba7748c27"
+    },
+    {
+      "path": "docs/compatibility.md",
+      "sha256": "sha256:f0bacb827d0d7fe7665e5265d10f3b6987620135dccd982892808eac78e9bf45"
+    }
+  ]
+}
