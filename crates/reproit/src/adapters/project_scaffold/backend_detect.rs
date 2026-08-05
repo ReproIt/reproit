@@ -286,6 +286,28 @@ pub fn detect_backend_framework(dir: &Path) -> Option<BackendFramework> {
         return Some(found);
     }
     if let Some(gemfile) = manifest(dir, "Gemfile") {
+        // Sinatra first when it is declared and nothing Rails-specific is:
+        // sinatra-activerecord pulls in `activerecord`, and matching that
+        // component labeled a real Sinatra app as Rails, whose inferred boot
+        // then failed. The component needles below stay for Rails apps that
+        // pin parts instead of the metagem, but a declared `sinatra` beats a
+        // shared component.
+        // Open-quote prefix: a Sinatra app may declare only an extension gem
+        // (`sinatra-activerecord` pulls sinatra in transitively).
+        let sinatra_declared = gemfile.contains("\"sinatra") || gemfile.contains("'sinatra");
+        let rails_declared = ["\"rails\"", "'rails'", "railties"]
+            .iter()
+            .any(|needle| gemfile.contains(needle))
+            || dir.join("config/routes.rb").exists();
+        if sinatra_declared && !rails_declared {
+            return Some(framework(
+                "sinatra",
+                "Gemfile",
+                "hand-write openapi.yaml for the routes you serve, then `reproit init \
+                 openapi.yaml`",
+                "use ReproitBackendRb::Middleware, capture: capture",
+            ));
+        }
         // A large Rails app often pins the components rather than the
         // metagem, and Rails itself uses `gemspec`. Requiring a literal
         // `gem "rails"` missed Discourse and rails/rails, both of which have a

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "derivation-field-fixes",
+  "changeType": "feature",
+  "detail": "Two derivation defects caught by OSS field tests. Laravel 10 and earlier serve routes/api.php under the prefix RouteServiceProvider declares; the reader derived /product for a route served at /api/product, probed the wrong URL, and recorded the 404s as observed. A provider collector now reads the prefix from the group(base_path(...)) chain, with the existing conflicting-registration opacity rule. Second, a Sinatra app declaring only an extension gem (sinatra-activerecord) was labeled Rails because the activerecord component needle matched; a declared sinatra gem (open-quote prefix match) now wins unless the metagem, railties, or config/routes.rb says Rails. Both re-proven against the field repos: kvyaceslav/simple-laravel-api derives /api paths and probes real routes, shannonjen/sinatra_crud_tutorial detects sinatra, boots ruby app.rb, enriches 3 of 5, and records a proven exec.",
+  "evidence": [
+    {
+      "path": "crates/reproit/src/workflows/backend_learn/php_ast.rs",
+      "sha256": "sha256:e80a4c26643556a67bd39c1bb8541c9e648bde70b9fc78ff589fa0ada56a094d"
+    },
+    {
+      "path": "crates/reproit/src/adapters/project_scaffold/backend_detect.rs",
+      "sha256": "sha256:2c3514dfd70f7488eb52866d2ce1d2bde96d60e6b685c2c0ba5f7835a410a753"
+    }
+  ]
+}

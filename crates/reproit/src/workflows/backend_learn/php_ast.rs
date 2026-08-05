@@ -40,6 +40,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
                 }
             });
             collect_routing_prefixes(root, path, root_node, text, &mut route_prefixes);
+            collect_provider_prefixes(root, path, root_node, text, &mut route_prefixes);
             let mut file_routes = Vec::new();
             routes_under(root_node, text, "", &mut file_routes);
             found.extend(
@@ -114,16 +115,75 @@ fn collect_routing_prefixes(
         } else {
             OPAQUE.to_string()
         };
-        match prefixes.get(&route_file) {
-            Some(existing) if existing != &prefix => {
-                prefixes.insert(route_file, OPAQUE.to_string());
-            }
-            Some(_) => {}
-            None => {
-                prefixes.insert(route_file, prefix);
-            }
-        }
+        record_prefix(prefixes, route_file, prefix);
     });
+}
+
+/// Two registrations disagreeing about one file is a fact this reader cannot
+/// resolve, so the file goes opaque rather than half-right.
+fn record_prefix(prefixes: &mut BTreeMap<PathBuf, String>, route_file: PathBuf, prefix: String) {
+    match prefixes.get(&route_file) {
+        Some(existing) if existing != &prefix => {
+            prefixes.insert(route_file, OPAQUE.to_string());
+        }
+        Some(_) => {}
+        None => {
+            prefixes.insert(route_file, prefix);
+        }
+    }
+}
+
+/// Laravel 10 and earlier apply the served prefix in
+/// `app/Providers/RouteServiceProvider.php`:
+/// `Route::prefix('api')->middleware('api')->group(base_path('routes/api.php'))`.
+/// Reading routes/api.php without it probed `/product` for a route served at
+/// `/api/product` and recorded the 404s as observed.
+fn collect_provider_prefixes(
+    root: &Path,
+    file: &Path,
+    node: Node,
+    text: &str,
+    prefixes: &mut BTreeMap<PathBuf, String>,
+) {
+    if !file.ends_with("app/Providers/RouteServiceProvider.php") {
+        return;
+    }
+    grammar::walk(node, &mut |inner| {
+        if inner.kind() != "member_call_expression"
+            || grammar::field(inner, text, "name").as_deref() != Some("group")
+        {
+            return;
+        }
+        // The group call is the outermost link, so its text carries the whole
+        // chain: the prefix() argument and the base_path() route file.
+        let raw = grammar::text(inner, text);
+        let Some(route_file) = provider_route_file(root, raw) else {
+            return;
+        };
+        let prefix = match raw.split_once("prefix(") {
+            Some((_, rest)) => leading_literal(rest)
+                .map(str::to_string)
+                .unwrap_or_else(|| OPAQUE.to_string()),
+            None => String::new(),
+        };
+        record_prefix(prefixes, route_file, prefix);
+    });
+}
+
+fn provider_route_file(root: &Path, call: &str) -> Option<PathBuf> {
+    let rest = call.split_once("base_path(")?.1;
+    let relative = leading_literal(rest)?;
+    let root = std::fs::canonicalize(root).ok()?;
+    let candidate = std::fs::canonicalize(root.join(relative.trim_start_matches('/'))).ok()?;
+    candidate.starts_with(&root).then_some(candidate)
+}
+
+/// The string literal a call argument starts with, without requiring the
+/// whole expression to be that literal.
+fn leading_literal(rest: &str) -> Option<&str> {
+    let rest = rest.trim_start();
+    let quote = rest.chars().next().filter(|ch| *ch == '\'' || *ch == '"')?;
+    rest[1..].split(quote).next()
 }
 
 fn named_argument<'a>(call: &'a str, name: &str) -> Option<&'a str> {
@@ -819,6 +879,52 @@ mod tests {
                 ("/api/users".to_string(), "get"),
                 ("/api/users/{id}".to_string(), "get"),
                 ("/welcome".to_string(), "get"),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_route_service_provider_prefix_applies_to_its_route_file() {
+        // The Laravel 10 shape: routes/api.php is served under the prefix the
+        // provider declares, which a per-file read cannot see. A real field
+        // test probed /product for a route served at /api/product and
+        // recorded the 404s as observed.
+        let source = read_source(
+            "provider-prefix",
+            &[
+                (
+                    "app/Providers/RouteServiceProvider.php",
+                    "<?php\nclass RouteServiceProvider extends ServiceProvider {\n\
+                     \x20   public function boot(): void {\n\
+                     \x20       $this->routes(function () {\n\
+                     \x20           Route::prefix('api')\n\
+                     \x20               ->middleware('api')\n\
+                     \x20               ->group(base_path('routes/api.php'));\n\
+                     \x20           Route::middleware('web')\n\
+                     \x20               ->group(base_path('routes/web.php'));\n\
+                     \x20       });\n\
+                     \x20   }\n\
+                     }\n",
+                ),
+                (
+                    "routes/api.php",
+                    "<?php\nRoute::get('/product', fn () => null);\n\
+                     Route::post('/login', fn () => null);\n",
+                ),
+                ("routes/web.php", "<?php\nRoute::get('/', fn () => null);\n"),
+            ],
+        );
+        let operations: BTreeSet<(String, &'static str)> = source
+            .routes
+            .iter()
+            .map(|(path, method, _)| (path.clone(), *method))
+            .collect();
+        assert_eq!(
+            operations,
+            BTreeSet::from([
+                ("/api/product".to_string(), "get"),
+                ("/api/login".to_string(), "post"),
+                ("/".to_string(), "get"),
             ])
         );
     }
