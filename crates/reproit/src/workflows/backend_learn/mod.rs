@@ -36,6 +36,7 @@ mod node_body;
 mod php_ast;
 mod probe_plan;
 mod python_ast;
+mod python_query;
 mod report;
 mod response_facts;
 mod route_path;

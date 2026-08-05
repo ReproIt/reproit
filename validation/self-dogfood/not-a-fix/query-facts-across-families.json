@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "query-facts-across-families",
+  "changeType": "feature",
+  "detail": "Query-parameter facts (Derived.queries) were a Node-only asymmetry: node_ast filled them from inline handlers and emit.rs already knew how to name them in the draft, while python, go, java, dotnet and ruby readers left the map empty, so /search?q= derived as a bare path for five of the seven families. This closes that half of the reader-facts gap with bounded, evidence-carrying extraction per family, each reading only what its source states: python (new python_query.rs, split out to respect the 1000-line file cap) reads FastAPI scalar-annotated signature args that name no path parameter plus Flask request.args and Django request.GET reads, subscripts demanding and .get not; go (go_types.collect_handler) reads gin c.Query/c.DefaultQuery, echo c.QueryParam, fiber c.Query and net/http r.URL.Query().Get, chained or through a local, all optional since every one returns the empty string on absence; java reads @RequestParam with Spring's own resolution order for the wire name and its required-unless-required=false-or-defaultValue demand; dotnet reads [FromQuery] parameters with the Name= override, never a demand; ruby reads top-level params[:x] in controller actions, abstaining where the route path or the model's validations already explain the key, since Rails merges all three sources into one hash. One new integration test per family pins the behavior; the full lib suite (1076), clippy -D warnings on current stable, and cargo fmt --check are green.",
+  "evidence": [
+    {
+      "path": "crates/reproit/src/workflows/backend_learn/python_query.rs",
+      "sha256": "sha256:7ddc2c9e797f9ad4161b9227bcdf8cdd9297d2690923173f0d6cb7e53c6caa7c"
+    }
+  ]
+}

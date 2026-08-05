@@ -11,7 +11,7 @@
 //! only sound to follow when the binding is visible.
 
 use super::extract::Family;
-use super::field_facts::drop_ambiguous;
+use super::field_facts::{drop_ambiguous, FieldFact};
 use super::go_types;
 use super::grammar::{self, SourceRead};
 use super::response_facts::ResponseFact;
@@ -40,6 +40,8 @@ pub(super) fn read(root: &Path) -> SourceRead {
     let mut handler_body: BTreeMap<String, String> = BTreeMap::new();
     // handler fn -> the response statuses and bodies its code states.
     let mut handler_responses: BTreeMap<String, ResponseFact> = BTreeMap::new();
+    // handler fn -> the query parameters its body reads.
+    let mut handler_queries: BTreeMap<String, BTreeMap<String, FieldFact>> = BTreeMap::new();
     // Router builders and mount sites are collected independently, then joined
     // after every file is read. chi commonly declares a receiver method in one
     // file and mounts it from main.go.
@@ -61,6 +63,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
                     &file_vars,
                     &mut handler_body,
                     &mut handler_responses,
+                    &mut handler_queries,
                 ),
                 _ => {}
             });
@@ -151,6 +154,9 @@ pub(super) fn read(root: &Path) -> SourceRead {
                 }
                 if let Some(fact) = handler_responses.get(handler) {
                     source.responses.insert(handler.clone(), fact.clone());
+                }
+                if let Some(fields) = handler_queries.get(handler) {
+                    source.queries.insert(handler.clone(), fields.clone());
                 }
             }
         }

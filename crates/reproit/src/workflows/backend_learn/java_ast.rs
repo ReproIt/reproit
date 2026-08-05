@@ -46,6 +46,8 @@ struct Collected {
     enums: BTreeMap<String, Vec<String>>,
     /// handler method -> the `@RequestBody` type it accepts.
     handler_body: BTreeMap<String, String>,
+    /// handler method -> its `@RequestParam` query parameters.
+    queries: BTreeMap<String, BTreeMap<String, FieldFact>>,
     /// handler method -> the response statuses and bodies its code states.
     responses: BTreeMap<String, ResponseFact>,
     /// (type, wire field) -> the enum type it is declared as, resolved once
@@ -106,6 +108,9 @@ pub(super) fn read(root: &Path) -> SourceRead {
                 .cloned()
             {
                 source.bodies.insert(handler.clone(), fields);
+            }
+            if let Some(fields) = collected.queries.get(&handler) {
+                source.queries.insert(handler.clone(), fields.clone());
             }
             if let Some(fact) = collected.responses.get(&handler) {
                 source.responses.insert(handler, fact.clone());
@@ -272,6 +277,12 @@ fn collect_method(node: Node, text: &str, prefix: &str, collected: &mut Collecte
                         .insert(handler.clone(), bare_type(&ty));
                 }
             }
+            if let Some((name, fact)) = request_param(parameter, text) {
+                let fields = collected.queries.entry(handler.clone()).or_default();
+                if fields.len() < MAX_FIELDS {
+                    fields.insert(name, fact);
+                }
+            }
         }
     }
     // What this handler states it returns. `@ResponseStatus` names its code in
@@ -338,6 +349,54 @@ fn request_verbs(node: Node, text: &str) -> Vec<&'static str> {
         }
     }
     verbs
+}
+
+/// A `@RequestParam` parameter: its wire name and whether Spring demands it.
+///
+/// The wire name is the annotation's literal (`@RequestParam("q")`, or the
+/// `value =` / `name =` pair) and otherwise the parameter's own name, which is
+/// exactly Spring's resolution order. Spring demands the parameter unless the
+/// annotation states `required = false` or supplies a `defaultValue`, so a
+/// bare `@RequestParam String q` is a demand the source spells out.
+fn request_param(parameter: Node, text: &str) -> Option<(String, FieldFact)> {
+    annotations_of(parameter, text)
+        .iter()
+        .find(|(name, _)| name == "RequestParam")?;
+    let mut wire = None;
+    let mut required = true;
+    if let Some(arguments) = annotation_arguments(parameter, text, "RequestParam") {
+        let mut args = Vec::new();
+        grammar::children(arguments, &mut args);
+        for argument in args {
+            if !is_annotation_pair(argument) {
+                if wire.is_none() {
+                    wire = first_string(argument, text);
+                }
+                continue;
+            }
+            let key = annotation_pair_key(argument, text).unwrap_or_default();
+            let value = annotation_pair_value(argument);
+            match key.as_str() {
+                "value" | "name" => {
+                    wire = value.and_then(|value| first_string(value, text)).or(wire);
+                }
+                "required" => {
+                    if value.is_some_and(|value| grammar::text(value, text).trim() == "false") {
+                        required = false;
+                    }
+                }
+                "defaultValue" => required = false,
+                _ => {}
+            }
+        }
+    }
+    let name = wire.or_else(|| grammar::field(parameter, text, "name"))?;
+    let fact = FieldFact {
+        required,
+        evidence: Some("a @RequestParam annotation".to_string()),
+        ..FieldFact::default()
+    };
+    Some((name, fact))
 }
 
 /// A field or record component: what its annotations constrain on the
@@ -723,6 +782,35 @@ public class BlockController {
             fields["blockedType"].allowed.as_deref(),
             Some(["USER".to_string(), "SPONSOR".to_string()].as_slice())
         );
+    }
+
+    #[test]
+    fn a_request_param_states_its_name_and_springs_demand() {
+        let source = read_source(
+            "requestparam",
+            &[(
+                "SearchController.java",
+                "@RestController\n@RequestMapping(\"/search\")\npublic class SearchController {\n\
+                 \x20   @GetMapping\n\
+                 \x20   public String search(@RequestParam String q,\n\
+                 \x20           @RequestParam(\"page_size\") int size,\n\
+                 \x20           @RequestParam(value = \"sort\", required = false) String sort,\n\
+                 \x20           @RequestParam(defaultValue = \"10\") int limit) {\n\
+                 \x20       return \"\";\n    }\n}\n",
+            )],
+        );
+        let fields = source.queries.get("search").expect("stated");
+        assert!(fields["q"].required, "a bare @RequestParam is a demand");
+        assert!(
+            fields.contains_key("page_size") && !fields.contains_key("size"),
+            "the annotation literal is the wire name: {:?}",
+            fields.keys()
+        );
+        assert!(
+            !fields["sort"].required,
+            "required = false lifts the demand"
+        );
+        assert!(!fields["limit"].required, "a defaultValue lifts the demand");
     }
 
     #[test]

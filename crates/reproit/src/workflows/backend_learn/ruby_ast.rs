@@ -41,6 +41,8 @@ pub(super) fn read(root: &Path) -> SourceRead {
     let mut ambiguous: BTreeSet<String> = BTreeSet::new();
     // action name -> the class whose validations govern it.
     let mut actions: BTreeMap<String, String> = BTreeMap::new();
+    // action name -> the `params[...]` keys its body reads.
+    let mut action_queries: BTreeMap<String, BTreeMap<String, FieldFact>> = BTreeMap::new();
     let mut found: Vec<(String, &'static str, Option<String>)> = Vec::new();
     // engine key -> the prefix the host app mounts it at.
     let mut mounts: BTreeMap<String, String> = BTreeMap::new();
@@ -56,7 +58,14 @@ pub(super) fn read(root: &Path) -> SourceRead {
         |root_node, text, path| {
             routes(root_node, text, "", &mut mounts, &mut found);
             engines.push((engine_of(path), found.split_off(0)));
-            classes(root_node, text, &mut shapes, &mut ambiguous, &mut actions);
+            classes(
+                root_node,
+                text,
+                &mut shapes,
+                &mut ambiguous,
+                &mut actions,
+                &mut action_queries,
+            );
         },
     );
     drop_ambiguous(&mut shapes, &ambiguous);
@@ -75,18 +84,48 @@ pub(super) fn read(root: &Path) -> SourceRead {
         })
         .collect();
     for (path, method, handler) in found {
-        source.routes.push((path, method, handler.clone()));
-        if let Some(handler) = handler {
-            if let Some(fields) = actions
-                .get(&handler)
-                .and_then(|class| shapes.get(class))
-                .cloned()
-            {
-                source.bodies.insert(handler, fields);
+        source.routes.push((path.clone(), method, handler.clone()));
+        let Some(handler) = handler else { continue };
+        if let Some(fields) = actions
+            .get(&handler)
+            .and_then(|class| shapes.get(class))
+            .cloned()
+        {
+            source.bodies.insert(handler.clone(), fields);
+        }
+        // Rails merges path, query and body into one `params`, so a read is a
+        // query claim only where the other two sources cannot explain it: a
+        // key the route path binds, or a field the action's model validates,
+        // reads as those rather than as a query parameter.
+        if let Some(fields) = action_queries.get(&handler) {
+            let mut fields = fields.clone();
+            for name in path_params_of(&path) {
+                fields.remove(&name);
+            }
+            if let Some(body) = source.bodies.get(&handler) {
+                fields.retain(|name, _| !body.contains_key(name));
+            }
+            if !fields.is_empty() {
+                source.queries.entry(handler).or_insert(fields);
             }
         }
     }
     source
+}
+
+/// The parameter names a route path binds, in either spelling this reader
+/// emits: `:id` from a literal path, `{id}` from a `resources` expansion.
+fn path_params_of(path: &str) -> Vec<String> {
+    path.split('/')
+        .filter_map(|segment| {
+            segment.strip_prefix(':').or_else(|| {
+                segment
+                    .strip_prefix('{')
+                    .and_then(|rest| rest.strip_suffix('}'))
+            })
+        })
+        .map(str::to_string)
+        .collect()
 }
 
 /// Which engine a routes file belongs to: `plugins/chat/config/routes.rb` is
@@ -406,6 +445,7 @@ fn classes(
     shapes: &mut BTreeMap<String, BTreeMap<String, FieldFact>>,
     ambiguous: &mut BTreeSet<String>,
     actions: &mut BTreeMap<String, String>,
+    action_queries: &mut BTreeMap<String, BTreeMap<String, FieldFact>>,
 ) {
     let mut stack = vec![node];
     while let Some(node) = stack.pop() {
@@ -419,6 +459,10 @@ fn classes(
                     "call" => validates(inner, text, &mut fields),
                     "method" => {
                         if let Some(action) = grammar::field(inner, text, "name") {
+                            let reads = params_reads(inner, text);
+                            if !reads.is_empty() {
+                                action_queries.entry(action.clone()).or_insert(reads);
+                            }
                             actions.insert(action, name.clone());
                         }
                     }
@@ -496,6 +540,54 @@ fn validates(node: Node, text: &str, fields: &mut BTreeMap<String, FieldFact>) {
     entry.allowed = fact.allowed.or_else(|| entry.allowed.take());
     entry.range = fact.range.or(entry.range);
     entry.evidence = fact.evidence.or_else(|| entry.evidence.take());
+}
+
+/// The top-level `params[:x]` keys one action's body reads.
+///
+/// Rails offers no query-only spelling, so a bare read is the closest the
+/// source comes to naming one, and it is recorded as optional with its
+/// evidence attached rather than as a demand. Two reads are not query reads
+/// and are skipped: a nested `params[:user][:name]` (structured body access),
+/// and the keys the router itself merges in (`id`, `format`, `controller`,
+/// `action`).
+fn params_reads(method: Node, text: &str) -> BTreeMap<String, FieldFact> {
+    const ROUTER_KEYS: [&str; 4] = ["id", "format", "controller", "action"];
+    let mut fields = BTreeMap::new();
+    grammar::walk(method, &mut |node| {
+        if fields.len() >= MAX_FIELDS || node.kind() != "element_reference" {
+            return;
+        }
+        let receives = node
+            .child_by_field_name("object")
+            .map(|object| grammar::text(object, text))
+            == Some("params");
+        let nested = node
+            .parent()
+            .is_some_and(|parent| parent.kind() == "element_reference");
+        if !receives || nested {
+            return;
+        }
+        let mut args = Vec::new();
+        grammar::children(node, &mut args);
+        let Some(key) = args
+            .iter()
+            .find(|argument| matches!(argument.kind(), "simple_symbol" | "string"))
+        else {
+            return;
+        };
+        let name = grammar::unquote(grammar::text(*key, text))
+            .trim_start_matches(':')
+            .to_string();
+        if name.is_empty() || ROUTER_KEYS.contains(&name.as_str()) {
+            return;
+        }
+        fields.entry(name).or_insert(FieldFact {
+            required: false,
+            evidence: Some("a params[...] read in the action".to_string()),
+            ..FieldFact::default()
+        });
+    });
+    fields
 }
 
 /// `inclusion: { in: %w[user sponsor] }` or `{ in: ['user', 'sponsor'] }`.
@@ -589,6 +681,80 @@ mod tests {
         );
         assert!(fields["blocked_type"].required);
         assert_eq!(fields["rating"].range, Some((Some(-1.0), Some(1.0))));
+    }
+
+    #[test]
+    fn a_params_read_names_a_query_parameter_unless_another_source_explains_it() {
+        let source = read_source(
+            "params_reads",
+            &[
+                (
+                    "routes.rb",
+                    "get '/search', to: 'search#index'\n\
+                     get '/users/:id/posts', to: 'search#posts'\n",
+                ),
+                (
+                    "search_controller.rb",
+                    "class SearchController < ApplicationController\n\
+                     \x20 def index\n\
+                     \x20   q = params[:q]\n\
+                     \x20   page = params['page']\n\
+                     \x20   name = params[:user][:name]\n\
+                     \x20 end\n\
+                     \x20 def posts\n\
+                     \x20   since = params[:since]\n\
+                     \x20   user = params[:id]\n\
+                     \x20 end\n\
+                     end\n",
+                ),
+            ],
+        );
+        let index = source.queries.get("index").expect("stated");
+        assert!(
+            index.contains_key("q") && index.contains_key("page"),
+            "{:?}",
+            index.keys()
+        );
+        assert!(!index["q"].required, "a params read is never a demand");
+        assert!(
+            !index.contains_key("user") && !index.contains_key("name"),
+            "a nested read is structured body access: {:?}",
+            index.keys()
+        );
+        let posts = source.queries.get("posts").expect("stated");
+        assert!(posts.contains_key("since"), "{:?}", posts.keys());
+        assert!(
+            !posts.contains_key("id"),
+            "a key the route path binds is not a query: {:?}",
+            posts.keys()
+        );
+    }
+
+    #[test]
+    fn a_validated_body_field_is_not_also_a_query_parameter() {
+        let source = read_source(
+            "params_vs_body",
+            &[
+                ("routes.rb", "post '/v1/blocks', to: 'blocks#create'\n"),
+                (
+                    "block.rb",
+                    "class Block < ApplicationRecord\n\
+                     \x20 validates :rating, presence: true\n\
+                     \x20 def create\n\
+                     \x20   rating = params[:rating]\n\
+                     \x20   dry = params[:dry_run]\n\
+                     \x20 end\n\
+                     end\n",
+                ),
+            ],
+        );
+        let fields = source.queries.get("create").expect("stated");
+        assert!(
+            !fields.contains_key("rating"),
+            "the validated field reads as the body: {:?}",
+            fields.keys()
+        );
+        assert!(fields.contains_key("dry_run"), "{:?}", fields.keys());
     }
 
     #[test]

@@ -10,6 +10,7 @@
 use super::django_urls::{collect_view_verbs, django_routes};
 use super::field_facts::FieldFact;
 use super::grammar::SourceRead;
+use super::python_query::Queries;
 
 /// One route before its module's mount prefix is applied.
 pub(super) type PyRoute = (String, &'static str, Option<String>);
@@ -48,6 +49,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
     // view name -> the verbs it answers, for Django, where the URL states none.
     let mut view_verbs: BTreeMap<String, Vec<&'static str>> = BTreeMap::new();
     let mut django_files: BTreeSet<String> = BTreeSet::new();
+    let mut queries = Queries::default();
 
     for file in super::extract::family_sources(root, super::extract::Family::Python) {
         let Ok(text) = std::fs::read_to_string(&file) else {
@@ -98,6 +100,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
             &mut ambiguous,
             &mut handler_models,
             &prefixes,
+            &mut queries,
         );
         // Every Django app names its route table `urls.py`, so the stem
         // collides across the whole project; the app is the DIRECTORY, which is
@@ -155,6 +158,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
         }
         source.bodies.insert(handler, fields);
     }
+    source.queries = queries.resolve(&source.routes);
     source
 }
 
@@ -168,11 +172,15 @@ fn walk(
     ambiguous: &mut BTreeSet<String>,
     handler_models: &mut Vec<(String, String)>,
     prefixes: &BTreeMap<String, String>,
+    queries: &mut Queries,
 ) {
     match node.kind() {
         "decorated_definition" => {
             if let Some((handler, params)) = decorated_function(node, text) {
-                for (router, path, method) in decorator_routes(node, text) {
+                let decorated = decorator_routes(node, text);
+                let raw_paths: Vec<String> =
+                    decorated.iter().map(|(_, path, _)| path.clone()).collect();
+                for (router, path, method) in decorated {
                     let path = match prefixes.get(&router) {
                         Some(prefix) => format!("{}{path}", prefix.trim_end_matches('/')),
                         None => path,
@@ -184,6 +192,20 @@ fn walk(
                 for (_, annotation) in params {
                     handler_models.push((handler.clone(), annotation));
                 }
+                // ... and the query parameters from the scalar-annotated ones
+                // that name no path parameter. Only a routed definition is
+                // read: a bare helper's signature routes nothing.
+                if !raw_paths.is_empty() {
+                    let definition = node.child_by_field_name("definition");
+                    queries.take_signature(&handler, definition, text, &raw_paths);
+                }
+            }
+        }
+        // Flask and Django name their query parameters at the read site inside
+        // the handler body, decorated or not.
+        "function_definition" => {
+            if let Some(handler) = field_text(node, "name", text) {
+                queries.take_reads(&handler, node, text);
             }
         }
         "class_definition" => {
@@ -228,6 +250,7 @@ fn walk(
             ambiguous,
             handler_models,
             prefixes,
+            queries,
         );
     }
 }

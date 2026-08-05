@@ -39,6 +39,8 @@ struct Collected {
     wire_ambiguous: BTreeSet<String>,
     /// action method -> the `[FromBody]` type it accepts.
     handler_body: BTreeMap<String, String>,
+    /// action method -> its `[FromQuery]` query parameters.
+    handler_queries: BTreeMap<String, BTreeMap<String, FieldFact>>,
     /// action method -> the response statuses and bodies its code states.
     responses: BTreeMap<String, ResponseFact>,
     found: Vec<(String, &'static str, Option<String>)>,
@@ -84,6 +86,9 @@ pub(super) fn read(root: &Path) -> SourceRead {
                 .cloned()
             {
                 source.bodies.insert(handler.clone(), fields);
+            }
+            if let Some(fields) = collected.handler_queries.get(&handler) {
+                source.queries.insert(handler.clone(), fields.clone());
             }
             if let Some(fact) = collected.responses.get(&handler) {
                 source.responses.insert(handler, fact.clone());
@@ -413,28 +418,38 @@ fn collect_action(node: Node, text: &str, prefix: &str, collected: &mut Collecte
         // brackets still in would be a route nobody serves.
         return;
     }
-    // `[FromBody] ItemRequest body` names the type the action accepts.
+    // `[FromBody] ItemRequest body` names the type the action accepts;
+    // `[FromQuery] int page` names a query parameter.
     if let Some(parameters) = node.child_by_field_name("parameters") {
         let mut params = Vec::new();
         grammar::children(parameters, &mut params);
         for parameter in params {
-            if !attributes_of(parameter, text)
+            let attributes = attributes_of(parameter, text);
+            if attributes
                 .iter()
                 .any(|(attribute, _)| attribute == "FromBody")
             {
-                continue;
+                let mut parts = Vec::new();
+                grammar::children(parameter, &mut parts);
+                if let Some(ty) = parts.iter().find(|part| {
+                    matches!(
+                        part.kind(),
+                        "identifier" | "generic_name" | "qualified_name"
+                    )
+                }) {
+                    collected
+                        .handler_body
+                        .insert(handler.clone(), bare_type(grammar::text(*ty, text)));
+                }
             }
-            let mut parts = Vec::new();
-            grammar::children(parameter, &mut parts);
-            if let Some(ty) = parts.iter().find(|part| {
-                matches!(
-                    part.kind(),
-                    "identifier" | "generic_name" | "qualified_name"
-                )
-            }) {
-                collected
-                    .handler_body
-                    .insert(handler.clone(), bare_type(grammar::text(*ty, text)));
+            if let Some((name, fact)) = from_query(parameter, text, &attributes) {
+                let fields = collected
+                    .handler_queries
+                    .entry(handler.clone())
+                    .or_default();
+                if fields.len() < MAX_FIELDS {
+                    fields.insert(name, fact);
+                }
             }
         }
     }
@@ -444,6 +459,35 @@ fn collect_action(node: Node, text: &str, prefix: &str, collected: &mut Collecte
         collected.responses.insert(handler.clone(), fact);
     }
     collected.found.push((path, method, Some(handler)));
+}
+
+/// A `[FromQuery]` parameter: its wire name, never a demand.
+///
+/// The name is the `Name = "x"` property when stated and the parameter's own
+/// name otherwise. Model binding fills an absent value with the type's
+/// default rather than rejecting the request, so nothing here is required.
+fn from_query(
+    parameter: Node,
+    text: &str,
+    attributes: &[(String, Option<String>)],
+) -> Option<(String, FieldFact)> {
+    let (_, argument) = attributes
+        .iter()
+        .find(|(attribute, _)| attribute == "FromQuery")?;
+    // `attributes_of` flattens the argument list to text: `Name = "x"`.
+    let stated = argument
+        .as_deref()
+        .and_then(|argument| argument.split_once('='))
+        .filter(|(key, _)| key.trim() == "Name")
+        .map(|(_, value)| grammar::unquote(value.trim()).to_string())
+        .filter(|value| !value.is_empty());
+    let name = stated.or_else(|| grammar::field(parameter, text, "name"))?;
+    let fact = FieldFact {
+        required: false,
+        evidence: Some("a [FromQuery] parameter".to_string()),
+        ..FieldFact::default()
+    };
+    Some((name, fact))
 }
 
 /// A DTO property: what its data-annotation attributes constrain on the
@@ -650,6 +694,34 @@ public class UsersController : ControllerBase
         assert!(fields["Name"].required);
         assert_eq!(fields["Size"].range, Some((Some(1.0), Some(5.0))));
         assert!(!fields["Size"].required, "a bare property is not required");
+    }
+
+    #[test]
+    fn a_from_query_parameter_is_a_named_optional_input() {
+        let source = read_source(
+            "fromquery",
+            &[(
+                "SearchController.cs",
+                "[Route(\"api/search\")]\npublic class SearchController : ControllerBase\n{\n\
+                 \x20   [HttpGet]\n\
+                 \x20   public IActionResult Find([FromQuery] string q,\n\
+                 \x20           [FromQuery(Name = \"page_size\")] int size,\n\
+                 \x20           [FromBody] ItemRequest body) => Ok();\n}\n",
+            )],
+        );
+        let fields = source.queries.get("Find").expect("stated");
+        assert!(fields.contains_key("q"), "{:?}", fields.keys());
+        assert!(
+            fields.contains_key("page_size") && !fields.contains_key("size"),
+            "Name = overrides the parameter name: {:?}",
+            fields.keys()
+        );
+        assert!(
+            !fields.contains_key("body"),
+            "a [FromBody] parameter is not a query: {:?}",
+            fields.keys()
+        );
+        assert!(!fields["q"].required, "model binding never demands a query");
     }
 
     #[test]

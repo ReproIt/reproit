@@ -261,6 +261,7 @@ pub(super) fn collect_handler(
     file_vars: &BTreeMap<String, String>,
     handler_body: &mut BTreeMap<String, String>,
     handler_responses: &mut BTreeMap<String, ResponseFact>,
+    handler_queries: &mut BTreeMap<String, BTreeMap<String, FieldFact>>,
 ) {
     let Some(name) = grammar::field(node, text, "name") else {
         return;
@@ -271,6 +272,9 @@ pub(super) fn collect_handler(
     let mut locals: BTreeMap<String, String> = file_vars.clone();
     let mut bound: Option<String> = None;
     let mut responses = ResponseFact::default();
+    let mut queries: BTreeMap<String, FieldFact> = BTreeMap::new();
+    // Locals holding `r.URL.Query()`, so `q.Get("x")` reads as a query read.
+    let mut query_locals: BTreeSet<String> = BTreeSet::new();
     // `w.WriteHeader(status)` states the status of the NEXT body write; an
     // `Encode` with none pending is net/http's implicit 200.
     let mut pending_status: Option<u16> = None;
@@ -287,6 +291,9 @@ pub(super) fn collect_handler(
         "short_var_declaration" => {
             if let Some((local, ty)) = typed_short_declaration(inner, text) {
                 locals.insert(local, ty);
+            }
+            if let Some(local) = query_values_local(inner, text) {
+                query_locals.insert(local);
             }
         }
         "call_expression" => {
@@ -314,6 +321,7 @@ pub(super) fn collect_handler(
                     bound = ty.filter(|ty| !ty.is_empty());
                 }
             }
+            collect_query_call(inner, text, &callee, &args, &query_locals, &mut queries);
             collect_response_call(
                 inner,
                 text,
@@ -330,8 +338,96 @@ pub(super) fn collect_handler(
         handler_body.insert(name.clone(), ty);
     }
     if !responses.statuses.is_empty() {
-        handler_responses.insert(name, responses);
+        handler_responses.insert(name.clone(), responses);
     }
+    if !queries.is_empty() {
+        handler_queries.insert(name, queries);
+    }
+}
+
+/// A query-parameter read a handler body states.
+///
+/// One shape per router family, every one an explicit literal at the call
+/// site: gin's `c.Query("x")` / `c.DefaultQuery("x", d)` (fiber spells the
+/// first the same way), echo's `c.QueryParam("x")`, and net/http's
+/// `r.URL.Query().Get("x")`, chained or through a local. Every read is
+/// optional on the wire: each of these returns the empty string on absence,
+/// so naming the parameter is a fact and demanding it would not be.
+fn collect_query_call(
+    call: Node,
+    text: &str,
+    callee: &str,
+    args: &[Node],
+    query_locals: &BTreeSet<String>,
+    queries: &mut BTreeMap<String, FieldFact>,
+) {
+    if queries.len() >= MAX_FIELDS {
+        return;
+    }
+    let evidence = match callee {
+        "Query" | "DefaultQuery" | "QueryParam" if !args.is_empty() => {
+            format!("a {callee}(...) read in the handler")
+        }
+        "Get" if reads_url_query(call, text, query_locals) => {
+            "an r.URL.Query() read in the handler".to_string()
+        }
+        _ => return,
+    };
+    let Some(name) = args.first().filter(|first| {
+        matches!(
+            first.kind(),
+            "interpreted_string_literal" | "raw_string_literal"
+        )
+    }) else {
+        return;
+    };
+    let name = grammar::unquote(grammar::text(*name, text)).to_string();
+    if name.is_empty() {
+        return;
+    }
+    queries.entry(name).or_insert(FieldFact {
+        required: false,
+        evidence: Some(evidence),
+        ..FieldFact::default()
+    });
+}
+
+/// Whether a `.Get(...)` call's receiver is `X.Query()` or a local holding one.
+fn reads_url_query(call: Node, text: &str, query_locals: &BTreeSet<String>) -> bool {
+    let Some(function) = call.child_by_field_name("function") else {
+        return false;
+    };
+    let Some(receiver) = function.child_by_field_name("operand") else {
+        return false;
+    };
+    match receiver.kind() {
+        "call_expression" => {
+            receiver
+                .child_by_field_name("function")
+                .and_then(|inner| grammar::field(inner, text, "field"))
+                .as_deref()
+                == Some("Query")
+        }
+        "identifier" => query_locals.contains(grammar::text(receiver, text)),
+        _ => false,
+    }
+}
+
+/// `q := r.URL.Query()` -> `q`, the local the query values live in.
+fn query_values_local(node: Node, text: &str) -> Option<String> {
+    let mut left = Vec::new();
+    let mut right = Vec::new();
+    grammar::children(node.child_by_field_name("left")?, &mut left);
+    grammar::children(node.child_by_field_name("right")?, &mut right);
+    let ([name], [value]) = (left.as_slice(), right.as_slice()) else {
+        return None;
+    };
+    if value.kind() != "call_expression" {
+        return None;
+    }
+    let function = value.child_by_field_name("function")?;
+    (grammar::field(function, text, "field").as_deref() == Some("Query"))
+        .then(|| grammar::text(*name, text).to_string())
 }
 
 /// The response-writing calls a handler body states.
@@ -470,6 +566,59 @@ fn value_shape(node: Node, text: &str, locals: &BTreeMap<String, String>) -> Wir
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn read_source(case: &str, body: &str) -> super::super::grammar::SourceRead {
+        let root =
+            std::env::temp_dir().join(format!("reproit-goquery-{}-{case}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("root");
+        std::fs::write(root.join("main.go"), body).expect("write");
+        let source = super::super::go_ast::read(&root);
+        let _ = std::fs::remove_dir_all(&root);
+        source
+    }
+
+    #[test]
+    fn every_go_router_family_names_its_query_reads() {
+        let source = read_source(
+            "queries",
+            "package main\n\
+             func ginSearch(c *gin.Context) {\n\
+             \tq := c.Query(\"q\")\n\
+             \tpage := c.DefaultQuery(\"page\", \"1\")\n\
+             \t_ = q + page\n\
+             }\n\
+             func echoSearch(c echo.Context) error {\n\
+             \treturn c.String(200, c.QueryParam(\"term\"))\n\
+             }\n\
+             func plainSearch(w http.ResponseWriter, r *http.Request) {\n\
+             \tdirect := r.URL.Query().Get(\"direct\")\n\
+             \tvalues := r.URL.Query()\n\
+             \tvia := values.Get(\"via\")\n\
+             \t_ = r.Header.Get(\"X-Not-A-Query\")\n\
+             \t_ = direct + via\n\
+             }\n\
+             func main() {\n\
+             \tr.GET(\"/gin\", ginSearch)\n\
+             \te.GET(\"/echo\", echoSearch)\n\
+             \tmux.HandleFunc(\"GET /plain\", plainSearch)\n\
+             }\n",
+        );
+        let gin = source.queries.get("ginSearch").expect("stated");
+        assert!(gin.contains_key("q") && gin.contains_key("page"), "{gin:?}");
+        assert!(!gin["q"].required, "an empty-string default is no demand");
+        let echoed = source.queries.get("echoSearch").expect("stated");
+        assert!(echoed.contains_key("term"), "{echoed:?}");
+        let plain = source.queries.get("plainSearch").expect("stated");
+        assert!(
+            plain.contains_key("direct") && plain.contains_key("via"),
+            "chained and local-bound reads both count: {plain:?}"
+        );
+        assert!(
+            !plain.contains_key("X-Not-A-Query"),
+            "a header read is not a query read: {plain:?}"
+        );
+    }
 
     #[test]
     fn go_types_state_their_wire_shapes() {
