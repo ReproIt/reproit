@@ -71,9 +71,30 @@ pub(crate) fn infer(root: &Path, framework: &str) -> Inference {
         "aspnet" => dotnet_recipe(root),
         "spring" => spring_recipe(root),
         "rails" => rails_recipe(root),
+        "sinatra" => sinatra_recipe(root),
         "laravel" => php_recipe(root),
         _ => Inference::None,
     }
+}
+
+/// Sinatra: a rackup config is the canonical entry; a classic single-file app
+/// takes its bind and port as flags. Neither present means no honest guess.
+fn sinatra_recipe(root: &Path) -> Inference {
+    if root.join("config.ru").is_file() {
+        return recipe(
+            None,
+            "bundle exec rackup -o 127.0.0.1 -p ${PORT:-4567}".to_string(),
+            "config.ru".to_string(),
+        );
+    }
+    if root.join("app.rb").is_file() {
+        return recipe(
+            None,
+            "bundle exec ruby app.rb -o 127.0.0.1 -p ${PORT:-4567}".to_string(),
+            "the classic Sinatra app (app.rb)".to_string(),
+        );
+    }
+    Inference::None
 }
 
 /// Go: `go run .` when the module root is the main package, else the single
@@ -139,20 +160,47 @@ fn dotnet_recipe(root: &Path) -> Inference {
 }
 
 /// Spring Boot through the repo's own wrapper when present, so the exec runs
-/// on the toolchain the repo pins.
+/// on the toolchain the repo pins. Repos routinely commit the wrapper without
+/// its exec bit (git mode 100644), which exits 126 as `./mvnw`; running it
+/// through `sh` works in both modes.
 fn spring_recipe(root: &Path) -> Inference {
     let (exec, evidence) = if root.join("gradlew").is_file() {
-        ("./gradlew bootRun", "the Gradle wrapper")
+        (
+            wrapper_command(root, "gradlew", "bootRun"),
+            "the Gradle wrapper",
+        )
     } else if root.join("mvnw").is_file() {
-        ("./mvnw spring-boot:run", "the Maven wrapper")
+        (
+            wrapper_command(root, "mvnw", "spring-boot:run"),
+            "the Maven wrapper",
+        )
     } else if root.join("pom.xml").is_file() {
-        ("mvn spring-boot:run", "pom.xml")
+        ("mvn spring-boot:run".to_string(), "pom.xml")
     } else {
-        ("gradle bootRun", "the Gradle build file")
+        ("gradle bootRun".to_string(), "the Gradle build file")
     };
     // bootRun/spring-boot:run take the port from the application config, not
     // the environment; the silent-port fallback adopts the bound port.
-    recipe(None, exec.to_string(), evidence.to_string())
+    recipe(None, exec, evidence.to_string())
+}
+
+fn wrapper_command(root: &Path, wrapper: &str, task: &str) -> String {
+    if is_executable(&root.join(wrapper)) {
+        format!("./{wrapper} {task}")
+    } else {
+        format!("sh ./{wrapper} {task}")
+    }
+}
+
+#[cfg(unix)]
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).is_ok_and(|meta| meta.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable(_path: &Path) -> bool {
+    true
 }
 
 fn rails_recipe(root: &Path) -> Inference {
@@ -579,13 +627,35 @@ mod tests {
             "ASPNETCORE_URLS=http://127.0.0.1:${PORT:-5000} dotnet run --project src/Web/Web.csproj"
         );
 
+        // The fixture wrapper has no exec bit, the common upstream defect,
+        // so the recipe must route it through sh.
         let spring = expect_recipe(&[("gradlew", ""), ("build.gradle", "")], "spring");
-        assert_eq!(spring.exec, "./gradlew bootRun");
+        assert_eq!(spring.exec, "sh ./gradlew bootRun");
 
         let rails = expect_recipe(&[("Gemfile", "gem \"rails\"\n")], "rails");
         assert_eq!(
             rails.exec,
             "bundle exec rails server -b 127.0.0.1 -p ${PORT:-3000}"
+        );
+
+        let sinatra = expect_recipe(
+            &[("Gemfile", "gem 'sinatra'\n"), ("config.ru", "run App\n")],
+            "sinatra",
+        );
+        assert_eq!(
+            sinatra.exec,
+            "bundle exec rackup -o 127.0.0.1 -p ${PORT:-4567}"
+        );
+        let classic = expect_recipe(
+            &[
+                ("Gemfile", "gem 'sinatra'\n"),
+                ("app.rb", "require 'sinatra'\n"),
+            ],
+            "sinatra",
+        );
+        assert_eq!(
+            classic.exec,
+            "bundle exec ruby app.rb -o 127.0.0.1 -p ${PORT:-4567}"
         );
 
         let laravel = expect_recipe(&[("artisan", "")], "laravel");

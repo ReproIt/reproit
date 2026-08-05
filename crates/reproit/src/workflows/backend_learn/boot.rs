@@ -218,7 +218,8 @@ pub(crate) async fn auto_target(
             };
             ctx.say(format!(
                 "  `{}` exited ({status}) before serving {path}{tail}\n  continuing \
-                 without live enrichment (pass --target <url> to enrich)",
+                 without live enrichment (fix the command and rerun with --exec \
+                 \"<command>\", or start the service and pass --target <url>)",
                 recipe.exec
             ));
             return None;

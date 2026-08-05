@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "init-boot-recipe-hardening",
+  "changeType": "feature",
+  "detail": "Field-test hardening of boot recipe inference. Sinatra gets a recipe row: rackup for a config.ru repo, ruby app.rb for a classic app, abstention otherwise. Spring wrappers committed without their exec bit (git mode 100644, a common upstream defect that exits 126) run through sh. The exited-before-serving message now names --exec as the fix path alongside --target. Proven live by OSS field tests: bezkoder/spring-boot-h2-database-crud enriched 7 of 7 operations through sh ./mvnw after the bare wrapper failed, and JoeDiTrolio/DotNet-8-Crud-Web-API-Example proved the dotnet row 3 of 5 zero-config.",
+  "evidence": [
+    {
+      "path": "crates/reproit/src/workflows/backend_learn/boot_recipe.rs",
+      "sha256": "sha256:0f631e77c51fb01a0e1ee4c205c522ad339ae061dea608739bc0f79766a6f04e"
+    }
+  ]
+}
