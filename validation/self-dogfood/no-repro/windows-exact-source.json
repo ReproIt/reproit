@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "windows-exact-source",
+  "detail": "The Windows collector rejected an unchanged archive because host Git settings changed its status result. It also sent the archive through a slow text conversion. The collector now ignores host line-ending and file-mode settings during the exact-source check. It copies the binary archive through the Linux host. SHA-256 checks protect both transfer steps. The regression test checks these source invariants.",
+  "test": "validation/causal/test_windows_remote.py",
+  "command": [
+    "python3",
+    "validation/causal/test_windows_remote.py"
+  ],
+  "timeoutSeconds": 30,
+  "affectedExitCode": 1,
+  "affectedEvidence": [
+    {
+      "path": "validation/self-dogfood/evidence/windows-exact-source.log",
+      "sha256": "sha256:2fc06e45d6fb07ade8e3a5efb68960fc347b4786e567e38eb598b54d2aa1c3e6"
+    }
+  ]
+}

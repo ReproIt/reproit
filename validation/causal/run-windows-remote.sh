@@ -18,7 +18,10 @@ fi
 SHORT_COMMIT="${COMMIT:0:12}"
 mkdir -p "$OUTPUT_DIR"
 WORK="$(mktemp -d)"
+LINUX_SOURCE_ARCHIVE=".cache/reproit-windows-validation/source-$SHORT_COMMIT-$$.tar.gz"
 cleanup() {
+  ssh "$GATEWAY" \
+    "ssh $LINUX_HOST 'rm -f $LINUX_SOURCE_ARCHIVE'" >/dev/null 2>&1 || true
   if [[ "${REPROIT_WINDOWS_KEEP_WORK:-0}" == "1" ]]; then
     echo "Windows collector work retained: $WORK" >&2
     return
@@ -63,9 +66,22 @@ if ! ssh "$GATEWAY" \
   ssh "$GATEWAY" ssh "$LINUX_HOST" bash winlab/gwait.sh
 fi
 
-# The exact commit may not be published yet. Upload the clean local checkout
-# instead of making native validation depend on an external Git host.
-UPLOAD_COMMAND="$(python3 - "$SHORT_COMMIT" <<'PY'
+# The exact commit may not be published yet. Copy the clean local checkout
+# through the Linux host. The direct guest copy preserves binary source bytes.
+ssh "$GATEWAY" \
+  "ssh $LINUX_HOST 'mkdir -p .cache/reproit-windows-validation && \
+cat > $LINUX_SOURCE_ARCHIVE'" <"$SOURCE_ARCHIVE"
+REMOTE_SOURCE_SHA256="$(ssh "$GATEWAY" \
+  "ssh $LINUX_HOST 'sha256sum $LINUX_SOURCE_ARCHIVE'" | awk '{print $1}')"
+if [[ "$REMOTE_SOURCE_SHA256" != "$SOURCE_ARCHIVE_SHA256" ]]; then
+  echo "Linux source archive digest mismatch" >&2
+  exit 2
+fi
+ssh "$GATEWAY" \
+  "ssh $LINUX_HOST 'scp -q -i $GUEST_KEY -P $GUEST_PORT \
+$LINUX_SOURCE_ARCHIVE $GUEST:source-$SHORT_COMMIT.tar.gz'"
+
+MOVE_COMMAND="$(python3 - "$SHORT_COMMIT" <<'PY'
 import base64
 import sys
 
@@ -76,19 +92,15 @@ $ownedRoot = "C:\lab"
 $sourceArchive = Join-Path $ownedRoot "source-{short_commit}.tar.gz"
 New-Item -ItemType Directory -Force $ownedRoot | Out-Null
 Remove-Item -Force $sourceArchive -ErrorAction SilentlyContinue
-$encoded = [Console]::In.ReadToEnd()
-[System.IO.File]::WriteAllBytes(
-    $sourceArchive,
-    [Convert]::FromBase64String($encoded)
-)
+Move-Item -Force (Join-Path $HOME "source-{short_commit}.tar.gz") $sourceArchive
 '''
 print(base64.b64encode(script.encode("utf-16le")).decode("ascii"))
 PY
 )"
-base64 <"$SOURCE_ARCHIVE" | ssh "$GATEWAY" \
+ssh "$GATEWAY" \
   ssh "$LINUX_HOST" \
   ssh -i "$GUEST_KEY" -p "$GUEST_PORT" "$GUEST" \
-  powershell.exe -NoProfile -NonInteractive -EncodedCommand "$UPLOAD_COMMAND"
+  powershell.exe -NoProfile -NonInteractive -EncodedCommand "$MOVE_COMMAND"
 
 cat > "$WORK/run.ps1" <<POWERSHELL
 \$ErrorActionPreference = "Stop"
@@ -144,7 +156,8 @@ try {
     Set-Location \$checkout
     \$actual = (& \$git rev-parse HEAD).Trim()
     if (\$actual -ne \$commit) { throw "exact commit mismatch: \$actual" }
-    if (& \$git status --porcelain) { throw "exact checkout has local changes" }
+    \$status = & \$git -c core.autocrlf=false -c core.filemode=false status --porcelain
+    if (\$status) { throw "exact checkout has local changes: \$status" }
 
     \$batchText = @"
 @echo off

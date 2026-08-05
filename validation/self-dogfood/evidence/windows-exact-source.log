@@ -1,0 +1,5 @@
+The Windows collector rejected an unchanged source archive as dirty.
+The Windows Git settings treated LF files and executable bits as changes.
+The collector now disables both host conversions for its exact-source check.
+The collector also copies the binary archive through the Linux host.
+The archive digest check protects both transfer steps.

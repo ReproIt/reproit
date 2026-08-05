@@ -20,9 +20,16 @@ class WindowsRemoteContractTests(unittest.TestCase):
         source = COLLECTOR.read_text(encoding="utf-8")
         self.assertIn("MAX_SOURCE_ARCHIVE_BYTES", source)
         self.assertIn('shasum -a 256 "$SOURCE_ARCHIVE"', source)
+        self.assertIn("scp -q", source)
+        self.assertIn("Join-Path $HOME", source)
         self.assertIn("Get-FileHash -Algorithm SHA256", source)
-        self.assertIn("FromBase64String", source)
+        self.assertNotIn("FromBase64String", source)
         self.assertIn("tar.exe -xzf", source)
+
+    def test_windows_git_checks_ignore_host_conversion_settings(self) -> None:
+        source = COLLECTOR.read_text(encoding="utf-8")
+        self.assertIn("core.autocrlf=false", source)
+        self.assertIn("core.filemode=false", source)
 
     def test_does_not_depend_on_published_source(self) -> None:
         source = COLLECTOR.read_text(encoding="utf-8")
