@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "imported-diagnostics-ledger",
+  "detail": "The protocol renamed a diagnostics capability but removed its ledger claim. The fail-closed validator found the missing claim. The claim now describes capture, compilation, replay, evidence, and blockers. The regression test checks the source-neutral capability directly.",
+  "test": "validation/capabilities/test_check.py",
+  "command": [
+    "python3",
+    "validation/capabilities/test_check.py"
+  ],
+  "timeoutSeconds": 30,
+  "affectedExitCode": 1,
+  "affectedEvidence": [
+    {
+      "path": "validation/self-dogfood/evidence/imported-diagnostics-ledger.log",
+      "sha256": "sha256:d715450e598525ab55235f1eb1f7c08533c33733f0821f1446760517f073fad5"
+    }
+  ]
+}

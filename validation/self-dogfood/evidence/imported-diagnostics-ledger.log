@@ -1,0 +1,8 @@
+CI run 30965889919 failed the Rust job at commit 5b1337b60f53.
+
+The capability check reported this error:
+
+capability ledger: capability drift: missing=['imported-diagnostics'], extra=[]
+
+The protocol renamed the open-telemetry capability to imported-diagnostics.
+The same change removed the old ledger claim without adding its replacement.

@@ -153,6 +153,21 @@
       ]
     },
     {
+      "id": "imported-diagnostics",
+      "capture": "adapter-specific",
+      "compiler": "complete",
+      "replay": "command-provider",
+      "provider": "authored command adapter",
+      "evidence": [
+        "crates/reproit-protocol/src/capture.rs",
+        "crates/reproit-protocol/src/capture_compiler.rs",
+        "crates/reproit-protocol/src/tests.rs"
+      ],
+      "blockers": [
+        "imported diagnostics can prove topology but need replay payloads and effect-specific completion evidence"
+      ]
+    },
+    {
       "id": "jobs",
       "capture": "adapter-specific",
       "compiler": "partial",
@@ -317,19 +332,19 @@
   ],
   "summary": {
     "capture": {
-      "adapter-specific": 11,
+      "adapter-specific": 12,
       "complete": 1,
       "modeled-only": 4,
       "partial": 4,
       "unavailable": 1
     },
     "compiler": {
-      "complete": 18,
+      "complete": 19,
       "partial": 3
     },
     "replay": {
       "adapter-specific": 4,
-      "command-provider": 17
+      "command-provider": 18
     }
   }
 }

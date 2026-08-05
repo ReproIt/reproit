@@ -25,6 +25,12 @@ class CapabilityLedgerTests(unittest.TestCase):
     def test_current_ledger_is_complete_and_honest(self) -> None:
         report = MODULE.validate(self.ledger)
         self.assertEqual(report["capabilities"], 22)
+        claims = {claim["id"]: claim for claim in self.ledger["claims"]}
+        self.assertEqual(claims["imported-diagnostics"]["capture"], "adapter-specific")
+        self.assertEqual(claims["imported-diagnostics"]["compiler"], "complete")
+        self.assertEqual(
+            claims["imported-diagnostics"]["replay"], "command-provider"
+        )
 
     def test_new_protocol_capability_cannot_be_silently_omitted(self) -> None:
         original = MODULE.protocol_capabilities
