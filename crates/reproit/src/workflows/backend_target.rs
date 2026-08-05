@@ -214,7 +214,9 @@ pub(super) async fn ensure_live_target(
     if surface.declares_server_url {
         return Ok(false);
     }
-    let Some(auto) = boot::auto_target(ctx, root, surface.probe_path.as_deref()).await else {
+    let recipe = crate::workflows::backend_learn::boot_recipe::inferred(root);
+    let verify_paths: Vec<String> = surface.probe_path.clone().into_iter().collect();
+    let Some(auto) = boot::auto_target(ctx, root, &verify_paths, recipe.as_ref()).await else {
         return Ok(false);
     };
     std::env::set_var("REPROIT_BACKEND_URL", &auto.url);

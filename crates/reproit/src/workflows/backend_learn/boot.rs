@@ -3,10 +3,11 @@
 //! Two sources, in order. A server already listening on a conventional dev
 //! port is trusted ONLY after one derived route answers with something other
 //! than 404: a port belonging to a different project must never enrich this
-//! one. When nothing matching is running, the package.json `start`/`dev`
-//! script is booted on a private port, awaited within a hard readiness
-//! budget, and torn down on every exit path (the group kill lives in Drop,
-//! so an error or early return cannot leak the server).
+//! one. When nothing matching is running, the inferred boot recipe
+//! (`boot_recipe.rs`) is built (bounded) and booted on a private port,
+//! awaited within a hard readiness budget, and torn down on every exit path
+//! (the group kill lives in Drop, so an error or early return cannot leak
+//! the server).
 //!
 //! A server this module booted itself can also serve as a RESET mechanism:
 //! a full process restart returns the service to its declared starting state,
@@ -16,6 +17,7 @@
 //! so the backend executor can reach it without threading a handle through
 //! every replay signature.
 
+use super::boot_recipe::BootRecipe;
 use crate::interface::cli::context::Ctx;
 use anyhow::{bail, Context as _, Result};
 use std::path::{Path, PathBuf};
@@ -32,6 +34,10 @@ const READY_BUDGET: Duration = Duration::from_secs(20);
 const READY_POLL: Duration = Duration::from_millis(250);
 /// How long each of TERM and KILL may take before shutdown gives up waiting.
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
+/// Hard cap on a pre-launch build step (a cold `cargo build` is minutes).
+const BUILD_BUDGET: Duration = Duration::from_secs(600);
+/// How much build stderr a failure report keeps.
+const BUILD_TAIL_BYTES: usize = 2048;
 
 /// A live target resolved without flags. `server` is Some only when the caller
 /// booted the process itself and must tear it down after its run.
@@ -72,20 +78,41 @@ fn probe_client() -> Option<reqwest::Client> {
         .ok()
 }
 
-/// Scan the conventional dev ports for a server passing the two-signal match
-/// on `path`. Returns the matched port (if any) plus the ports that were
-/// silent, the only acceptable fallback addresses for a boot whose start
-/// script ignores `PORT`.
-async fn scan_conventional_ports(client: &reqwest::Client, path: &str) -> (Option<u16>, Vec<u16>) {
+/// Scan the conventional dev ports for a server matching this repo. Trust
+/// requires EVERY given verify path to answer with something other than 404
+/// plus the nonce answering 404. One path was not enough: with `/` as the
+/// only signal, an unrelated dev server on a scanned port was adopted as the
+/// target and its responses recorded as observed. Returns the matched port
+/// (if any) plus the ports that were silent, the only acceptable fallback
+/// addresses for a boot whose command ignores `PORT`.
+async fn scan_conventional_ports(
+    client: &reqwest::Client,
+    paths: &[String],
+) -> (Option<u16>, Vec<u16>) {
     let mut silent = Vec::new();
-    for port in CONVENTIONAL_PORTS {
-        match probe_status(client, port, path).await {
+    let Some(first) = paths.first() else {
+        return (None, silent);
+    };
+    'ports: for port in CONVENTIONAL_PORTS {
+        match probe_status(client, port, first).await {
             None => silent.push(port),
             // Occupied by something that does not serve this repo's routes:
             // never trusted, and never reused as a boot fallback either.
             Some(404) => {}
-            Some(_) if nonce_is_absent(client, port).await => return (Some(port), silent),
-            Some(_) => {}
+            Some(_) => {
+                for path in &paths[1..] {
+                    let answered = matches!(
+                        probe_status(client, port, path).await,
+                        Some(status) if status != 404
+                    );
+                    if !answered {
+                        continue 'ports;
+                    }
+                }
+                if nonce_is_absent(client, port).await {
+                    return (Some(port), silent);
+                }
+            }
         }
     }
     (None, silent)
@@ -99,8 +126,8 @@ async fn scan_conventional_ports(client: &reqwest::Client, path: &str) -> (Optio
 pub(crate) enum AutoTargetPlan {
     /// A server already answering the verify path with the two-signal match.
     Running(u16),
-    /// The package.json script (`start` or `dev`) a run would boot.
-    Boot(String),
+    /// The inferred boot command a run would build and boot.
+    Boot { exec: String, evidence: String },
 }
 
 pub(crate) async fn auto_target_plan(
@@ -112,24 +139,33 @@ pub(crate) async fn auto_target_plan(
     // so no plan may be promised.
     let path = verify_path?;
     if let Some(client) = probe_client() {
-        if let (Some(port), _) = scan_conventional_ports(&client, path).await {
+        let paths = [path.to_string()];
+        if let (Some(port), _) = scan_conventional_ports(&client, &paths).await {
             return Some(AutoTargetPlan::Running(port));
         }
     }
-    start_script(root).map(|(name, _)| AutoTargetPlan::Boot(name))
+    super::boot_recipe::inferred(root).map(|recipe| AutoTargetPlan::Boot {
+        exec: recipe.exec,
+        evidence: recipe.evidence,
+    })
 }
 
 /// Resolve a live target with zero flags, or None (with the reason said) when
-/// nothing can be trusted. `verify_path` is a derived parameterless GET route;
-/// with none there is nothing to verify against and nothing worth probing.
+/// nothing can be trusted. `verify_paths` are derived parameterless GET
+/// routes, most distinctive first; with none there is nothing to verify
+/// against and nothing worth probing. All of them must answer before an
+/// already-running server is trusted; the first alone awaits a boot this run
+/// owns. `recipe` is the boot candidate to try when no matching server is
+/// running; None (nothing inferable, or an ambiguous choice) skips the boot.
 pub(crate) async fn auto_target(
     ctx: &Ctx,
     root: &Path,
-    verify_path: Option<&str>,
+    verify_paths: &[String],
+    recipe: Option<&BootRecipe>,
 ) -> Option<AutoTarget> {
-    let path = verify_path?;
+    let path = verify_paths.first()?;
     let client = probe_client()?;
-    let (matched, silent) = scan_conventional_ports(&client, path).await;
+    let (matched, silent) = scan_conventional_ports(&client, verify_paths).await;
     if let Some(port) = matched {
         ctx.say(format!(
             "  found a server on port {port} answering {path} (it matches the \
@@ -142,28 +178,48 @@ pub(crate) async fn auto_target(
             server: None,
         });
     }
-    let (name, command) = start_script(root)?;
+    let recipe = recipe?;
+    if let Some(build) = &recipe.build {
+        ctx.say(format!("  build step: {build}"));
+        if let Err(error) = run_build(root, build).await {
+            ctx.say(format!(
+                "  {error:#}; continuing without live enrichment (pass --target <url> \
+                 to enrich)"
+            ));
+            return None;
+        }
+    }
     let port = free_port()?;
-    let mut server = match BootedServer::spawn(root, &command, port) {
+    let mut server = match BootedServer::spawn(root, &recipe.boot, port) {
         Ok(server) => server,
         Err(error) => {
             ctx.say(format!(
-                "  could not boot the package.json `{name}` script ({error}); continuing \
-                 without live enrichment (pass --target <url> to enrich)"
+                "  could not boot `{}` ({error}); continuing without live enrichment \
+                 (pass --target <url> to enrich)",
+                recipe.exec
             ));
             return None;
         }
     };
     ctx.say(format!(
-        "  booting the package.json `{name}` script on port {port} to observe responses \
-         (torn down when this run completes; override with --target <url>)"
+        "  booting `{}` (from {}) on port {port} to observe responses \
+         (torn down when this run completes; override with --target <url>)",
+        recipe.exec, recipe.evidence
     ));
+    let source = format!("booted from {}", recipe.evidence);
     let started = Instant::now();
     while started.elapsed() < READY_BUDGET {
         if let Some(status) = server.exited() {
+            let tail = server.stderr_tail();
+            let tail = if tail.is_empty() {
+                String::new()
+            } else {
+                format!(":\n    {}", tail.replace('\n', "\n    "))
+            };
             ctx.say(format!(
-                "  the `{name}` script exited ({status}) before serving {path}; continuing \
-                 without live enrichment (pass --target <url> to enrich)"
+                "  `{}` exited ({status}) before serving {path}{tail}\n  continuing \
+                 without live enrichment (pass --target <url> to enrich)",
+                recipe.exec
             ));
             return None;
         }
@@ -172,11 +228,11 @@ pub(crate) async fn auto_target(
         if probe_status(&client, port, path).await.is_some() {
             return Some(AutoTarget {
                 url: format!("http://127.0.0.1:{port}"),
-                source: format!("booted from the package.json `{name}` script"),
+                source,
                 server: Some(server),
             });
         }
-        // The script may ignore PORT. A conventional port is accepted as the
+        // The command may ignore PORT. A conventional port is accepted as the
         // boot's address only if it was silent before this boot started and
         // now passes the same two-signal route match as a running server.
         for &fallback in &silent {
@@ -187,7 +243,29 @@ pub(crate) async fn auto_target(
             if answered && nonce_is_absent(&client, fallback).await {
                 return Some(AutoTarget {
                     url: format!("http://127.0.0.1:{fallback}"),
-                    source: format!("booted from the package.json `{name}` script"),
+                    source,
+                    server: Some(server),
+                });
+            }
+        }
+        // A hardcoded bind outside the conventional set (`:3333` and friends)
+        // is still discoverable: the booted process group's own listening
+        // sockets are ground truth, and ownership is not in question because
+        // the group is ours. The derived route must still answer with
+        // something other than 404, so a metrics or debug port is never
+        // adopted as the service.
+        for fallback in group_listening_ports(server.process_id) {
+            if fallback == port {
+                continue;
+            }
+            let answered = matches!(
+                probe_status(&client, fallback, path).await,
+                Some(status) if status != 404
+            );
+            if answered {
+                return Some(AutoTarget {
+                    url: format!("http://127.0.0.1:{fallback}"),
+                    source,
                     server: Some(server),
                 });
             }
@@ -195,37 +273,78 @@ pub(crate) async fn auto_target(
         tokio::time::sleep(READY_POLL).await;
     }
     ctx.say(format!(
-        "  the `{name}` script did not serve {path} within {}s; continuing without live \
+        "  `{}` did not serve {path} within {}s; continuing without live \
          enrichment (pass --target <url> to enrich)",
+        recipe.exec,
         READY_BUDGET.as_secs()
     ));
     None
 }
 
-/// The boot command `reproit init` records as `backend.exec`, so hermetic
-/// replay of an occurrence or a kept guard needs no `--exec` flag. This is
-/// exactly the command bare init already boots for live enrichment, so the
-/// recorded recipe is the one this machine proved it can start, not a guess.
-/// None when nothing is inferable; the config field is then simply absent and
-/// `--exec` remains the way in.
-pub(crate) fn inferred_exec(root: &Path) -> Option<String> {
-    let (name, _) = start_script(root)?;
-    Some(format!("npm run {name}"))
-}
-
-/// The package.json script bare init may boot: `start` first, then `dev`.
-fn start_script(root: &Path) -> Option<(String, String)> {
-    let raw = std::fs::read_to_string(root.join("package.json")).ok()?;
-    let parsed: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    let scripts = parsed.get("scripts")?.as_object()?;
-    for name in ["start", "dev"] {
-        if let Some(command) = scripts.get(name).and_then(serde_json::Value::as_str) {
-            if !command.trim().is_empty() {
-                return Some((name.to_string(), command.to_string()));
-            }
+/// Run a bounded pre-launch build step, keeping only the stderr tail on
+/// failure. The child is killed if the budget expires (kill_on_drop).
+async fn run_build(root: &Path, command: &str) -> Result<()> {
+    let mut spawned = shell_command(command);
+    spawned
+        .current_dir(root)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(BUILD_BUDGET, spawned.output()).await;
+    match output {
+        Err(_) => bail!(
+            "the build step `{command}` exceeded {}s",
+            BUILD_BUDGET.as_secs()
+        ),
+        Ok(Err(error)) => Err(error).context("spawning the build step"),
+        Ok(Ok(output)) if output.status.success() => Ok(()),
+        Ok(Ok(output)) => {
+            let tail_start = output.stderr.len().saturating_sub(BUILD_TAIL_BYTES);
+            bail!(
+                "the build step `{command}` failed ({}): {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr[tail_start..]).trim()
+            )
         }
     }
-    None
+}
+
+/// TCP ports the booted process group is listening on, read from lsof. The
+/// group id is the root child pid (it was placed in its own group at spawn),
+/// so this sees exactly the processes this run owns: the discovery that
+/// rescues a server whose bind address is hardcoded in its source. Empty on
+/// any failure or off unix; adoption then simply does not happen.
+#[cfg(unix)]
+fn group_listening_ports(process_group: u32) -> Vec<u16> {
+    let output = std::process::Command::new("lsof")
+        .args([
+            "-a",
+            "-g",
+            &process_group.to_string(),
+            "-iTCP",
+            "-sTCP:LISTEN",
+            "-P",
+            "-n",
+            "-Fn",
+        ])
+        .stdin(std::process::Stdio::null())
+        .output();
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    let mut ports: Vec<u16> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.strip_prefix('n'))
+        .filter_map(|name| name.rsplit(':').next())
+        .filter_map(|port| port.parse().ok())
+        .collect();
+    ports.sort_unstable();
+    ports.dedup();
+    ports
+}
+
+#[cfg(not(unix))]
+fn group_listening_ports(_process_group: u32) -> Vec<u16> {
+    Vec::new()
 }
 
 /// An OS-assigned free port, so a temporary boot never fights another
@@ -246,10 +365,19 @@ pub(crate) struct BootedServer {
     root: PathBuf,
     command: String,
     port: u16,
+    /// Where the child's stderr lands, so a boot that dies before serving can
+    /// say WHY (its last lines) instead of only its exit status.
+    stderr_path: PathBuf,
 }
 
 impl BootedServer {
     fn spawn(root: &Path, command: &str, port: u16) -> Result<Self> {
+        let stderr_path = std::env::temp_dir().join(format!(
+            "reproit-boot-stderr-{}-{port}.log",
+            std::process::id()
+        ));
+        let stderr_file =
+            std::fs::File::create(&stderr_path).context("creating the boot stderr log")?;
         let mut spawned = shell_command(command);
         spawned
             .current_dir(root)
@@ -257,7 +385,7 @@ impl BootedServer {
             .env("PATH", path_with_node_bin(root))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::process::Stdio::from(stderr_file))
             .kill_on_drop(true);
         configure_process_group(&mut spawned);
         let child = spawned.spawn().context("spawning the start script")?;
@@ -268,11 +396,22 @@ impl BootedServer {
             root: root.to_path_buf(),
             command: command.to_string(),
             port,
+            stderr_path,
         })
     }
 
     fn exited(&mut self) -> Option<std::process::ExitStatus> {
         self.child.try_wait().ok().flatten()
+    }
+
+    /// The last stderr lines the child wrote, for the exited-before-serving
+    /// report. Empty when nothing was written or the log is unreadable.
+    fn stderr_tail(&self) -> String {
+        let Ok(bytes) = std::fs::read(&self.stderr_path) else {
+            return String::new();
+        };
+        let start = bytes.len().saturating_sub(BUILD_TAIL_BYTES);
+        String::from_utf8_lossy(&bytes[start..]).trim().to_string()
     }
 
     /// Orderly teardown: TERM the group, then KILL it, each waited briefly.
@@ -402,6 +541,7 @@ impl Drop for BootedServer {
         // kill_on_drop reaps the direct child; the group signal reaches any
         // grandchildren a shell start script left behind.
         signal_group(self.process_id, true);
+        let _ = std::fs::remove_file(&self.stderr_path);
     }
 }
 

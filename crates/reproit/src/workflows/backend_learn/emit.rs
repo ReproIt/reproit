@@ -157,10 +157,14 @@ fn push_responses(
         let seen = observed.filter(|observation| observation.status == status);
         match (stated, seen) {
             (Some((handler, shape)), seen) => {
-                let also = if seen.is_some() {
-                    "; also observed live during init"
+                // A status the live probe saw is observed, whether or not the
+                // source also stated it: the tag must agree with the comment,
+                // or the same block claims both at once. The inferred types
+                // still carry the schema.
+                let (also, provenance) = if seen.is_some() {
+                    ("; also observed live during init", Provenance::Observed)
                 } else {
-                    ""
+                    ("", Provenance::Inferred)
                 };
                 out.push_str(&format!(
                     "        # inferred from `{handler}` return types in source{also}\n"
@@ -169,7 +173,7 @@ fn push_responses(
                     "        \"{status}\":\n          description: inferred from the \
                      handler's return types; verify before relying on it\n          \
                      x-reproit-provenance: {}\n",
-                    Provenance::Inferred.as_str()
+                    provenance.as_str()
                 ));
                 push_inferred_body(out, shape, serializers);
             }

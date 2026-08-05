@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "init-boot-recipe-inference",
+  "changeType": "feature",
+  "detail": "reproit init now infers, builds, boots, and verifies a boot recipe for every supported backend ecosystem, not only Node. A new inference table (boot_recipe.rs) produces the candidate command per family: cargo run for the single server binary in a Rust workspace, uvicorn/flask/manage.py with lockfile-or-.venv wrapping for Python, go run for the root or single cmd main, dotnet run for the single web project, the Gradle or Maven wrapper for Spring, bin/rails server, and php artisan serve. A tie between candidates abstains and prints the choices plus the exact reproit init --exec rerun. The boot path gained a bounded build step, discovery of a hardcoded listen port through the booted process group's own sockets, and a stderr tail when a boot dies before serving. Trust of an already-running server now requires every distinctive derived route to answer, after a field test showed an unrelated dev server on a scanned port being adopted as the target. backend.exec is recorded uncommented only when the same run proved the command end to end; an unproven inference is written as a commented suggestion. Field-validated by subagents against real OSS repos: axum, chi, FastAPI, Flask, Django, and express, each ending in a proven recorded exec with no leaked processes.",
+  "evidence": [
+    {
+      "path": "crates/reproit/src/workflows/backend_learn/boot_recipe.rs",
+      "sha256": "sha256:bd76efbae5b807e03d0e06489e245e19230443333d02a4c3339cbeb01cd1485d"
+    },
+    {
+      "path": "crates/reproit/src/workflows/backend_learn/boot.rs",
+      "sha256": "sha256:93a5e14b418d61dad05b8d125e561dccb603c24cf40e02003ce796b24c0a9f91"
+    },
+    {
+      "path": "crates/reproit/src/workflows/init_command.rs",
+      "sha256": "sha256:4d1aee27d34f61a7f8e5c97c5e8fd67910e172c0a4bc13f24bb201e39a9aac77"
+    }
+  ]
+}

@@ -635,7 +635,7 @@ fn zero_derived_routes_still_scaffolds_an_empty_draft() {
     let ctx = crate::interface::cli::context::Ctx::default();
     let code = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(super::run(&ctx, &dir, None, false))
+        .block_on(super::run(&ctx, &dir, None, None, false))
         .unwrap();
     assert_eq!(
         format!("{code:?}"),
@@ -823,7 +823,7 @@ fn init_derives_only_for_an_unset_up_backend() {
 
     let bare = project(&[manifest, server]);
     assert!(
-        crate::workflows::init_command::needs_derivation(&bare),
+        crate::workflows::init_command::needs_derivation(&bare, false),
         "a backend with no schema and no config is the case that should just work"
     );
 
@@ -837,7 +837,14 @@ fn init_derives_only_for_an_unset_up_backend() {
         ),
     ]);
     assert!(!crate::workflows::init_command::needs_derivation(
-        &with_schema
+        &with_schema,
+        false
+    ));
+    // A hand-written schema (no x-reproit-derived marker) stays a real
+    // contract under --force too.
+    assert!(!crate::workflows::init_command::needs_derivation(
+        &with_schema,
+        true
     ));
 
     // Configured under a name no conventional lookup finds. Deriving here would
@@ -855,13 +862,15 @@ fn init_derives_only_for_an_unset_up_backend() {
         ),
     ]);
     assert!(
-        !crate::workflows::init_command::needs_derivation(&configured),
+        !crate::workflows::init_command::needs_derivation(&configured, false),
         "an initialized project must never have its contract re-derived"
     );
 
     // A frontend is owned by the web workflow.
     let frontend = project(&[("package.json", "{\"dependencies\":{\"react\":\"^18\"}}")]);
-    assert!(!crate::workflows::init_command::needs_derivation(&frontend));
+    assert!(!crate::workflows::init_command::needs_derivation(
+        &frontend, false
+    ));
 
     for dir in [bare, with_schema, configured, frontend] {
         let _ = std::fs::remove_dir_all(dir);

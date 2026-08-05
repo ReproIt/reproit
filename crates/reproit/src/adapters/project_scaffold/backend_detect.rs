@@ -205,11 +205,34 @@ fn dotnet_root_marker(dir: &Path) -> Option<&'static str> {
 }
 
 fn nested_dotnet_web_project(dir: &Path, depth: usize, remaining: &mut usize) -> bool {
-    if depth > MAX_DOTNET_PROJECT_DEPTH || *remaining == 0 {
-        return false;
+    let mut found = Vec::new();
+    collect_dotnet_web_projects(dir, depth, remaining, true, &mut found);
+    !found.is_empty()
+}
+
+/// Every web-SDK project file under a root, bounded like detection. Boot
+/// recipe inference uses the full list: one project is a recipe, several are
+/// a question the user answers.
+pub(crate) fn dotnet_web_project_paths(dir: &Path) -> Vec<PathBuf> {
+    let mut remaining = MAX_DOTNET_PROJECT_SCAN;
+    let mut found = Vec::new();
+    collect_dotnet_web_projects(dir, 0, &mut remaining, false, &mut found);
+    found.sort();
+    found
+}
+
+fn collect_dotnet_web_projects(
+    dir: &Path,
+    depth: usize,
+    remaining: &mut usize,
+    first_only: bool,
+    found: &mut Vec<PathBuf>,
+) {
+    if depth > MAX_DOTNET_PROJECT_DEPTH || *remaining == 0 || (first_only && !found.is_empty()) {
+        return;
     }
     let Ok(entries) = std::fs::read_dir(dir) else {
-        return false;
+        return;
     };
     let mut candidates: Vec<PathBuf> = entries
         .filter_map(Result::ok)
@@ -228,19 +251,16 @@ fn nested_dotnet_web_project(dir: &Path, depth: usize, remaining: &mut usize) ->
         .collect();
     candidates.sort();
     for path in candidates {
-        if *remaining == 0 {
-            return false;
+        if *remaining == 0 || (first_only && !found.is_empty()) {
+            return;
         }
         *remaining -= 1;
         if path.is_dir() {
-            if nested_dotnet_web_project(&path, depth + 1, remaining) {
-                return true;
-            }
+            collect_dotnet_web_projects(&path, depth + 1, remaining, first_only, found);
         } else if is_dotnet_web_project(&path) {
-            return true;
+            found.push(path);
         }
     }
-    false
 }
 
 /// Whether a solution root groups nested web projects but is not one itself.
@@ -329,7 +349,7 @@ pub fn detect_backend_framework(dir: &Path) -> Option<BackendFramework> {
     go_backend(dir)
 }
 
-fn manifest(dir: &Path, name: &str) -> Option<String> {
+pub(super) fn manifest(dir: &Path, name: &str) -> Option<String> {
     let path = dir.join(name);
     let small = std::fs::metadata(&path)
         .ok()
@@ -367,7 +387,7 @@ fn detect_cargo_framework(dir: &Path) -> Option<&'static str> {
 
 /// Member directories declared by a workspace root, with a single trailing `*`
 /// expanded one level. Deterministic (sorted) and bounded.
-fn workspace_members(cargo: &str, root: &Path) -> Vec<PathBuf> {
+pub(super) fn workspace_members(cargo: &str, root: &Path) -> Vec<PathBuf> {
     let Some(list) = workspace_member_list(cargo) else {
         return Vec::new();
     };
@@ -414,7 +434,7 @@ fn workspace_member_list(cargo: &str) -> Option<Vec<String>> {
     )
 }
 
-fn cargo_framework(cargo: &str) -> Option<&'static str> {
+pub(super) fn cargo_framework(cargo: &str) -> Option<&'static str> {
     ["axum", "actix-web", "rocket", "warp"]
         .into_iter()
         .find(|name| declares_dependency(cargo, name))

@@ -854,7 +854,7 @@ fn a_gap_is_always_phrased_as_the_next_input() {
     for (relative, needle, why) in [
         (
             "src/workflows/doctor/backend.rs",
-            "boots the package.json",
+            "itself and tears it down after the run",
             "with no explicit target, doctor states the plan find executes rather \
              than demanding a flag",
         ),

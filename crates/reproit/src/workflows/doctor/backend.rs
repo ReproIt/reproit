@@ -192,14 +192,14 @@ pub(super) async fn doctor_backend(
                     );
                     adapter_checks(&mut checks, &url, document.as_ref(), &project.root).await;
                 }
-                Some(boot::AutoTargetPlan::Boot(script)) => doctor_push(
+                Some(boot::AutoTargetPlan::Boot { exec, evidence }) => doctor_push(
                     &mut checks,
                     "target",
                     true,
                     true,
                     format!(
-                        "no explicit target; `reproit find` boots the package.json \
-                         `{script}` script itself and tears it down after the run \
+                        "no explicit target; `reproit find` boots `{exec}` (from \
+                         {evidence}) itself and tears it down after the run \
                          (override with --target <url>, REPROIT_BACKEND_URL, or \
                          backend.target)"
                     ),

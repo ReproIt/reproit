@@ -307,6 +307,11 @@ pub(crate) enum Cmd {
         /// records the observed response.
         #[arg(long = "target", value_name = "SERVICE_URL")]
         learn_target: Option<String>,
+        /// Boot command for live enrichment when init cannot infer one (or
+        /// infers several). Run via `sh -c` with PORT set; once it serves a
+        /// derived route it is recorded as backend.exec.
+        #[arg(long, value_name = "COMMAND")]
+        exec: Option<String>,
         /// Replace existing generated scaffold files.
         #[arg(long)]
         force: bool,

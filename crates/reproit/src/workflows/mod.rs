@@ -116,8 +116,9 @@ where
             target,
             platform,
             learn_target,
+            exec,
             force,
-        } => init_command::run(&ctx, target, platform, learn_target, force).await,
+        } => init_command::run(&ctx, target, platform, learn_target, exec, force).await,
         Cmd::Find(args) => find_command::run(&ctx, cli.config.as_deref(), args).await,
         // `check`: run saved repros and classify each pass/fail/flaky/stale (the
         // four-outcome CI contract). With no name, runs the whole suite and

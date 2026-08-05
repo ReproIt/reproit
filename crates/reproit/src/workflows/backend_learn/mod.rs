@@ -15,7 +15,8 @@ use std::path::Path;
 use std::process::ExitCode;
 
 pub(super) mod boot;
-pub(crate) use boot::inferred_exec;
+pub(crate) mod boot_recipe;
+pub(crate) use boot_recipe::suggested_exec as inferred_exec;
 mod discovery;
 mod django_urls;
 mod dotnet_ast;
@@ -57,6 +58,7 @@ pub(super) async fn run(
     ctx: &Ctx,
     root: &Path,
     target_flag: Option<&str>,
+    exec_flag: Option<&str>,
     force: bool,
 ) -> Result<ExitCode> {
     // Deriving one schema from a root that holds several services merges their
@@ -151,28 +153,68 @@ pub(super) async fn run(
 
     // Live enrichment. A --target flag or REPROIT_BACKEND_URL wins; with
     // neither, init resolves a target itself: a verified already-running
-    // server, or a bounded boot of the package.json start script (torn down
+    // server, or a bounded build-and-boot of the inferred recipe (torn down
     // after the probe pass on every exit path).
     let env = std::env::var("REPROIT_BACKEND_URL").ok();
     let target = super::backend_target::pick_target(target_flag, env.as_deref(), None);
-    let verify_path: Option<String> = derived
+    // Every parameterless GET route is a verify signal, most distinctive
+    // first: `/` answers on nearly any server, so a match on it alone says
+    // nothing about whose server it is. Capped at three to bound the scan.
+    let mut verify_paths: Vec<String> = derived
         .routes
         .iter()
-        .find(|(path, methods)| methods.contains("get") && !path.contains('{'))
-        .map(|(path, _)| path.clone());
+        .filter(|(path, methods)| methods.contains("get") && !path.contains('{'))
+        .map(|(path, _)| path.clone())
+        .collect();
+    verify_paths.sort_by_key(|path| std::cmp::Reverse(path.len()));
+    verify_paths.truncate(3);
+    // The boot candidate: a --exec flag is the user's answer and wins; with
+    // none, inference reads the manifests, and a tie is said out loud with
+    // the exact rerun instead of guessed at.
+    let recipe = match exec_flag {
+        Some(exec) => Some(boot_recipe::BootRecipe {
+            build: None,
+            exec: exec.to_string(),
+            boot: exec.to_string(),
+            evidence: "your --exec flag".to_string(),
+        }),
+        None => match boot_recipe::infer(root, framework.name) {
+            boot_recipe::Inference::Recipe(recipe) => Some(recipe),
+            boot_recipe::Inference::Ambiguous { candidates, hint } => {
+                ctx.say(format!(
+                    "  {hint}; init will not guess which one to boot:\n{}\n  rerun with \
+                     the winner, e.g. `reproit init --exec {:?}`",
+                    candidates
+                        .iter()
+                        .map(|candidate| format!("    {candidate}"))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                    candidates[0]
+                ));
+                None
+            }
+            boot_recipe::Inference::None => None,
+        },
+    };
     let mut booted = None;
+    // The exec recorded in reproit.yaml, set only after a boot this run
+    // proved it serves the derived routes.
+    let mut proven_exec = None;
     let resolved = match target {
         Some((url, source)) => {
             super::backend_target::validate_target_url(url)?;
             // A user-named target is worth recording as backend.target.
             Some((url.to_string(), source.to_string(), true))
         }
-        None => match boot::auto_target(ctx, root, verify_path.as_deref()).await {
+        None => match boot::auto_target(ctx, root, &verify_paths, recipe.as_ref()).await {
             Some(auto) => {
                 // An init-booted server dies with init, so its ephemeral URL
                 // must not be recorded as the project's target. A verified
                 // already-running server is the user's own and is recorded.
                 let record = auto.server.is_none();
+                if auto.server.is_some() {
+                    proven_exec = recipe.as_ref().map(|recipe| recipe.exec.clone());
+                }
                 booted = auto.server;
                 Some((auto.url, auto.source, record))
             }
@@ -251,8 +293,15 @@ pub(super) async fn run(
         DRAFT_SCHEMA_NAME,
         &yaml,
         target_url.as_deref(),
+        proven_exec.as_deref(),
         force,
     )?;
+    if let Some(exec) = &proven_exec {
+        ctx.say(format!(
+            "  recorded backend.exec (`{exec}`): this run built, booted, and verified \
+             it, so replay needs no --exec flag"
+        ));
+    }
     // The counts repeat the derivation line's own scheme (operations on
     // paths); a second scheme here ("N routes") misread as a contradiction.
     ctx.say(format!(
@@ -276,7 +325,7 @@ pub(super) async fn run(
 /// said why derivation came up empty; this names the exact next input.
 fn scaffold_empty(ctx: &Ctx, root: &Path, force: bool) -> Result<ExitCode> {
     let yaml = project_scaffold::empty_draft_schema(root);
-    project_scaffold::init_backend_learned(root, DRAFT_SCHEMA_NAME, &yaml, None, force)?;
+    project_scaffold::init_backend_learned(root, DRAFT_SCHEMA_NAME, &yaml, None, None, force)?;
     ctx.say("\n  reproit initialized with an EMPTY draft schema (0 routes derived).");
     ctx.say(format!(
         "  1. add the routes your service serves to {DRAFT_SCHEMA_NAME} (paths, methods, \

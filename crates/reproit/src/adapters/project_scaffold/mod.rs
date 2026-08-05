@@ -8,6 +8,7 @@ use regex::Regex;
 use std::path::Path;
 
 pub mod backend_detect;
+pub(crate) mod cargo_bins;
 
 #[cfg(test)]
 mod tests;
@@ -253,13 +254,17 @@ fn init_backend(dir: &Path, config: &Path, force: bool) -> Result<bool> {
             .unwrap_or(&schema)
             .to_string_lossy()
             .into_owned();
-        write(config, &backend_config(&relative, None, dir)?, force)?;
+        write(config, &backend_config(&relative, None, dir, None)?, force)?;
         return Ok(false);
     }
     // No schema and nothing derivable: scaffold the shape anyway. An empty
     // draft the user can fill beats an error whose only action is a flag.
     write(&dir.join(EMPTY_DRAFT_NAME), &empty_draft_schema(dir), force)?;
-    write(config, &backend_config(EMPTY_DRAFT_NAME, None, dir)?, force)?;
+    write(
+        config,
+        &backend_config(EMPTY_DRAFT_NAME, None, dir, None)?,
+        force,
+    )?;
     Ok(true)
 }
 
@@ -314,22 +319,39 @@ pub fn backend_schema_guide(dir: &Path) -> String {
     }
 }
 
-fn backend_config(schema_relative: &str, target: Option<&str>, dir: &Path) -> Result<String> {
+fn backend_config(
+    schema_relative: &str,
+    target: Option<&str>,
+    dir: &Path,
+    proven_exec: Option<&str>,
+) -> Result<String> {
     let relative = serde_json::to_string(schema_relative)?;
     let target = match target {
         Some(target) => format!("  target: {}\n", serde_json::to_string(target)?),
         None => String::new(),
     };
-    // The boot command for hermetic replay. Recording it here is what makes
+    // The boot command for hermetic replay. Recording it is what makes
     // `reproit occ_<id>` and a kept guard run without `--exec`; the flag
-    // stays as the override. Absent when nothing was inferable, so the
-    // config never claims a command this machine has not started.
-    let exec = match crate::workflows::inferred_backend_exec(dir) {
+    // stays as the override. Only a command this init run built, booted, and
+    // verified is recorded as `exec:`. An inference that was never booted is
+    // written as a commented suggestion, so the config never claims a
+    // command this machine has not started.
+    let exec = match proven_exec {
         Some(command) => format!(
-            "  # Boot command for hermetic replay; --exec overrides it.\n  exec: {}\n",
-            serde_json::to_string(&command)?
+            "  # Boot command for hermetic replay; --exec overrides it.\n  \
+             # Proved by `reproit init`: built, booted, and served a derived route.\n  \
+             exec: {}\n",
+            serde_json::to_string(command)?
         ),
-        None => String::new(),
+        None => match crate::workflows::inferred_backend_exec(dir) {
+            Some(command) => format!(
+                "  # Inferred boot command, not yet proven on this machine. Uncomment\n  \
+                 # after checking it, or run `reproit init --exec \"<command>\"`.\n  \
+                 # exec: {}\n",
+                serde_json::to_string(&command)?
+            ),
+            None => String::new(),
+        },
     };
     Ok(format!(
         "# Reproit backend config. The schema owns structural contracts.\n\
@@ -381,7 +403,7 @@ pub fn init_backend_url(
     println!("  write {}", snapshot.display());
     write(
         &config,
-        &backend_config(snapshot_name, Some(target_origin), dir)?,
+        &backend_config(snapshot_name, Some(target_origin), dir, None)?,
         force,
     )?;
     ensure_gitignore(dir)?;
@@ -400,6 +422,7 @@ pub fn init_backend_learned(
     schema_name: &str,
     schema_yaml: &str,
     target: Option<&str>,
+    proven_exec: Option<&str>,
     force: bool,
 ) -> Result<()> {
     let config = dir.join("reproit.yaml");
@@ -412,7 +435,11 @@ pub fn init_backend_learned(
     }
     std::fs::write(&schema, schema_yaml)?;
     println!("  write {} (derived draft)", schema.display());
-    write(&config, &backend_config(schema_name, target, dir)?, force)?;
+    write(
+        &config,
+        &backend_config(schema_name, target, dir, proven_exec)?,
+        force,
+    )?;
     ensure_gitignore(dir)
 }
 

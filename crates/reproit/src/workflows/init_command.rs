@@ -11,20 +11,33 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::Duration;
 
-/// Whether this directory is an un-set-up backend with no schema, which is the
-/// one case where the only useful thing `init` can do is read the source.
+/// Whether this directory is a backend whose useful init is reading the
+/// source: no schema yet, or only artifacts a prior init derived itself.
 ///
 /// An existing `reproit.yaml` disqualifies it even when no conventional schema
 /// file is present, because that config may declare schemas under other names.
 /// Deriving over a project that already has a contract would replace a real one
 /// with a draft, which is the opposite of helpful.
 ///
+/// `--force` re-enters derivation over reproit's OWN outputs (the config, and
+/// a schema marked `x-reproit-derived`), so a rerun with a corrected `--exec`
+/// is not a silent no-op. A hand-written schema is a real contract; force
+/// never rederives over it.
+///
 /// A UI project is left alone: the web and mobile workflows own those, and a
 /// repo holding both must not have its frontend init hijacked.
-pub(crate) fn needs_derivation(root: &Path) -> bool {
-    project_scaffold::backend_detect::detect_backend_framework(root).is_some()
-        && project_scaffold::detect_backend_schema(root).is_none()
-        && !root.join("reproit.yaml").exists()
+pub(crate) fn needs_derivation(root: &Path, force: bool) -> bool {
+    if project_scaffold::backend_detect::detect_backend_framework(root).is_none() {
+        return false;
+    }
+    match project_scaffold::detect_backend_schema(root) {
+        Some(schema) => force && is_derived_draft(&schema),
+        None => force || !root.join("reproit.yaml").exists(),
+    }
+}
+
+fn is_derived_draft(schema: &Path) -> bool {
+    std::fs::read_to_string(schema).is_ok_and(|content| content.contains("x-reproit-derived: true"))
 }
 
 /// Schemas beyond this size are rejected rather than truncated.
@@ -36,6 +49,7 @@ pub(super) async fn run(
     target: Option<String>,
     platform: Option<String>,
     learn_target: Option<String>,
+    exec: Option<String>,
     force: bool,
 ) -> Result<ExitCode> {
     let root = std::env::current_dir()?;
@@ -45,8 +59,15 @@ pub(super) async fn run(
     // to go hand-write an OpenAPI document while the reader could produce a
     // draft from their code in the time the message took to print, and it did
     // not even mention the flag that does it.
-    if target.is_none() && backend_platform && needs_derivation(&root) {
-        return super::backend_learn::run(ctx, &root, learn_target.as_deref(), force).await;
+    if target.is_none() && backend_platform && needs_derivation(&root, force) {
+        return super::backend_learn::run(
+            ctx,
+            &root,
+            learn_target.as_deref(),
+            exec.as_deref(),
+            force,
+        )
+        .await;
     }
     let Some(target) = target else {
         project_scaffold::init(&root, platform.as_deref(), force)?;
