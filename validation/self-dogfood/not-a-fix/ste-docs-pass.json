@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "ste-docs-pass",
+  "changeType": "maintenance",
+  "detail": "Rewrite the prose added by the check-is-the-ci-gate change into ASD-STE100 Simplified Technical English, per the founder's standing writing rule (now recorded in the global agent instructions): short active sentences, no semicolons, one name per thing. Touched files: docs/ci.md, docs/cli.md, docs/decisions/self-dogfood.md, DOGFOOD-STATUS.md, and the corpus-step comment in ci.yml. No workflow step, command, or code changed. The ci-enforcement verifier still passes because the step name and dispatch line are unchanged.",
+  "evidence": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "sha256:59a9ba71e5093a542250189629e78946678ad14dd1fcb8935f4541b65b0d9e82"
+    },
+    {
+      "path": "docs/ci.md",
+      "sha256": "sha256:1a882fce6477b85420ad27aa89a52c589701bedca86a73c7c7a640191971fd4b"
+    },
+    {
+      "path": "docs/cli.md",
+      "sha256": "sha256:bf7951851d16d8c6afe9285aa0fc5107bb733e697a19cfddb85ed8b7d10b91fb"
+    },
+    {
+      "path": "validation/self-dogfood/DOGFOOD-STATUS.md",
+      "sha256": "sha256:39db48d73ad3adad670a0da421b9be5fff26e45e26d40cb006e2fcd14f48dedc"
+    }
+  ]
+}

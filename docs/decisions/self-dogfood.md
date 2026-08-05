@@ -125,14 +125,14 @@ replacement must be present in the required corpus and therefore replay in CI.
 
 ## Guard execution order in CI
 
-The complete required corpus runs before merge and again on direct pushes,
-through the product path a customer copies: plain `reproit check`. The suite
-enumerates `.reproit/repros` fail-closed (a malformed or routeless guard fails
-the run), replays every guard with `gate.runs` from `.reproit/reproit.yaml`,
-blocks on required guards while quarantined ones report without blocking, and
-reports an environment-gated guard as not applicable rather than passed. The
-wrapper script this replaced (`run-required-guards.py`) died when its four
-honesty checks moved into the product.
+The complete required corpus runs before merge and again on direct pushes. The
+dispatch is the product path a customer copies: plain `reproit check`. The
+suite enumerates `.reproit/repros` and fails closed. A malformed or routeless
+guard fails the run. Each guard replays with `gate.runs` from
+`.reproit/reproit.yaml`. Required guards block. Quarantined guards report
+without blocking. An environment-gated guard reports as not applicable, never
+as a pass. This replaced the wrapper script `run-required-guards.py`. The
+wrapper died when its four honesty checks moved into the product.
 
 ```sh
 target/debug/reproit check

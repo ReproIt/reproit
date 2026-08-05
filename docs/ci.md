@@ -25,15 +25,15 @@ verdict.
 Repeat count and the device matrix come from the `gate:` section of reproit.yaml, so the CI step
 stays one line and the policy stays reviewable in the repo.
 
-A new guard lands **quarantined**: it runs and reports but does not block until its first green
-run. That is what stops a freshly recorded guard from breaking the build on the commit that adds
-it. `keep --strict` skips quarantine for a guard you want blocking immediately.
+A new guard lands **quarantined**. It runs and reports, but it does not block until its first
+green run. That is what stops a freshly recorded guard from breaking the build on the commit
+that adds it. `keep --strict` skips quarantine for a guard you want blocking immediately.
 
-A guard can declare a typed environment requirement (`requires` in its meta.json, e.g.
-`{"os": ["linux"]}` for an LD_PRELOAD replay). On a host where the requirement does not hold the
-guard is reported **not applicable**, loudly, and never counts as a pass; it blocks only where it
-actually runs. The suite enumeration itself is fail-closed: a malformed guard directory fails the
-run rather than silently dropping out of it.
+A guard can declare a typed environment requirement (`requires` in its meta.json, for example
+`{"os": ["linux"]}` for an LD_PRELOAD replay). When the requirement does not hold on a host,
+`check` reports the guard as **not applicable**. A not-applicable guard never counts as a pass.
+It blocks only where it runs. The suite enumeration fails closed. A malformed guard directory
+fails the run. It cannot silently drop out of the run.
 
 ### More than one service in a repo
 

@@ -115,11 +115,11 @@ Infrastructure failures and different-failure results are reported separately in
 Read the `outcome` field, not the exit code alone, when you need to tell them apart.
 
 Repeat count and the device matrix come from the `gate:` section of reproit.yaml, not from flags.
-The suite enumeration is fail-closed: a malformed guard directory fails the run instead of
-dropping out of it, and a guard whose typed environment requirement (`requires` in its meta.json,
-e.g. a linux-only replay shim) does not hold on this host is reported not applicable, loudly,
-never as a pass. Headless behavior is automatic for CI, agents, and scripts (non-TTY, `--json`,
-`--yes`).
+The suite enumeration fails closed. A malformed guard directory fails the run. It cannot drop out
+of the run. A guard can declare a typed environment requirement (`requires` in its meta.json, for
+example a linux-only replay shim). When the requirement does not hold on this host, `check`
+reports the guard as not applicable. It never reports it as a pass. Headless behavior is
+automatic for CI, agents, and scripts (non-TTY, `--json`, `--yes`).
 
 `check <capture.json>` alone re-evaluates the captured events offline. `--exec` re-executes them:
 it boots the named command with `REPROIT_REPLAY` pointed at the capture, the SDK serves every
