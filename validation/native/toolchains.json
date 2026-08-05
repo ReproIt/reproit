@@ -14,6 +14,7 @@
     "androidArchitecture": "x86_64",
     "xcodeByProfile": {
       "macos-appium": "26.2",
+      "macos-appium-swiftui": "26.2",
       "macos-flutter": "26.2",
       "macos-ax": "26.2"
     }
@@ -36,13 +37,18 @@
       "python3",
       "node",
       "npm",
-      "cargo",
-      "rustc",
-      "rustup",
       "xcodebuild",
       "xcrun",
       "appium",
       "ffmpeg"
+    ],
+    "macos-appium-swiftui": [
+      "python3",
+      "node",
+      "npm",
+      "xcodebuild",
+      "xcrun",
+      "appium"
     ],
     "macos-flutter": ["python3", "cargo", "rustc", "rustup", "flutter", "xcodebuild", "xcrun"],
     "macos-ax": ["python3", "cargo", "rustc", "rustup", "swift", "xcodebuild", "xcrun"],

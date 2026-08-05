@@ -237,7 +237,7 @@
       "tier": "release",
       "timeoutSeconds": 3600,
       "resetStrategy": "fresh pinned release application on a disposable iPhone simulator",
-      "cleanupStrategy": "delete the simulator and remove generated application state",
+      "cleanupStrategy": "delete the simulator and temporary run state, keep the build cache",
       "requiredOutput": [
         "iOS simulator reset: created ",
         "EXPLORE:STATE ",
@@ -249,7 +249,7 @@
       "automation": {
         "mode": "required-ci",
         "workflow": ".github/workflows/native-gates.yml",
-        "job": "macos-swiftui"
+        "job": "macos-react-native"
       }
     },
     "compose-android": {
@@ -305,7 +305,7 @@
       "tier": "release",
       "timeoutSeconds": 1800,
       "resetStrategy": "create and boot a disposable iPhone simulator, then install a fresh app",
-      "cleanupStrategy": "delete the simulator and remove build and fuzz directories",
+      "cleanupStrategy": "delete the simulator and temporary fixture state, keep the WDA cache",
       "requiredOutput": [
         "iOS simulator reset: created ",
         "EXPLORE:STATE ",

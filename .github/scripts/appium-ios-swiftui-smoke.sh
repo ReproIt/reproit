@@ -97,19 +97,27 @@ fi
 echo "appium-ios-swiftui-smoke: simulator runtime iOS $IOS_VERSION"
 
 # Pinned bundleId (see appium-ios-smoke.sh header): XCUITest launches the
-# fixture and the crash oracle watches it stay foreground. The first session
-# builds WebDriverAgent from source, which dominates the runtime; the generous
-# wdaLaunchTimeout covers a cold CI runner, and the client-side connect timeout
-# must outlive the whole WDA build + retries or webdriverio aborts POST /session.
+# fixture and the crash oracle watches it stay foreground. A cold session builds
+# WebDriverAgent. CI restores that build and tells Appium to use it without a
+# rebuild. The client timeout covers the bounded cold build and its retries.
 export REPROIT_APPIUM_CONNECT_TIMEOUT_MS=1200000
 WDA_PORT="${REPROIT_WDA_PORT:-18200}"
+WDA_DERIVED_DATA="${REPROIT_WDA_DERIVED_DATA_PATH:-$BUILD_DIR/wda-derived}"
+WDA_BUILD_CAPABILITY=""
+if [[ "${REPROIT_WDA_USE_PREBUILT:-0}" == "1" ]]; then
+  WDA_BUILD_CAPABILITY='"appium:usePrebuiltWDA":true,'
+fi
+mkdir -p "$WDA_DERIVED_DATA"
 export REPROIT_APPIUM_CAPS
-printf -v REPROIT_APPIUM_CAPS '%s%s%s%s%s' \
+printf -v REPROIT_APPIUM_CAPS '%s' \
   '{"platformName":"iOS","appium:automationName":"XCUITest",' \
   "\"appium:platformVersion\":\"$IOS_VERSION\"," \
   "\"appium:udid\":\"$UDID\",\"appium:bundleId\":\"$BUNDLE_ID\"," \
-  "\"appium:noReset\":true,\"appium:newCommandTimeout\":600,\"appium:wdaLocalPort\":$WDA_PORT," \
-  '"appium:wdaLaunchTimeout":300000,"appium:wdaStartupRetries":2}'
+  "\"appium:noReset\":true,\"appium:newCommandTimeout\":600," \
+  "\"appium:wdaLocalPort\":$WDA_PORT,\"appium:derivedDataPath\":\"$WDA_DERIVED_DATA\"," \
+  "$WDA_BUILD_CAPABILITY" \
+  '"appium:useNewWDA":true,"appium:wdaLaunchTimeout":300000,' \
+  '"appium:wdaStartupRetries":2}'
 
 # A small map-mode budget keeps the walk to a handful of taps.
 FUZZ="$(mktemp)"

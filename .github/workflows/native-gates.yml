@@ -144,32 +144,154 @@ jobs:
 
   macos-swiftui:
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
+      - name: Configure cache paths
+        run: |
+          {
+            echo "APPIUM_HOME=$RUNNER_TEMP/reproit-appium-home"
+            echo "npm_config_cache=$RUNNER_TEMP/reproit-npm-cache"
+            echo "REPROIT_APPIUM_ROOT=$RUNNER_TEMP/reproit-appium"
+            echo "REPROIT_RN_RUNNER_MODULES=runners/rn/node_modules"
+            echo "REPROIT_WDA_DERIVED_DATA_PATH=$RUNNER_TEMP/reproit-wda-derived"
+          } >> "$GITHUB_ENV"
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-      - name: Install SwiftUI runner dependencies
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-          brew install ffmpeg@7
-          echo "$(brew --prefix ffmpeg@7)/bin" >> "$GITHUB_PATH"
-          npm ci --prefix runners/rn
-          npm install -g appium@3.5.2
-          appium driver install xcuitest@11.16.2
       - name: Select pinned Xcode
         run: sudo xcode-select --switch /Applications/Xcode_26.2.app/Contents/Developer
-      - run: python3 validation/native/preflight.py macos-appium
-      - name: Run SwiftUI and React Native through Appium
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/reproit-npm-cache
+          key: macos-${{ runner.arch }}-npm-node-24-v1
+          restore-keys: macos-${{ runner.arch }}-npm-
+      - name: Cache Appium and the XCUITest driver
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ runner.temp }}/reproit-appium
+            ${{ runner.temp }}/reproit-appium-home
+          key: macos-${{ runner.arch }}-appium-3.5.2-xcuitest-11.16.2-node-24-v1
+      - name: Cache React Native runner dependencies
+        uses: actions/cache@v6
+        with:
+          path: runners/rn/node_modules
+          key: >-
+            macos-${{ runner.arch }}-rn-runner-${{
+            hashFiles('runners/rn/package-lock.json') }}
+      - id: wda-cache
+        name: Cache WebDriverAgent build output
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/reproit-wda-derived
+          key: macos-${{ runner.arch }}-wda-xcode-26.2-xcuitest-11.16.2-v1
+      - name: Prepare cached Appium tools
+        run: bash .github/scripts/setup-macos-appium.sh
+      - run: python3 validation/native/preflight.py macos-appium-swiftui
+      - name: Run SwiftUI through Appium
         env:
           REPROIT_GATE_OUTPUT_DIR: ${{ runner.temp }}/native-gates
-        run: bash .github/scripts/run-swiftui-native-gate.sh
+          REPROIT_WDA_USE_PREBUILT: >-
+            ${{ steps.wda-cache.outputs.cache-hit == 'true' && '1' || '0' }}
+        run: python3 validation/backends/gate.py swiftui-ios
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: native-gates-macos-swiftui
+          path: ${{ runner.temp }}/native-gates
+          if-no-files-found: error
+
+  macos-react-native:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - name: Configure cache paths
+        run: |
+          {
+            echo "APPIUM_HOME=$RUNNER_TEMP/reproit-appium-home"
+            echo "CP_HOME_DIR=$RUNNER_TEMP/reproit-cocoapods"
+            echo "npm_config_cache=$RUNNER_TEMP/reproit-npm-cache"
+            echo "REPROIT_APPIUM_ROOT=$RUNNER_TEMP/reproit-appium"
+            echo "REPROIT_RN_IOS_CACHE_ROOT=$RUNNER_TEMP/reproit-rn-ios"
+            echo "REPROIT_RN_RUNNER_MODULES=runners/rn/node_modules"
+            echo "REPROIT_WDA_DERIVED_DATA_PATH=$RUNNER_TEMP/reproit-wda-derived"
+          } >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Select pinned Xcode
+        run: sudo xcode-select --switch /Applications/Xcode_26.2.app/Contents/Developer
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/reproit-npm-cache
+          key: macos-${{ runner.arch }}-npm-node-24-v1
+          restore-keys: macos-${{ runner.arch }}-npm-
+      - name: Cache CocoaPods downloads
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/reproit-cocoapods
+          key: macos-${{ runner.arch }}-cocoapods-rn-0.76.9-v1
+          restore-keys: macos-${{ runner.arch }}-cocoapods-
+      - name: Cache Appium and the XCUITest driver
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ runner.temp }}/reproit-appium
+            ${{ runner.temp }}/reproit-appium-home
+          key: macos-${{ runner.arch }}-appium-3.5.2-xcuitest-11.16.2-node-24-v1
+      - name: Cache React Native runner dependencies
+        uses: actions/cache@v6
+        with:
+          path: runners/rn/node_modules
+          key: >-
+            macos-${{ runner.arch }}-rn-runner-${{
+            hashFiles('runners/rn/package-lock.json') }}
+      - id: wda-cache
+        name: Cache WebDriverAgent build output
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/reproit-wda-derived
+          key: macos-${{ runner.arch }}-wda-xcode-26.2-xcuitest-11.16.2-v1
+      - id: rn-product-cache
+        name: Cache the compiled React Native application
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ runner.temp }}/reproit-rn-ios/product
+            ${{ runner.temp }}/reproit-rn-ios/.reproit-build-input
+          key: >-
+            macos-${{ runner.arch }}-rn-ios-xcode-26.2-rn-0.76.9-${{
+            hashFiles('validation/backends/run-react-native-ios.sh',
+            'fixtures/react-native-fixture/**') }}
+      - name: Cache the generated React Native application
+        if: steps.rn-product-cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/reproit-rn-ios/app
+          key: >-
+            macos-${{ runner.arch }}-rn-ios-project-cli-15.1.3-rn-0.76.9-v1
+      - name: Install the pinned FFmpeg version
+        run: |
+          export HOMEBREW_NO_AUTO_UPDATE=1
+          brew install ffmpeg@7
+          echo "$(brew --prefix ffmpeg@7)/bin" >> "$GITHUB_PATH"
+      - name: Prepare cached Appium tools
+        run: bash .github/scripts/setup-macos-appium.sh
+      - run: python3 validation/native/preflight.py macos-appium
+      - name: Run React Native through Appium
+        env:
+          REPROIT_GATE_OUTPUT_DIR: ${{ runner.temp }}/native-gates
+          REPROIT_WDA_USE_PREBUILT: >-
+            ${{ steps.wda-cache.outputs.cache-hit == 'true' && '1' || '0' }}
+        run: python3 validation/backends/gate.py react-native-ios
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: native-gates-macos-react-native
           path: ${{ runner.temp }}/native-gates
           if-no-files-found: error
 

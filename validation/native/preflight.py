@@ -78,16 +78,25 @@ def require_appium_driver(profile: str, pins: dict[str, object]) -> None:
         )
 
 
-def validate_versions(profile: str, pins: dict[str, object]) -> None:
-    if profile not in {"linux-containers", "windows-bridge"}:
+def validate_versions(
+    profile: str,
+    pins: dict[str, object],
+    required_commands: list[str],
+) -> None:
+    if "rustup" in required_commands:
         require_stable_rust()
-    if profile in {"linux-hosted", "android", "macos-appium"}:
+    if profile in {
+        "linux-hosted",
+        "android",
+        "macos-appium",
+        "macos-appium-swiftui",
+    }:
         node = output(["node", "--version"])
         if not re.match(rf"^v{pins['nodeMajor']}\.", node):
             raise ValueError(f"node major is not pinned to {pins['nodeMajor']}: {node}")
     if profile in {"android", "macos-flutter"}:
         require_version("Flutter", output(["flutter", "--version"]), str(pins["flutter"]))
-    if profile in {"android", "macos-appium"}:
+    if profile in {"android", "macos-appium", "macos-appium-swiftui"}:
         require_version("Appium", output(["appium", "--version"]), str(pins["appium"]))
         require_appium_driver(profile, pins)
     if profile == "macos-appium":
@@ -168,7 +177,7 @@ def main() -> int:
         raise ValueError(f"{args.profile} is missing prerequisites: {', '.join(missing)}")
     if args.require_ax_permission:
         require_ax_permission()
-    validate_versions(args.profile, manifest["pins"])
+    validate_versions(args.profile, manifest["pins"], manifest["profiles"][args.profile])
     print(f"native preflight passed: {args.profile}")
     return 0
 

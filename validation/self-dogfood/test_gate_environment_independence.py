@@ -36,10 +36,13 @@ ROOT = Path(__file__).resolve().parents[2]
 RN_BUNDLE = ROOT / "runners/rn/runner.mjs"
 PY_CONFTEST = ROOT / "sdk/reproit-backend-py/tests/conftest.py"
 WORKFLOW = ROOT / ".github/workflows/native-gates.yml"
+RELEASE_WORKFLOW = ROOT / ".github/workflows/release.yml"
 CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
 TAURI_DOCKERFILE = ROOT / "validation/backends/tauri.Dockerfile"
 TAURI_GATE = ROOT / "validation/backends/run-tauri.sh"
 REACT_NATIVE_IOS_GATE = ROOT / "validation/backends/run-react-native-ios.sh"
+SWIFTUI_IOS_GATE = ROOT / ".github/scripts/appium-ios-swiftui-smoke.sh"
+MACOS_APPIUM_SETUP = ROOT / ".github/scripts/setup-macos-appium.sh"
 ANDROID_HOST_TEST = ROOT / "sdk/reproit-android/run_host_test.sh"
 JAVA_CAPTURE_TEST = ROOT / (
     "sdk/reproit-backend-java/src/test/java/dev/reproit/backend/CaptureTest.java"
@@ -76,6 +79,42 @@ class GateEnvironmentIndependenceTests(unittest.TestCase):
         self.assertIn("for attempt in 1 2; do", gate)
         self.assertIn('grep -q \'"reason":"short-capture"\'', gate)
         self.assertIn("exhausted its bounded two-attempt budget", gate)
+
+    def test_ios_jobs_reuse_builds_without_reusing_simulator_state(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8", errors="replace")
+        release = RELEASE_WORKFLOW.read_text(encoding="utf-8", errors="replace")
+        react_native = REACT_NATIVE_IOS_GATE.read_text(encoding="utf-8")
+        swiftui = SWIFTUI_IOS_GATE.read_text(encoding="utf-8")
+        setup = MACOS_APPIUM_SETUP.read_text(encoding="utf-8")
+        jobs = dict(_jobs(workflow))
+
+        self.assertIn("macos-swiftui", jobs)
+        self.assertIn("macos-react-native", jobs)
+        self.assertIn("gate.py swiftui-ios", jobs["macos-swiftui"])
+        self.assertNotIn("gate.py react-native-ios", jobs["macos-swiftui"])
+        self.assertIn("gate.py react-native-ios", jobs["macos-react-native"])
+        self.assertGreaterEqual(workflow.count("actions/cache@v6"), 10)
+        self.assertIn("REPROIT_RN_IOS_CACHE_ROOT", workflow)
+        self.assertIn("REPROIT_WDA_DERIVED_DATA_PATH", workflow)
+        self.assertIn("outputs.cache-hit", workflow)
+        self.assertIn("native-gates-macos-react-native", release)
+
+        self.assertIn('CACHE_ROOT="${REPROIT_RN_IOS_CACHE_ROOT', react_native)
+        self.assertIn("React Native iOS Xcode product cache hit", react_native)
+        self.assertIn('PRODUCT_APP="$CACHE_ROOT/product/', react_native)
+        self.assertNotIn('-derivedDataPath "$WORK/derived"', react_native)
+        self.assertIn('"appium:usePrebuiltWDA":true', react_native)
+        self.assertIn('"appium:usePrebuiltWDA":true', swiftui)
+        self.assertIn("appium_cache_is_valid", setup)
+        self.assertIn("React Native runner dependency cache hit", setup)
+
+        # The workflow can cache tools and build output. The gate manifest must
+        # still wrap each application in a new simulator that it deletes.
+        self.assertEqual(workflow.count("with-ios-simulator.sh"), 0)
+        evidence = (ROOT / "validation/backends/evidence.json").read_text(
+            encoding="utf-8"
+        )
+        self.assertGreaterEqual(evidence.count("with-ios-simulator.sh"), 2)
 
     def test_the_rn_bundle_loads_without_the_appium_driver(self) -> None:
         bundle = RN_BUNDLE.read_text(encoding="utf-8", errors="replace")

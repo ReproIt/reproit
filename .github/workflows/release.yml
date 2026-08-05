@@ -127,6 +127,8 @@ jobs:
             --dir native/android
           gh run download "$selected_run" --name native-gates-macos-swiftui \
             --dir native/macos-swiftui
+          gh run download "$selected_run" --name native-gates-macos-react-native \
+            --dir native/macos-swiftui
           gh run download "$selected_run" --name native-gates-macos-flutter \
             --dir native/macos-flutter
       - name: Download private Windows UIA evidence bundle

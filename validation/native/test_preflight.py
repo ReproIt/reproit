@@ -62,15 +62,17 @@ class PreflightTest(unittest.TestCase):
         side_effect=["rustc 1.97.1 (abc)", "rustc 1.97.1 (abc)", "v24.9.0"],
     )
     def test_node_major_is_pinned(self, _output: object) -> None:
-        MODULE.validate_versions("linux-hosted", {"rustChannel": "stable", "nodeMajor": 24})
+        MODULE.validate_versions(
+            "linux-hosted",
+            {"rustChannel": "stable", "nodeMajor": 24},
+            ["rustup"],
+        )
 
     @patch.object(MODULE, "require_appium_driver")
     @patch.object(
         MODULE,
         "output",
         side_effect=[
-            "rustc 1.97.1 (abc)",
-            "rustc 1.97.1 (abc)",
             "v24.9.0",
             "Appium 3.5.2",
             "ffmpeg version 7.1.5 Copyright",
@@ -92,6 +94,33 @@ class PreflightTest(unittest.TestCase):
                 "xcodeByProfile": {"macos-appium": "26.2"},
                 "ffmpeg": "7.1.5",
             },
+            [],
+        )
+
+    @patch.object(MODULE, "require_appium_driver")
+    @patch.object(
+        MODULE,
+        "output",
+        side_effect=[
+            "v24.9.0",
+            "Appium 3.5.2",
+            "Xcode 26.2\nBuild version 17C52",
+        ],
+    )
+    def test_swiftui_appium_does_not_require_ffmpeg_or_rust(
+        self,
+        _output: object,
+        _require_appium_driver: object,
+    ) -> None:
+        MODULE.validate_versions(
+            "macos-appium-swiftui",
+            {
+                "nodeMajor": 24,
+                "appium": "3.5.2",
+                "appiumDrivers": {"xcuitest": "11.16.2"},
+                "xcodeByProfile": {"macos-appium-swiftui": "26.2"},
+            },
+            [],
         )
 
     @patch.object(MODULE.shutil, "which", return_value=None)
