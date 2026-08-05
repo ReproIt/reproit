@@ -49,7 +49,7 @@ pub(super) fn invalid_probes(domain: &ValueDomain, seed: u64, body_only: bool) -
 
 /// A value guaranteed to fall outside `domain`, or `None` when the domain has
 /// no definite type to violate (`Any`, compositions, and literals).
-fn wrong_typed_value(domain: &ValueDomain, seed: u64) -> Option<Value> {
+pub(super) fn wrong_typed_value(domain: &ValueDomain, seed: u64) -> Option<Value> {
     Some(match domain {
         ValueDomain::String { .. } => Value::from(seed.max(1)),
         ValueDomain::Null
@@ -191,9 +191,10 @@ pub(super) async fn probe_invalid_inputs(
 ) -> PassRun {
     let mut run = PassRun::default();
     for endpoint in endpoints {
-        // GraphQL rejects invalid variables inside a 200 envelope and gRPC
-        // rejections abort transport-side, so neither carries the HTTP
-        // accept/reject verdict these probes measure.
+        // gRPC rejections abort transport-side, so they do not carry the HTTP
+        // accept/reject verdict these probes measure. GraphQL rejects invalid
+        // variables inside a 200 envelope, so it is probed by
+        // `probe_graphql_invalid_inputs`, which reads that envelope.
         if endpoint.transport != Transport::Http || endpoint.response_field.is_some() {
             continue;
         }

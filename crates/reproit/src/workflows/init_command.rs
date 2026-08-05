@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 /// Whether this directory is a backend whose useful init is reading the
-/// source: no schema yet, or only artifacts a prior init derived itself.
+/// source: a schema still to derive, or only artifacts a prior init wrote.
 ///
 /// An existing `reproit.yaml` disqualifies it even when no conventional schema
 /// file is present, because that config may declare schemas under other names.
@@ -105,7 +105,7 @@ pub(super) async fn run(
                 Classified::Html => init_web_url(ctx, &root, &url, force)?,
                 Classified::Ambiguous => {
                     let attempted = if introspected {
-                        ", and a GraphQL introspection POST returned no schema either"
+                        ", and a GraphQL introspection POST did not answer with one either"
                     } else {
                         ""
                     };
@@ -136,7 +136,7 @@ struct Fetched {
     bytes: Vec<u8>,
 }
 
-/// GET the init URL and classify the body. When the GET finds no schema (a
+/// GET the init URL and classify the body. When the GET yields nothing usable (a
 /// fetch error, or an Ambiguous body) and the URL or --platform hints GraphQL,
 /// retry as an introspection POST: live GraphQL endpoints usually answer GET
 /// with an error status or a playground page. The bool reports whether an
@@ -151,7 +151,7 @@ async fn classify_url(url: &str, backend_only: bool) -> Result<(Classified, Vec<
             return match introspect_schema(url).await {
                 Some((classified, bytes)) => Ok((classified, bytes, true)),
                 None => Err(error.context(
-                    "a GraphQL introspection POST was also attempted and returned no schema",
+                    "a GraphQL introspection POST was also attempted and did not answer with a schema",
                 )),
             };
         }

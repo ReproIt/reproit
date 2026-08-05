@@ -204,16 +204,23 @@ pub(super) async fn invoke_traced(
             } else {
                 Value::String(String::from_utf8_lossy(&bytes).into_owned())
             };
-            let output = endpoint
-                .response_field
-                .as_ref()
-                .and_then(|field| raw_output.pointer(&format!("/data/{}", escape_pointer(field))))
-                .cloned()
-                .unwrap_or(raw_output);
-            return Ok((
-                evaluate_invocation(endpoint, &artifact, status, output),
-                adapter,
-            ));
+            // A GraphQL operation keeps its envelope: the rejection lives in
+            // `errors`, which the `data` unwrap below throws away. Every other
+            // transport carries its verdict in the HTTP status, so it pays no
+            // clone here.
+            let (output, envelope) = match endpoint.response_field.as_ref() {
+                Some(field) => (
+                    raw_output
+                        .pointer(&format!("/data/{}", escape_pointer(field)))
+                        .cloned()
+                        .unwrap_or_else(|| raw_output.clone()),
+                    raw_output,
+                ),
+                None => (raw_output, Value::Null),
+            };
+            let mut result = evaluate_invocation(endpoint, &artifact, status, output);
+            result.envelope = envelope;
+            return Ok((result, adapter));
         }
     }
     unreachable!("the final identity attempt always returns")
@@ -351,6 +358,7 @@ pub(super) fn evaluate_invocation(
     InvocationResult {
         status,
         output,
+        envelope: Value::Null,
         violations,
         events,
     }

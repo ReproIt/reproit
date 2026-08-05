@@ -133,6 +133,11 @@ pub(super) type FindingCase = (Endpoint, RequestArtifact, Vec<ReplayStep>, Value
 pub(super) struct InvocationResult {
     pub(super) status: u16,
     pub(super) output: Value,
+    /// The whole GraphQL response body (`{data, errors}`) for a GraphQL
+    /// operation, `Null` for every other transport. GraphQL reports a rejected
+    /// variable set inside a 200 body, so the invalid-input probes need the
+    /// envelope that the `data` unwrap in `output` discards.
+    pub(super) envelope: Value,
     pub(super) violations: Vec<BackendViolation>,
     pub(super) events: Vec<BackendEvent>,
 }

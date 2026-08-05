@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "graphql-invalid-probes",
+  "changeType": "feature",
+  "detail": "Invalid-input probing now covers GraphQL operations, which previously got schema import plus one happy-path call and nothing else. GraphQL reports rejection inside an HTTP 200, so the transport keeps the {data, errors} envelope and a pure verdict function classifies it: errors with null data is a rejection, data despite an invalid variable set is the accepted-invalid candidate, data plus errors is a partial that proves neither and never mints a finding. Probe generation produces wrong-type, out-of-domain enum, missing-required, and boundary classes per argument, round-robin interleaved under the existing per-operation cap, each candidate re-checked as provably out of domain. Mutation safety gating is unchanged. gRPC probing, GraphQL chaining, and GraphQL round-trip stay honestly skipped.",
+  "evidence": [
+    {
+      "path": "crates/reproit/src/workflows/backend_headless/graphql_probe.rs",
+      "sha256": "sha256:3711a931ff13d3edf7379751f5046660888740915aa2a0bc81ac4e69339c4316"
+    }
+  ]
+}

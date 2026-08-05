@@ -245,7 +245,9 @@ async fn run_target_with_policy(
         );
     }
     let probe_attempts = if fuzzing {
-        // Wrong-typed input probes plus their one-shot confirmations.
+        // Invalid-input probes plus their one-shot confirmations. Each
+        // endpoint is probed by exactly one pass (HTTP or GraphQL), so one
+        // per-endpoint budget covers both.
         endpoints
             .len()
             .checked_mul(MAX_INVALID_PROBES_PER_OPERATION * 2)
@@ -498,6 +500,15 @@ async fn run_target_with_policy(
         execution_errors.extend(probes.execution_errors);
         exercised += probes.exercised;
         rejected += probes.rejected;
+        // The same invalid-input classes over the GraphQL transport, where the
+        // rejection is an `errors` array inside a 200 rather than a 4xx.
+        let graphql = probe_graphql_invalid_inputs(&client, &ordered, &base_url, seed).await;
+        findings.extend(graphql.findings);
+        candidates.extend(graphql.candidates);
+        skipped.extend(graphql.skipped);
+        execution_errors.extend(graphql.execution_errors);
+        exercised += graphql.exercised;
+        rejected += graphql.rejected;
     }
 
     let findings = shrink_findings(&client, &base_url, findings).await?;
@@ -899,6 +910,8 @@ mod generation;
 #[cfg(test)]
 use generation::invalid_probes;
 use generation::{probe_invalid_inputs, sample_domain, MAX_INVALID_PROBES_PER_OPERATION};
+mod graphql_probe;
+use graphql_probe::probe_graphql_invalid_inputs;
 mod request;
 use request::build_request;
 mod transport;
