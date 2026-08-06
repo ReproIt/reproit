@@ -819,7 +819,7 @@ fn translate_legacy_event(event: &Event) -> CaptureEventKind {
                 observation: legacy_observation_kind(&identity.kind),
                 authority: ObservationAuthority::RuntimeDiagnosis,
                 summary: if message.is_empty() {
-                    "legacy SDK finding".into()
+                    "event telemetry finding".into()
                 } else {
                     message.clone()
                 },
@@ -830,7 +830,7 @@ fn translate_legacy_event(event: &Event) -> CaptureEventKind {
         },
         Event::StreamDefect { reason } => CaptureEventKind::Defect {
             defect: legacy_defect(*reason),
-            detail: format!("legacy SDK reported {}", reason.as_str()),
+            detail: format!("event telemetry reported {}", reason.as_str()),
             artifact_id: None,
         },
     }
