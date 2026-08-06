@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "id": "capture-release-gates",
   "changeType": "tooling",
-  "detail": "The shared backend producer conformance check now covers .NET, but its signature-parity CI job did not install the .NET runtime. This tooling change installs the same pinned .NET 8 toolchain that the dedicated .NET SDK job uses. It does not change product behavior.",
+  "detail": "The shared backend producer conformance check now uses the .NET toolchain path from the setup action. The PHP PSR-15 test now expects the SDK to reject incomplete failures and proves that complete failures remain eligible. These release gate changes do not change product behavior.",
   "evidence": [
     {
       "path": "validation/self-dogfood/evidence/capture-release-gates.md",
-      "sha256": "sha256:70c367e5ade375272bf1e2da679a2bd940190b557afe7985543347c4a6dc6331"
+      "sha256": "sha256:4edb2d2294a109509fc6b4082f813ae2ecad35ee1bf10a4c78c7c59a04b5b93a"
     }
   ]
 }

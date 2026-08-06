@@ -185,13 +185,29 @@ $response = $middleware->process(new FakeRequest('GET', '/ok'), $handler);
 check(!isset($response->headers['x-reproit-events']), 'inert without x-reproit-trace');
 check(!isset($handler->seen->attributes['reproit']), 'no trace attribute when inert');
 
-// capture mode: a 500 response is recorded, a healthy one is not
+// Capture mode rejects a failure when the adapter cannot prove effect
+// completeness.
 $capture = Capture::create([
     'endpoint' => 'http://c/v1/events', 'apiKey' => 'sk', 'appId' => 'app',
 ]);
-$middleware = new ReproitMiddleware($capture);
+$incompleteMiddleware = new ReproitMiddleware($capture);
+$incompleteMiddleware->process(new FakeRequest('POST', '/incomplete'), new FakeHandler(
+    fn () => new FakeResponse(500, '{"error":"boom"}'),
+));
+check_same(0, $capture->stats()['capturedOperations'], 'incomplete failure withheld');
+
+// An adapter that proves effect completeness records a 500 response and a
+// handler exception. A healthy response is not recorded.
+$middleware = new ReproitMiddleware($capture, null, null, true);
 $boom = new FakeHandler(function (FakeRequest $request) {
-    $request->attributes['reproit']->effect('write', ['resource' => 'orders', 'key' => '1']);
+    $request->attributes['reproit']->effect('write', [
+        'resource' => 'orders',
+        'key' => '1',
+        'exchange' => [
+            'request' => ['id' => '1'],
+            'response' => ['stored' => true],
+        ],
+    ]);
     return new FakeResponse(500, '{"error":"boom"}');
 });
 $response = $middleware->process(new FakeRequest('POST', '/boom'), $boom);
@@ -202,8 +218,8 @@ $middleware->process(new FakeRequest('GET', '/ok'), new FakeHandler(
 ));
 check_same(1, $capture->stats()['capturedOperations'], 'healthy response not captured');
 
-// a handler exception propagates and is captured as a failed operation
-$middleware = new ReproitMiddleware($capture);
+// A handler exception propagates and is captured as a failed operation.
+$middleware = new ReproitMiddleware($capture, null, null, true);
 $thrown = false;
 try {
     $middleware->process(new FakeRequest('GET', '/crash'), new FakeHandler(
