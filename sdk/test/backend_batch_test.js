@@ -101,6 +101,16 @@ function checkProducerSuite(label, command, args, cwd) {
   console.log('PASS: ' + label + ' producer gate rejects incomplete captures');
 }
 
+function dotnetCommand() {
+  if (process.env.DOTNET) {
+    return process.env.DOTNET;
+  }
+  if (process.env.DOTNET_ROOT) {
+    return path.join(process.env.DOTNET_ROOT, 'dotnet');
+  }
+  return path.join(process.env.HOME, '.dotnet', 'dotnet');
+}
+
 // One shared scenario per SDK: a scan-time trace (for the header) and a 5xx
 // capture batch built from a failed operation.
 
@@ -273,7 +283,7 @@ checkProducerSuite(
 );
 checkProducerSuite(
   '.NET backend SDK',
-  process.env.DOTNET || path.join(process.env.HOME, '.dotnet', 'dotnet'),
+  dotnetCommand(),
   [
     'test',
     'ReproitBackend.Tests/ReproitBackend.Tests.csproj',
