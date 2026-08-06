@@ -192,11 +192,11 @@ the canonical `contract` id when a scoped check has no dedicated oracle row.
 
 ### WebSockets
 
-| Finding                   | Proves                                                                                       |
-| ------------------------- | -------------------------------------------------------------------------------------------- |
-| `websocket-authorization` | A principal explicitly declared as allowed or denied received the opposite handshake result. |
-| `websocket-message`       | A captured client or server message contradicted every authored schema for that direction.   |
-| `websocket-close`         | A captured connection used a close code explicitly forbidden by the contract.                |
+| Finding                   | Proves                                                                                            |
+| ------------------------- | ------------------------------------------------------------------------------------------------- |
+| `websocket-authorization` | A principal explicitly declared as allowed or denied received the opposite handshake result.      |
+| `websocket-message`       | A client or server message in the evidence envelope contradicted every authored schema for that direction. |
+| `websocket-close`         | A connection close code in the evidence envelope is explicitly forbidden by the contract.         |
 
 OpenAPI parameter uniqueness and HTTP redirect transitions are standards-backed. Byte-range
 validation also requires exact authoritative representation bytes. Response media-type checks
@@ -215,9 +215,14 @@ vary dimensions, incomplete exchanges, and weak tags where byte identity is requ
 
 These HTTP checks consume captured wire values. The media-type allowlist is application-authored;
 the conditional-cache contradictions are standards-backed. Neither depends on Express, FastAPI,
-Go, Axum, Spring, ASP.NET, Django, Flask, or any other framework name. WebSocket checks require an
-authored route, principal, message, or close-code contract. Missing raw bytes, unresolved
-references, unlisted principals, and undeclared message directions produce no finding.
+Go, Axum, Spring, ASP.NET, Django, Flask, or any other framework name.
+
+WebSocket checks evaluate an authored route, principal, message, or close-code contract against a
+`ProtocolEvidence` envelope. The evaluator is complete, but no backend SDK and no runner emits
+that evidence yet, so today it is supplied by hand. The web and Electron runners can capture and
+replay ordered JSON WebSocket frames, but they do not turn those frames into `WebSocketEvidence`.
+Missing raw bytes, unresolved references, unlisted principals, and undeclared message directions
+produce no finding.
 
 ### Effects, tenancy, and resources
 
