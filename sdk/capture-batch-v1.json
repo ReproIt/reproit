@@ -69,9 +69,13 @@
       ],
       "traceId": "trace-1",
       "event": {
-        "kind": "operation-end",
-        "name": "create-order",
-        "outcome": "failed"
+        "kind": "checkpoint",
+        "name": "determinism-envelope",
+        "attributes": {
+          "runtime": "node",
+          "timezone": "UTC",
+          "replaySeed": 42
+        }
       }
     },
     {
@@ -80,6 +84,20 @@
       "monotonicNs": 4,
       "causalParentIds": [
         "evt_orders-api_3"
+      ],
+      "traceId": "trace-1",
+      "event": {
+        "kind": "operation-end",
+        "name": "create-order",
+        "outcome": "failed"
+      }
+    },
+    {
+      "id": "evt_orders-api_5",
+      "sequence": 5,
+      "monotonicNs": 5,
+      "causalParentIds": [
+        "evt_orders-api_4"
       ],
       "traceId": "trace-1",
       "event": {

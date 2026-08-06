@@ -7,9 +7,9 @@ use crate::{
     AssessmentStatus, CapabilityAssessment, CaptureBatch, CaptureCapabilityKind,
     CaptureCompleteness, CaptureDefect, CaptureDefectKind, CaptureEventKind, CapturedValue,
     CollectionMethod, DependencyKind, EnvironmentKind, EvidenceSource, FailureObservation,
-    OccurrenceEnvelope, ProtocolError, ReasonCode, ReproductionRequirement, RequirementKind,
-    RequirementLevel, StateKind, SubjectIdentity, TriggerKind, UnresolvedRequirement,
-    UnresolvedRequirementReason, OCCURRENCE_VERSION,
+    ObservationAuthority, OccurrenceEnvelope, ProtocolError, ReasonCode, ReproductionRequirement,
+    RequirementKind, RequirementLevel, StateKind, SubjectIdentity, TriggerKind,
+    UnresolvedRequirement, UnresolvedRequirementReason, OCCURRENCE_VERSION,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -321,12 +321,16 @@ fn assess(
         }
     }
 
-    if requirements.is_empty() {
+    let has_trigger = requirements
+        .iter()
+        .any(|requirement| matches!(requirement.requirement, RequirementKind::Trigger { .. }));
+    if !has_trigger {
         if let Some(process) = batch.events.iter().find_map(|event| match &event.event {
             CaptureEventKind::ProcessStart { process, .. } => Some(process),
             _ => None,
         }) {
             let id = requirement_id(requirement_number, "startup");
+            requirement_number += 1;
             requirements.push(ReproductionRequirement {
                 id: id.clone(),
                 level: RequirementLevel::Required,
@@ -339,7 +343,68 @@ fn assess(
             if !capability_complete(&capabilities, CaptureCapabilityKind::ProcessTree) {
                 unresolved.push(missing_capability(id, CaptureCapabilityKind::ProcessTree));
             }
+        } else {
+            let id = requirement_id(requirement_number, "trigger");
+            requirement_number += 1;
+            requirements.push(ReproductionRequirement {
+                id: id.clone(),
+                level: RequirementLevel::Required,
+                requirement: RequirementKind::Trigger {
+                    trigger: TriggerKind::ProcessStartup,
+                    subject: batch.emitter.component.clone(),
+                },
+                evidence_artifact_ids: vec![],
+            });
+            unresolved.push(UnresolvedRequirement {
+                requirement_id: id,
+                reason: UnresolvedRequirementReason::MissingEvidence,
+                detail: "the capture does not identify the action that starts the failure".into(),
+            });
         }
+    }
+
+    if !has_runtime_oracle(batch) {
+        let id = requirement_id(requirement_number, "oracle");
+        requirement_number += 1;
+        requirements.push(ReproductionRequirement {
+            id: id.clone(),
+            level: RequirementLevel::Required,
+            requirement: RequirementKind::Observation {
+                observation: batch
+                    .events
+                    .iter()
+                    .find_map(|event| match &event.event {
+                        CaptureEventKind::Observation { failure } => Some(failure.observation),
+                        _ => None,
+                    })
+                    .unwrap_or(crate::ObservationKind::Diagnostic),
+                subject: batch.emitter.component.clone(),
+            },
+            evidence_artifact_ids: vec![],
+        });
+        unresolved.push(UnresolvedRequirement {
+            requirement_id: id,
+            reason: UnresolvedRequirementReason::MissingEvidence,
+            detail: "the capture does not contain a runtime oracle with a stable signature".into(),
+        });
+    }
+
+    if !has_determinism_envelope(batch) {
+        let id = requirement_id(requirement_number, "envelope");
+        requirements.push(ReproductionRequirement {
+            id: id.clone(),
+            level: RequirementLevel::Required,
+            requirement: RequirementKind::Environment {
+                environment: EnvironmentKind::Runtime,
+                required_value: None,
+            },
+            evidence_artifact_ids: vec![],
+        });
+        unresolved.push(UnresolvedRequirement {
+            requirement_id: id,
+            reason: UnresolvedRequirementReason::MissingEvidence,
+            detail: "the capture does not contain a determinism envelope".into(),
+        });
     }
 
     let status = if unresolved.is_empty() {
@@ -358,6 +423,30 @@ fn assess(
         requirements,
         unresolved,
     }
+}
+
+fn has_runtime_oracle(batch: &CaptureBatch) -> bool {
+    batch.events.iter().any(|event| {
+        let CaptureEventKind::Observation { failure } = &event.event else {
+            return false;
+        };
+        failure.authority != ObservationAuthority::SourceClaim
+            && failure
+                .signature
+                .as_deref()
+                .is_some_and(|value| !value.is_empty())
+    })
+}
+
+fn has_determinism_envelope(batch: &CaptureBatch) -> bool {
+    batch.events.iter().any(|event| {
+        matches!(
+            &event.event,
+            CaptureEventKind::Checkpoint { name, attributes }
+                if name == "determinism-envelope"
+                    && attributes.as_object().is_some_and(|values| !values.is_empty())
+        )
+    })
 }
 
 fn requirement_id(number: usize, suffix: &str) -> String {
@@ -610,6 +699,22 @@ mod tests {
                         outcome: OperationOutcome::Failed,
                     },
                 },
+                CaptureEvent {
+                    id: "evt_5".into(),
+                    sequence: 5,
+                    monotonic_ns: 5,
+                    wall_time: None,
+                    process_id: Some(7),
+                    thread_id: None,
+                    actor: None,
+                    causal_parent_ids: vec!["evt_4".into()],
+                    trace_id: None,
+                    span_id: None,
+                    event: CaptureEventKind::Checkpoint {
+                        name: "determinism-envelope".into(),
+                        attributes: serde_json::json!({"runtime": "native", "replaySeed": 7}),
+                    },
+                },
             ],
             artifacts: vec![],
         }
@@ -657,6 +762,81 @@ mod tests {
         )
         .unwrap()
         .is_none());
+    }
+
+    #[test]
+    fn observation_without_a_trigger_is_incomplete() {
+        let mut batch = command_failure();
+        batch.events.retain(|event| {
+            !matches!(
+                event.event,
+                CaptureEventKind::Trigger { .. } | CaptureEventKind::ProcessStart { .. }
+            )
+        });
+        let compiled = compile_capture_failure(
+            &batch,
+            "2026-07-27T12:01:00Z",
+            CaptureAssessmentScope::Portable,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(compiled.assessment.status, AssessmentStatus::Incomplete);
+        assert!(compiled
+            .assessment
+            .unresolved
+            .iter()
+            .any(|item| item.detail.contains("action that starts")));
+    }
+
+    #[test]
+    fn capture_without_a_determinism_envelope_is_incomplete() {
+        let mut batch = command_failure();
+        batch.events.retain(|event| {
+            !matches!(
+                &event.event,
+                CaptureEventKind::Checkpoint { name, .. } if name == "determinism-envelope"
+            )
+        });
+        let compiled = compile_capture_failure(
+            &batch,
+            "2026-07-27T12:01:00Z",
+            CaptureAssessmentScope::Portable,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(compiled.assessment.status, AssessmentStatus::Incomplete);
+        assert!(compiled
+            .assessment
+            .unresolved
+            .iter()
+            .any(|item| item.detail.contains("determinism envelope")));
+    }
+
+    #[test]
+    fn source_claim_is_not_an_executable_oracle() {
+        let mut batch = command_failure();
+        let observation = batch
+            .events
+            .iter_mut()
+            .find_map(|event| match &mut event.event {
+                CaptureEventKind::Observation { failure } => Some(failure),
+                _ => None,
+            })
+            .expect("fixture has an observation");
+        observation.authority = ObservationAuthority::SourceClaim;
+        let compiled = compile_capture_failure(
+            &batch,
+            "2026-07-27T12:01:00Z",
+            CaptureAssessmentScope::Portable,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(compiled.assessment.status, AssessmentStatus::Incomplete);
+        assert!(compiled
+            .assessment
+            .unresolved
+            .iter()
+            .any(|item| item.detail.contains("runtime oracle")));
     }
 
     #[test]
@@ -708,9 +888,9 @@ mod tests {
             detail: None,
         });
         batch.events.push(CaptureEvent {
-            id: "evt_5".into(),
-            sequence: 5,
-            monotonic_ns: 5,
+            id: "evt_6".into(),
+            sequence: 6,
+            monotonic_ns: 6,
             wall_time: None,
             process_id: Some(7),
             thread_id: None,
@@ -728,9 +908,9 @@ mod tests {
             },
         });
         batch.events.push(CaptureEvent {
-            id: "evt_6".into(),
-            sequence: 6,
-            monotonic_ns: 6,
+            id: "evt_7".into(),
+            sequence: 7,
+            monotonic_ns: 7,
             wall_time: None,
             process_id: Some(7),
             thread_id: None,
