@@ -133,6 +133,11 @@ pub(super) async fn replay_artifact(
         .redirect(reqwest::redirect::Policy::limited(3))
         .build()?;
     let expected_oracle = artifact.finding.get("kind").and_then(Value::as_str);
+    // A gRPC replay resolves its method from the descriptor pool, so build the
+    // pool from the .proto the finding recorded before the call is made.
+    if artifact.failing.request.method == "GRPC" {
+        grpc::prepare_pool(artifact.failing.request.schema_source.as_deref(), None)?;
+    }
     let endpoint = replay_endpoint(&artifact.failing);
     let verdict = replay_sequence(
         &client,

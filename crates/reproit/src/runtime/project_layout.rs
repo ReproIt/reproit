@@ -85,14 +85,6 @@ pub(crate) fn canonical_finding_id(root: &Path, id: &str) -> String {
     current
 }
 
-pub(crate) fn tools_dir(root: &Path) -> PathBuf {
-    reproit_dir(root).join("tools")
-}
-
-pub(crate) fn tool_dir(root: &Path, name: &str) -> PathBuf {
-    tools_dir(root).join(name)
-}
-
 pub(crate) fn capsules_dir(root: &Path) -> PathBuf {
     reproit_dir(root).join("capsules")
 }
@@ -190,10 +182,6 @@ mod tests {
         assert_eq!(
             root.join(findings_dir_rel()),
             PathBuf::from("/project/.reproit/findings")
-        );
-        assert_eq!(
-            tool_dir(root, "grpcurl-1.9.3"),
-            PathBuf::from("/project/.reproit/tools/grpcurl-1.9.3")
         );
         assert_eq!(
             capsules_dir(root),

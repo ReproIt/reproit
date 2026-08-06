@@ -32,9 +32,6 @@ substitutes into generated files (see the last section).
 | `REPROIT_GATE_BASELINE` | `crates/reproit/src/workflows/backend_headless/mod.rs` | In gate mode, explicitly re-baseline. |
 | `REPROIT_GATE_JUNIT` | `crates/reproit/src/workflows/check.rs` | Path for a JUnit report of the gate run. |
 | `REPROIT_EXTRA_HEADERS` | `crates/reproit/src/workflows/scan_command.rs` | Extra HTTP headers for scan requests. |
-| `REPROIT_GRPCURL` | `crates/reproit/src/workflows/backend_headless/transport.rs` | Path to a `grpcurl` binary for gRPC probing. |
-| `REPROIT_GRPC_PROTO` | `crates/reproit/src/workflows/backend_headless/transport.rs` | Proto file for gRPC probing when reflection is unavailable. |
-| `REPROIT_GRPC_METADATA_<n>` | `crates/reproit/src/workflows/backend_headless/transport.rs` | Indexed gRPC metadata entries. |
 | `REPROIT_E2E_INGEST` | `sdk/reproit-backend-php/test/e2e_app.php` | Test fixture: stub ingest URL the PHP e2e app posts to. |
 | `REPROIT_E2E_LOG` | `sdk/reproit-backend-php/test/e2e_ingest.php` | Test fixture: file the stub ingest appends received events to. |
 

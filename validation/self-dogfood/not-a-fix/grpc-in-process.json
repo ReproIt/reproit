@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "grpc-in-process",
+  "changeType": "feature",
+  "detail": "gRPC replay is now in-process via tonic and prost-reflect, replacing the grpcurl shell-out that downloaded a pinned binary mid-run (breaking hermeticity) and only supported five OS/arch pairs. A DynamicCodec over DynamicMessage drives unary, client-streaming, server-streaming, and bidi calls from the protobuf descriptor the CLI already snapshots, with metadata from REPROIT_EXTRA_HEADERS, TLS from the https scheme, a 15s timeout, and server-stream collection bounded by response size and message count. The descriptor pool builds from a .proto or a real FileDescriptorSet; the lossy in-memory CLI descriptor returns a clear error rather than panicking. ensure_grpcurl, the download, and REPROIT_GRPC_PROTO/REPROIT_GRPCURL are deleted. A hermetic in-test HTTP/2 gRPC server covers every call shape and the error path, and the live grpc-go OSS gate passed (complete=true, exercised=1, findings=0).",
+  "evidence": [
+    { "path": "crates/reproit/src/workflows/backend_headless/grpc/mod.rs", "sha256": "sha256:1f6c701ece2ffc0881ab05df895f4efbf81e66399e4caff6524ed90cf6738a05" }
+  ]
+}

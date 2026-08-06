@@ -60,6 +60,18 @@ tar = "0.4.46"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 protox = "0.9.1"
 prost-types = "0.14"
+# In-process gRPC replay. `tonic` drives the HTTP/2 call and `prost-reflect`
+# encodes and decodes the messages from a descriptor pool, so a scan reads a
+# `.proto` and calls the service without a downloaded `grpcurl` binary.
+tonic = { version = "0.14", default-features = false, features = [
+  "channel",
+  "tls-ring",
+  "tls-webpki-roots",
+] }
+prost-reflect = { version = "0.16", features = ["serde"] }
+# The gRPC client needs `http::uri::PathAndQuery` to name the method path. This
+# is the same `http` that reqwest and tonic already use, pinned once here.
+http = "1"
 tokio-tungstenite = "0.30.0"
 futures-util = "0.3.32"
 tokio = { workspace = true }
@@ -124,3 +136,7 @@ serde_json = { workspace = true }
 [dev-dependencies]
 # Property-based testing.
 hegeltest = "0.28.0"
+# A raw HTTP/2 server for the hermetic in-process gRPC test: it speaks gRPC
+# framing by hand, so the test needs no generated stubs and no live service.
+h2 = "0.4"
+bytes = "1"

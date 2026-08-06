@@ -13,9 +13,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::process::{ExitCode, Stdio};
+use std::process::ExitCode;
 use std::time::Duration;
-use tokio::io::AsyncWriteExt;
 
 const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_GRAPHQL_SELECTION_DEPTH: usize = 5;
@@ -220,6 +219,15 @@ async fn run_target_with_policy(
         .timeout(Duration::from_secs(15))
         .redirect(reqwest::redirect::Policy::limited(3))
         .build()?;
+    // A gRPC target needs its descriptor pool before the first invocation. Build
+    // it once from the recorded .proto (or the schema document when no .proto
+    // path is known). Only a run with a gRPC operation pays this.
+    if let Some(target) = endpoints
+        .iter()
+        .find(|endpoint| endpoint.transport == Transport::Grpc)
+    {
+        grpc::prepare_pool(target.schema_source.as_deref(), Some(&primary_document))?;
+    }
     // Authenticated scan/fuzz: log in every configured identity first and install
     // the rotating pool, so the run reaches operations behind the auth boundary
     // and a per-user rate limit throttles one identity, not the whole run. Fails
@@ -914,6 +922,7 @@ mod graphql_probe;
 use graphql_probe::probe_graphql_invalid_inputs;
 mod request;
 use request::build_request;
+mod grpc;
 mod transport;
 #[cfg(test)]
 use transport::evaluate_invocation;
