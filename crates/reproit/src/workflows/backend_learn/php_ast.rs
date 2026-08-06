@@ -12,6 +12,7 @@
 use super::extract::Family;
 use super::field_facts::{drop_ambiguous, record, FieldFact};
 use super::grammar::{self, SourceRead, MAX_FIELDS};
+use super::php_types::Responses;
 use super::route_path::join_segments as join;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -27,6 +28,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
     let mut ambiguous: BTreeSet<String> = BTreeSet::new();
     let mut found: Vec<(PathBuf, String, &'static str, Option<String>)> = Vec::new();
     let mut route_prefixes: BTreeMap<PathBuf, String> = BTreeMap::new();
+    let mut responses = Responses::default();
 
     grammar::read_files(
         root,
@@ -39,6 +41,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
                     collect_class(node, text, &mut shapes, &mut ambiguous);
                 }
             });
+            responses.take_file(root_node, text);
             collect_routing_prefixes(root, path, root_node, text, &mut route_prefixes);
             collect_provider_prefixes(root, path, root_node, text, &mut route_prefixes);
             let mut file_routes = Vec::new();
@@ -74,6 +77,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
             }
         }
     }
+    source.responses = responses.finish(&source.routes);
     source
 }
 

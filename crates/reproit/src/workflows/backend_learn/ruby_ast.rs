@@ -12,6 +12,7 @@ use super::extract::Family;
 use super::field_facts::{drop_ambiguous, record, FieldFact};
 use super::grammar::{self, SourceRead, MAX_FIELDS};
 use super::route_path::join_mount as join_path;
+use super::ruby_types::Responses;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use tree_sitter::Node;
@@ -49,6 +50,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
     // (engine key of the file, its routes), resolved once every file is read:
     // the host's `mount` and the engine's own routes.rb are different files.
     let mut engines: Vec<(String, Vec<RbRoute>)> = Vec::new();
+    let mut responses = Responses::default();
 
     grammar::read_files(
         root,
@@ -66,6 +68,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
                 &mut actions,
                 &mut action_queries,
             );
+            responses.take_file(root_node, text);
         },
     );
     drop_ambiguous(&mut shapes, &ambiguous);
@@ -110,6 +113,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
             }
         }
     }
+    source.responses = responses.finish(&source.routes);
     source
 }
 

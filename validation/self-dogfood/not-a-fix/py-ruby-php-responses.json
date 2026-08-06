@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "py-ruby-php-responses",
+  "changeType": "feature",
+  "detail": "Typed response-contract derivation now covers Python, Ruby, and PHP, closing the last per-language response-reader gap after Go, Rust, Java, and C#. FastAPI response_model and status_code, HTTPException, JSONResponse, and Flask tuple returns state the success body and statuses; Rails render json status forms and head :no_content; Laravel response()->json, abort, noContent, and literal array returns. Each reader claims a shape only when statically provable, states status where declared, marks reference or Eloquent or ActiveModel shapes presence-only, and abstains at handler or class level on dynamic dispatch, so the response-shape and response-status oracles arm for these frameworks without fabricating a contract. Verified live: reproit init on a real FastAPI app derived typed 200 and 201 bodies and a 404 with honest presence-only Optional fields.",
+  "evidence": [
+    { "path": "crates/reproit/src/workflows/backend_learn/python_types.rs", "sha256": "sha256:f22f58c2e23814d73b4dfec79d19031c345efc0db4590122912817a75c713f76" }
+  ]
+}

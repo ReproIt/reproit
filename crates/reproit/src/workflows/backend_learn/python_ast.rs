@@ -11,6 +11,7 @@ use super::django_urls::{collect_view_verbs, django_routes};
 use super::field_facts::FieldFact;
 use super::grammar::SourceRead;
 use super::python_query::Queries;
+use super::python_types::Responses;
 
 /// One route before its module's mount prefix is applied.
 pub(super) type PyRoute = (String, &'static str, Option<String>);
@@ -50,6 +51,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
     let mut view_verbs: BTreeMap<String, Vec<&'static str>> = BTreeMap::new();
     let mut django_files: BTreeSet<String> = BTreeSet::new();
     let mut queries = Queries::default();
+    let mut responses = Responses::default();
 
     for file in super::extract::family_sources(root, super::extract::Family::Python) {
         let Ok(text) = std::fs::read_to_string(&file) else {
@@ -102,6 +104,7 @@ pub(super) fn read(root: &Path) -> SourceRead {
             &prefixes,
             &mut queries,
         );
+        responses.take_file(tree.root_node(), &text);
         // Every Django app names its route table `urls.py`, so the stem
         // collides across the whole project; the app is the DIRECTORY, which is
         // also what `include('blog.urls')` names.
@@ -159,6 +162,9 @@ pub(super) fn read(root: &Path) -> SourceRead {
         source.bodies.insert(handler, fields);
     }
     source.queries = queries.resolve(&source.routes);
+    let (facts, serializers) = responses.finish(&source.routes);
+    source.responses = facts;
+    source.serializers = serializers;
     source
 }
 
@@ -417,7 +423,7 @@ fn fact(annotation: &str, default: &str) -> FieldFact {
         .split_once("Literal[")
         .and_then(|(_, rest)| rest.split_once(']'))
         .and_then(|(inner, _)| literal_values(inner));
-    let range = field_bounds(default);
+    let range = super::python_types::field_bounds(default);
     FieldFact {
         required: !optional,
         evidence: match (&allowed, &range) {
@@ -429,32 +435,6 @@ fn fact(annotation: &str, default: &str) -> FieldFact {
         allowed,
         range,
     }
-}
-
-/// `Field(ge=-1, le=1)`, with exclusive bounds converted to what is accepted.
-fn field_bounds(default: &str) -> Option<(Option<f64>, Option<f64>)> {
-    let compact: String = default.chars().filter(|c| !c.is_whitespace()).collect();
-    let mut low = None;
-    let mut high = None;
-    for (key, slot) in [("ge=", 0), ("gt=", 1), ("le=", 2), ("lt=", 3)] {
-        let Some(value) = compact.split(key).nth(1) else {
-            continue;
-        };
-        let literal: String = value
-            .chars()
-            .take_while(|c| c.is_ascii_digit() || *c == '-' || *c == '.')
-            .collect();
-        let Ok(number) = literal.parse::<f64>() else {
-            continue;
-        };
-        match slot {
-            0 => low = Some(number),
-            1 => low = Some(number + 1.0),
-            2 => high = Some(number),
-            _ => high = Some(number - 1.0),
-        }
-    }
-    (low.is_some() || high.is_some()).then_some((low, high))
 }
 
 fn enum_values(node: Node, text: &str) -> Vec<String> {
