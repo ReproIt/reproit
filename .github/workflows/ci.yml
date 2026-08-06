@@ -255,6 +255,9 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
       - name: Web SDK parity (reproit-web.js; also the Electron/Tauri SDK)
         working-directory: sdk
         run: node test/signature_test.js
