@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "doctor-web-runner-selfprovision",
+  "changeType": "maintenance",
+  "detail": "reproit doctor no longer reports MISSING and fails its run when the Playwright web runner's node_modules are not installed yet. The runner installs its own dependencies on the first reproit find or init (ensure_web_runner_dir runs npm ci), so a runner directory that carries a package.json is self-provisioning. Doctor now reports the playwright package check as ok with a note that it installs automatically on first run, and only the separately-checked node prerequisite remains a hard failure. This stops a fresh cargo install from showing a required-check failure for a state the system fixes itself on first use.",
+  "evidence": [
+    { "path": "crates/reproit/src/workflows/doctor.rs", "sha256": "sha256:e0849d1713fb6d7cff17c10d980b3cf8535b12478caebe33d9a1a15245b025f4" }
+  ]
+}

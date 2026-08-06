@@ -267,13 +267,32 @@ pub(super) async fn doctor(config_path: Option<&std::path::Path>, ctx: &Ctx) -> 
                                 .into(),
                         ),
                     );
+                    // A runner with a package.json installs its own deps on the
+                    // first `reproit find`/`init` (ensure_web_runner_dir runs
+                    // `npm ci`), so a missing node_modules here is not a failure
+                    // the user must act on. Report it as a note, not a MISSING
+                    // that fails doctor over a state the system fixes itself.
+                    // Node is checked separately, so a real blocker still shows.
+                    let installed = playwright.exists();
+                    let self_provisions = runner_dir.join("package.json").is_file();
+                    let detail = if installed {
+                        node_modules.display().to_string()
+                    } else {
+                        "not installed yet; installs automatically on the first \
+                         `reproit find` or `init`"
+                            .to_string()
+                    };
                     doctor_push(
                         &mut checks,
                         "playwright package",
-                        playwright.exists(),
+                        installed || self_provisions,
                         true,
-                        node_modules.display().to_string(),
-                        Some("run `npm ci` in the web runner directory".into()),
+                        detail,
+                        Some(
+                            "installs automatically on the first `reproit find`/`init`; \
+                             or run `npm ci` in the web runner directory"
+                                .into(),
+                        ),
                     );
                     doctor_push(
                         &mut checks,
