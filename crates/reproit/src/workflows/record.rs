@@ -523,7 +523,7 @@ pub(super) async fn exploratory_create_session(
     ctx.say(format!(
         "  captured {bucket}; verifying on a clean launch..."
     ));
-    let verdict = triage::verify_tester_capture(
+    let evidence = triage::verify_tester_capture(
         &loaded.root,
         &app,
         &bucket,
@@ -533,6 +533,7 @@ pub(super) async fn exploratory_create_session(
         key.clone(),
     )
     .await?;
+    let verdict = evidence.verdict;
 
     match verdict {
         triage::ReproVerdict::Reproduced => {
@@ -544,6 +545,7 @@ pub(super) async fn exploratory_create_session(
                 &public,
                 triage::ReproVerdict::Reproduced,
                 2,
+                evidence.cell_receipt.as_ref(),
                 cloud,
                 key,
             )
@@ -570,6 +572,7 @@ pub(super) async fn exploratory_create_session(
                 &bucket,
                 triage::ReproVerdict::Flaky,
                 2,
+                evidence.cell_receipt.as_ref(),
                 cloud,
                 key,
             )
@@ -580,7 +583,17 @@ pub(super) async fn exploratory_create_session(
         triage::ReproVerdict::NotReproduced
         | triage::ReproVerdict::Stale
         | triage::ReproVerdict::CouldNotReplay => {
-            triage::report_tester_capture(&app, &bucket, &bucket, verdict, 1, cloud, key).await?;
+            triage::report_tester_capture(
+                &app,
+                &bucket,
+                &bucket,
+                verdict,
+                1,
+                evidence.cell_receipt.as_ref(),
+                cloud,
+                key,
+            )
+            .await?;
             ctx.say(format!(
                 "  {bucket} remains pending: the captured structural state did not reproduce"
             ));

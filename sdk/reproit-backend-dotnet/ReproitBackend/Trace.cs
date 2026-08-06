@@ -4,7 +4,7 @@
 // trusted request carries `x-reproit-trace`. The resulting response header
 // (`x-reproit-events`) contains bounded, trace-bound, structurally redacted events.
 // Production: the optional, config-gated capture mode (Capture.cs) self-samples finished
-// traces (always on 5xx / failure, optional healthy baseline) and posts them to Cloud ingest.
+// traces with a stable failure oracle and posts them to Cloud ingest.
 // It is not a public compatibility surface while backend contracts remain experimental.
 //
 // Wire parity with the Rust adapter: events serialize as compact JSON with recursively sorted
@@ -37,6 +37,7 @@ public sealed class TraceContext
     // Capture-mode traces stamp per-event wall clock and monotonic offsets (the determinism
     // envelope); scan-time traces never do, so their wire shape stays byte-stable.
     public bool CaptureEnvelope { get; init; }
+    public string? ReplaySeed { get; init; }
 }
 
 public sealed class BeginOptions
@@ -304,6 +305,10 @@ public sealed class BackendTrace
         if (!string.IsNullOrEmpty(context.ConfigContract))
         {
             common["configContract"] = context.ConfigContract;
+        }
+        if (context.CaptureEnvelope && context.ReplaySeed != null)
+        {
+            common["replaySeed"] = context.ReplaySeed;
         }
         var tenant = options.Tenant == null ? null : Reproit.Bounded(options.Tenant, 128);
         if (tenant != null) common["tenant"] = tenant;

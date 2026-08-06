@@ -56,7 +56,7 @@ describe('capture batch emission', () => {
       ['run', '-q', '-p', 'reproit-protocol', '--bin', 'capture-validate'],
       { cwd: WORKSPACE, input: JSON.stringify(batch), encoding: 'utf8' },
     );
-    expect(output).toContain('valid');
+    expect(output).toContain('portable');
   }, 300_000);
 
   test('the batch carries the trigger, exchanges, envelope, and observation in order', () => {

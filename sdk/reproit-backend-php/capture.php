@@ -1,15 +1,14 @@
 <?php
 
 /*!
- * Production capture mode: config-gated self-sampling upload of finished
- * operation traces to the Reproit Cloud ingest endpoint
+ * Production capture mode: config-gated upload of complete failed operation
+ * traces to the Repro It Cloud ingest endpoint
  * (`/v1/capture-batches`).
  *
  * PHP port of sdk/reproit-backend-rs/src/capture.rs. Scan-time tracing stays
  * untouched: this module only adds a place to hand a finished BackendTrace
- * when no `x-reproit-trace` header exists. Operations that end in a server
- * error (HTTP 5xx) or report `success == false` are always captured; healthy
- * operations only under an optional per-mille baseline sample (default 0).
+ * when no `x-reproit-trace` header exists. A stable 5xx or marked agent oracle,
+ * complete effects, and a pre-operation replay seed are required before queueing.
  *
  * PHP-model flush (documented deviation from the reference worker): PHP has
  * no long-lived background thread or timer per request, so `record` only
@@ -92,7 +91,7 @@ function valid_token(mixed $value): bool
  * deterministic. Honesty note: the seed does not reproduce the randomness
  * the app drew in production; it pins the replay's.
  */
-function determinism_envelope(?int $observedAtMs = null): array
+function determinism_envelope(?int $observedAtMs = null, ?string $replaySeed = null): array
 {
     $envelope = [
         'observedAtMs' => $observedAtMs ?? (int) (microtime(true) * 1000),
@@ -100,7 +99,9 @@ function determinism_envelope(?int $observedAtMs = null): array
         'runtime' => 'php ' . PHP_VERSION,
         'os' => PHP_OS_FAMILY,
         'arch' => php_uname('m'),
-        'replaySeed' => bin2hex(random_bytes(8)),
+        'replaySeed' => preg_match('/^[0-9a-f]{16}$/', $replaySeed ?? '') === 1
+            ? $replaySeed
+            : bin2hex(random_bytes(8)),
     ];
     $digest = getenv('REPROIT_IMAGE_DIGEST') ?: null;
     if (valid_token($digest)) {
@@ -273,6 +274,7 @@ final class Capture
             // Capture-mode traces stamp per-event wall-clock and monotonic
             // offsets (the determinism envelope); scan-time traces never do.
             'captureEnvelope' => true,
+            'replaySeed' => bin2hex(random_bytes(8)),
         ];
     }
 
@@ -295,16 +297,11 @@ final class Capture
             if ($returned === null) {
                 return;
             }
-            $success = \is_bool($returned['success'] ?? null) ? $returned['success'] : true;
             $status = $returned['status'] ?? null;
             if (!\is_int($status) || $status < 0 || $status > 0xffff) {
                 $status = null;
             }
-            $error = !$success || ($status !== null && $status >= 500);
-            // A marked agent oracle is an authored failure assertion, so the
-            // operation is always captured, like a 5xx.
-            $marked = marked_oracle($events) !== null;
-            if (!$error && !$marked && !$this->sampleHealthy()) {
+            if (!$this->portableOperation($events, $returned, $status)) {
                 return;
             }
             $operation = $events[0]['operation'] ?? null;
@@ -434,13 +431,11 @@ final class Capture
         };
         $add(['kind' => 'operation-start', 'name' => $operation['operation']], $first);
         $input = $first['input'] ?? null;
-        $capturedInput = $input === null
-            ? ['representation' => 'structural', 'shape' => ['type' => 'unknown']]
-            : [
-                'representation' => 'replayable',
-                'value' => $input,
-                'redaction' => 'redacted-at-source',
-            ];
+        $capturedInput = [
+            'representation' => 'replayable',
+            'value' => $input,
+            'redaction' => 'redacted-at-source',
+        ];
         $add([
             'kind' => 'trigger',
             'trigger' => 'http-request',
@@ -460,17 +455,43 @@ final class Capture
             if (($source['kind'] ?? null) !== 'effect') {
                 continue;
             }
-            $add([
-                'kind' => 'effect',
-                'effect' => $source['effect'] ?? 'backend-effect',
-                'subject' => $source['resource'] ?? $source['service']
-                    ?? $operation['operation'],
-                'value' => [
+            $effect = $source['effect'] ?? 'backend-effect';
+            $subject = $source['resource'] ?? $source['service'] ?? $operation['operation'];
+            $value = \is_array($source['exchange'] ?? null)
+                ? [
                     'representation' => 'replayable',
                     'value' => $source,
                     'redaction' => 'redacted-at-source',
-                ],
-            ], $source);
+                ]
+                : [
+                    'representation' => 'structural',
+                    'shape' => ['effect' => $effect, 'subject' => $subject],
+                ];
+            if ($effect === 'call') {
+                $causal = [
+                    'kind' => 'dependency',
+                    'system' => 'service',
+                    'operation' => 'call',
+                    'subject' => $subject,
+                    'value' => $value,
+                ];
+            } elseif (\in_array($effect, ['read', 'write', 'delete'], true)) {
+                $causal = [
+                    'kind' => 'state-access',
+                    'state' => 'database',
+                    'operation' => $effect,
+                    'subject' => $subject,
+                    'value' => $value,
+                ];
+            } else {
+                $causal = [
+                    'kind' => 'effect',
+                    'effect' => $effect,
+                    'subject' => $subject,
+                    'value' => $value,
+                ];
+            }
+            $add($causal, $source);
         }
         $returned = [];
         foreach (array_reverse($operation['events']) as $source) {
@@ -566,28 +587,63 @@ final class Capture
     {
         $capabilities = [
             ['capability' => 'http', 'completeness' => 'complete'],
-            [
-                'capability' => 'database',
-                'completeness' => 'partial',
-                'detail' => 'effect records do not prove complete database state capture',
-            ],
         ];
+        $hasNetwork = false;
+        $hasDatabase = false;
         foreach ($operation['events'] as $event) {
             if (\is_array($event) && \is_array($event['exchange'] ?? null)) {
-                $capabilities[] = [
-                    'capability' => 'network',
-                    'completeness' => 'complete',
-                    'detail' => 'outbound dependency exchanges recorded with responses',
-                ];
-                break;
+                $effect = $event['effect'] ?? null;
+                $hasNetwork = $hasNetwork || $effect === 'call';
+                $hasDatabase = $hasDatabase
+                    || \in_array($effect, ['read', 'write', 'delete'], true);
             }
+        }
+        if ($hasNetwork) {
+            $capabilities[] = [
+                'capability' => 'network',
+                'completeness' => 'complete',
+                'detail' => 'outbound dependency exchanges recorded with responses',
+            ];
+        }
+        if ($hasDatabase) {
+            $capabilities[] = [
+                'capability' => 'database',
+                'completeness' => 'complete',
+            ];
         }
         return $capabilities;
     }
 
+    private function portableOperation(array $events, array $returned, ?int $status): bool
+    {
+        if (marked_oracle($events) === null && ($status === null || $status < 500)) {
+            return false;
+        }
+        if (($returned['effectsComplete'] ?? null) !== true) {
+            return false;
+        }
+        if (preg_match('/^[0-9a-f]{16}$/', $events[0]['replaySeed'] ?? '') !== 1) {
+            return false;
+        }
+        foreach ($events as $event) {
+            if (!\is_array($event) || ($event['kind'] ?? null) !== 'effect') {
+                continue;
+            }
+            if (!\in_array($event['effect'] ?? null, ['call', 'read', 'write', 'delete'], true)) {
+                continue;
+            }
+            if (!\is_array($event['exchange'] ?? null)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private function envelopeAttributes(array $first): array
     {
-        return determinism_envelope(\is_int($first['at'] ?? null) ? $first['at'] : null);
+        $observedAtMs = \is_int($first['at'] ?? null) ? $first['at'] : null;
+        $replaySeed = \is_string($first['replaySeed'] ?? null) ? $first['replaySeed'] : null;
+        return determinism_envelope($observedAtMs, $replaySeed);
     }
 
     private function send(array $batch, float $deadline): bool

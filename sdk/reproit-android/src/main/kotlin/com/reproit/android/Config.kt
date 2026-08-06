@@ -58,8 +58,8 @@ data class ReproItConfig(
    * bounded and secret-named fields are redacted at source before anything
    * leaves the process, but the app owner opts in.
    *
-   * A failure captured with exchanges ships on `POST <endpoint>/v1/capture-batches`
-   * instead of the legacy event batch; everything else is unaffected. Inert
+   * A complete failure capture ships on `POST <endpoint>/v1/capture-batches`
+   * instead of the legacy event batch. Everything else is unaffected. Inert
    * while a ReproIt runner is driving the app.
    */
   val captureExchanges: Boolean = false,

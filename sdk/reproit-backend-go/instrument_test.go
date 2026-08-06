@@ -235,7 +235,10 @@ func TestCapabilitiesClaimNetworkOnlyWithExchanges(t *testing.T) {
 		}
 	}
 	withExchange := captureCapabilities(capturedOperation{events: []map[string]any{
-		{"kind": "effect", "exchange": map[string]any{"protocol": "http"}},
+		{
+			"kind": "effect", "effect": "call",
+			"exchange": map[string]any{"protocol": "http"},
+		},
 	}})
 	found := false
 	for _, item := range withExchange {

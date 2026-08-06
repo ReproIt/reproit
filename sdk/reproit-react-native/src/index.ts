@@ -226,6 +226,7 @@ class ReproItImpl {
   private exchanges: ProductionExchange[] = [];
   private captureSequence = 0;
   private captureSession = `rn-${Date.now()}`;
+  private captureReplaySeed = replaySeed();
   private indicatorRelations = new IndicatorRelations();
   private relationRetryPending = false;
   private focusVisibility = new FocusVisibilityOracle();
@@ -827,15 +828,14 @@ class ReproItImpl {
 
   /**
    * Ship one failure as a capture batch: the trigger, the recorded
-   * exchanges, the determinism envelope, and the observation. Only reached
-   * when exchange capture is on and something was actually recorded, so a
-   * capture batch never over-claims a completeness it does not have.
+   * exchanges, the determinism envelope, and the observation. Dependency
+   * exchanges are included only when this operation crossed that boundary.
    */
-  private sendCaptureBatch(event: ErrorEvent): void {
+  private sendCaptureBatch(event: ErrorEvent): boolean {
     const cfg = this.cfg;
-    if (!cfg || !cfg.captureExchanges || !cfg.endpoint || this.exchanges.length === 0) return;
-    const exchanges = this.exchanges.slice();
-    this.exchanges = [];
+    if (!cfg || !cfg.endpoint) return false;
+    const exchanges = cfg.captureExchanges ? this.exchanges.slice() : [];
+    if (cfg.captureExchanges) this.exchanges = [];
     try {
       this.captureSequence += 1;
       const observedAtMs = Date.now();
@@ -864,7 +864,8 @@ class ReproItImpl {
             osVersion: typeof this.ctx.osVersion === 'string' ? this.ctx.osVersion : undefined,
             locale: typeof this.ctx.locale === 'string' ? this.ctx.locale : undefined,
             timezone: typeof this.ctx.timezone === 'string' ? this.ctx.timezone : undefined,
-            replaySeed: replaySeed(),
+            replaySeed: this.captureReplaySeed,
+            context: { ...this.ctx, ...(this.errorContext() ?? {}) },
           }),
         },
       });
@@ -879,10 +880,12 @@ class ReproItImpl {
         }).catch(() => {
           /* best-effort: a dropped capsule must not break the app */
         });
+        return true;
       }
     } catch {
       /* capture emission must never surface into the host app */
     }
+    return false;
   }
 
   private emit(ev: ReproItEvent): void {
@@ -894,11 +897,8 @@ class ReproItImpl {
         /* host callback must not break telemetry */
       }
     }
-    this.buf.push(ev);
-    // A failure with recorded exchanges also ships a capture batch, so the
-    // occurrence is re-executable and not merely groupable. Every error path
-    // funnels through here, so one hook covers them all.
-    if (ev.kind === 'error') this.sendCaptureBatch(ev);
+    const captured = ev.kind === 'error' && this.sendCaptureBatch(ev);
+    if (!captured) this.buf.push(ev);
     if (this.buf.length >= 50) this.flush();
   }
 
@@ -914,6 +914,7 @@ class ReproItImpl {
     this.batchSequence = 0;
     this.exchanges = [];
     this.captureSequence = 0;
+    this.captureReplaySeed = replaySeed();
     this.path = [];
     this.ctx = {};
     this.cur = null;

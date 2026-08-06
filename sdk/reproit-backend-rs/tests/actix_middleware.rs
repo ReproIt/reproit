@@ -20,13 +20,14 @@ async fn ok_handler() -> HttpResponse {
 
 async fn boom_handler(request: HttpRequest, _body: web::Json<Value>) -> HttpResponse {
     if let Some(recorder) = request.extensions().get::<Recorder>() {
-        let _ = recorder.effect(
+        let _ = recorder.exchange(
             EffectKind::Write,
             Some("orders"),
             Some("1"),
-            None,
-            None,
-            None,
+            json!({
+                "request": {"id": "1"},
+                "response": {"stored": true},
+            }),
         );
     }
     HttpResponse::InternalServerError().json(json!({"error": "boom"}))
@@ -35,6 +36,7 @@ async fn boom_handler(request: HttpRequest, _body: web::Json<Value>) -> HttpResp
 fn middleware(capture: Option<Capture>) -> Reproit {
     Reproit::new(MiddlewareConfig {
         capture,
+        effects_complete: true,
         ..MiddlewareConfig::default()
     })
 }
@@ -83,7 +85,7 @@ async fn planted_500_ships_a_tagged_finding_batch() {
             "operation-start",
             "trigger",
             "checkpoint",
-            "effect",
+            "state-access",
             "effect",
             "operation-end",
             "observation"

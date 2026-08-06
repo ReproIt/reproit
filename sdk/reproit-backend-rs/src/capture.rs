@@ -1,12 +1,11 @@
-//! Production capture mode: config-gated self-sampling upload of finished
-//! operation traces to the Reproit Cloud ingest endpoint
+//! Production capture mode: config-gated upload of complete failed operation
+//! traces to the Repro It Cloud ingest endpoint
 //! (`/v1/capture-batches`).
 //!
 //! Scan-time tracing stays untouched: this module only adds a place to hand a
 //! finished `BackendTrace` when no `x-reproit-trace` header exists. The
-//! adapter self-samples: operations that end in a server error (HTTP 5xx) or
-//! report `success == false` are always captured; healthy operations are
-//! captured only under an optional per-mille baseline sample (default 0).
+//! adapter requires a stable 5xx or marked agent oracle, complete effects, and
+//! a pre-operation replay seed before it queues an upload.
 //!
 //! Everything is bounded and capture failure is invisible to the host app:
 //! a fixed-depth queue drops oldest on overflow, batches and retries are
@@ -78,8 +77,8 @@ pub struct CaptureConfig {
     /// Code identity for the capture. When unset, REPROIT_COMMIT then
     /// GITHUB_SHA are consulted; never derived by shelling out to git.
     pub commit: Option<String>,
-    /// Per-mille of healthy (successful, non-5xx) operations captured as
-    /// baseline evidence. 0 disables healthy sampling entirely.
+    /// Retained for source compatibility. Healthy operations are never
+    /// uploaded as capture batches.
     pub healthy_sample_per_mille: u16,
     /// Gather window before a pending batch is sent.
     pub flush_interval: Duration,
@@ -210,6 +209,7 @@ impl Capture {
             // Capture-mode traces stamp per-event wall-clock and monotonic
             // offsets (the determinism envelope); scan-time traces never do.
             capture_envelope: true,
+            replay_seed: Some(self.next_replay_seed()),
         }
     }
 
@@ -225,19 +225,11 @@ impl Capture {
         else {
             return;
         };
-        let success = returned
-            .get("success")
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
         let status = returned
             .get("status")
             .and_then(Value::as_u64)
             .and_then(|status| u16::try_from(status).ok());
-        let error = !success || status.is_some_and(|status| status >= 500);
-        // A marked agent oracle is an authored failure assertion, so the
-        // operation is always captured, like a 5xx.
-        let marked = marked_oracle(events).is_some();
-        if !error && !marked && !self.sample_healthy() {
+        if !portable_operation(events, returned, status) {
             return;
         }
         let Some(operation) = events
@@ -293,25 +285,6 @@ impl Capture {
             sent_batches: self.shared.sent.load(Ordering::Relaxed),
             failed_batches: self.shared.failed.load(Ordering::Relaxed),
         }
-    }
-
-    fn sample_healthy(&self) -> bool {
-        let per_mille = self.config.healthy_sample_per_mille;
-        if per_mille == 0 {
-            return false;
-        }
-        if per_mille >= 1000 {
-            return true;
-        }
-        // xorshift64 over a shared atomic seed; cheap and dependency-free.
-        let mut x = self
-            .shared
-            .rng
-            .fetch_add(0x9e37_79b9_7f4a_7c15, Ordering::Relaxed);
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        (x % 1000) < u64::from(per_mille)
     }
 
     fn run_worker(&self) {
@@ -422,17 +395,11 @@ impl Capture {
             }),
             mono_of(&first),
         );
-        let input = first.get("input").filter(|value| !value.is_null());
-        let captured_input = input.map_or_else(
-            || json!({"representation": "structural", "shape": {"type": "unknown"}}),
-            |value| {
-                json!({
-                    "representation": "replayable",
-                    "value": value,
-                    "redaction": "redacted-at-source",
-                })
-            },
-        );
+        let captured_input = json!({
+            "representation": "replayable",
+            "value": first.get("input").unwrap_or(&Value::Null),
+            "redaction": "redacted-at-source",
+        });
         push_event(
             json!({
                 "kind": "trigger",
@@ -450,7 +417,10 @@ impl Capture {
             json!({
                 "kind": "checkpoint",
                 "name": "determinism-envelope",
-                "attributes": self.determinism_envelope(first.get("at").and_then(Value::as_u64)),
+                "attributes": self.determinism_envelope(
+                    first.get("at").and_then(Value::as_u64),
+                    first.get("replaySeed").and_then(Value::as_str),
+                ),
             }),
             mono_of(&first),
         );
@@ -467,19 +437,43 @@ impl Capture {
                 .or_else(|| source.get("service"))
                 .and_then(Value::as_str)
                 .unwrap_or(&operation.operation);
-            push_event(
+            let value = if source.get("exchange").is_some_and(Value::is_object) {
+                json!({
+                    "representation": "replayable",
+                    "value": source,
+                    "redaction": "redacted-at-source",
+                })
+            } else {
+                json!({
+                    "representation": "structural",
+                    "shape": {"effect": effect, "subject": subject},
+                })
+            };
+            let causal = if effect == "call" {
+                json!({
+                    "kind": "dependency",
+                    "system": "service",
+                    "operation": "call",
+                    "subject": subject,
+                    "value": value,
+                })
+            } else if matches!(effect, "read" | "write" | "delete") {
+                json!({
+                    "kind": "state-access",
+                    "state": "database",
+                    "operation": effect,
+                    "subject": subject,
+                    "value": value,
+                })
+            } else {
                 json!({
                     "kind": "effect",
                     "effect": effect,
                     "subject": subject,
-                    "value": {
-                        "representation": "replayable",
-                        "value": source,
-                        "redaction": "redacted-at-source",
-                    },
-                }),
-                mono_of(source),
-            );
+                    "value": value,
+                })
+            };
+            push_event(causal, mono_of(source));
         }
         // Nest the raw return event exactly like the raw effect events, so
         // the batch can be projected back to a replayable backend capture.
@@ -589,7 +583,18 @@ impl Capture {
     }
 
     /// Envelope attributes for one capture batch; see [`determinism_envelope`].
-    fn determinism_envelope(&self, observed_at: Option<u64>) -> Value {
+    fn determinism_envelope(&self, observed_at: Option<u64>, replay_seed: Option<&str>) -> Value {
+        if let Some(seed) = replay_seed.and_then(parse_replay_seed) {
+            return envelope_with_seed(observed_at, seed);
+        }
+        envelope_with_seed(observed_at, self.next_replay_seed_value())
+    }
+
+    fn next_replay_seed(&self) -> String {
+        format!("{:016x}", self.next_replay_seed_value())
+    }
+
+    fn next_replay_seed_value(&self) -> u64 {
         let mut seed = self
             .shared
             .rng
@@ -597,7 +602,7 @@ impl Capture {
         seed ^= seed << 13;
         seed ^= seed >> 7;
         seed ^= seed << 17;
-        envelope_with_seed(observed_at, seed)
+        seed
     }
 
     fn send(&self, client: &reqwest::blocking::Client, batch: &Value) -> bool {
@@ -701,26 +706,64 @@ fn lock<'a>(mutex: &'a Mutex<QueueState>) -> MutexGuard<'a, QueueState> {
 /// actually recorded outbound exchanges, so the capsule completeness model
 /// never over-claims for apps without the instrument layer.
 fn capabilities(operation: &CapturedOperation) -> Value {
-    let has_exchanges = operation
-        .events
-        .iter()
-        .any(|event| event.get("exchange").is_some_and(|value| !value.is_null()));
-    let mut list = vec![
-        json!({"capability": "http", "completeness": "complete"}),
-        json!({
-            "capability": "database",
-            "completeness": "partial",
-            "detail": "effect records do not prove complete database state capture",
-        }),
-    ];
-    if has_exchanges {
+    let has_exchange = |effects: &[&str]| {
+        operation.events.iter().any(|event| {
+            event
+                .get("effect")
+                .and_then(Value::as_str)
+                .is_some_and(|effect| effects.contains(&effect))
+                && event.get("exchange").is_some_and(Value::is_object)
+        })
+    };
+    let mut list = vec![json!({"capability": "http", "completeness": "complete"})];
+    if has_exchange(&["call"]) {
         list.push(json!({
             "capability": "network",
             "completeness": "complete",
             "detail": "outbound dependency exchanges recorded with responses",
         }));
     }
+    if has_exchange(&["read", "write", "delete"]) {
+        list.push(json!({
+            "capability": "database",
+            "completeness": "complete",
+        }));
+    }
     Value::Array(list)
+}
+
+fn portable_operation(events: &[Value], returned: &Value, status: Option<u16>) -> bool {
+    if marked_oracle(events).is_none() && !status.is_some_and(|status| status >= 500) {
+        return false;
+    }
+    if returned.get("effectsComplete").and_then(Value::as_bool) != Some(true) {
+        return false;
+    }
+    if events
+        .first()
+        .and_then(|event| event.get("replaySeed"))
+        .and_then(Value::as_str)
+        .and_then(parse_replay_seed)
+        .is_none()
+    {
+        return false;
+    }
+    events.iter().all(|event| {
+        if event.get("kind").and_then(Value::as_str) != Some("effect") {
+            return true;
+        }
+        let effect = event.get("effect").and_then(Value::as_str);
+        if !effect.is_some_and(|effect| matches!(effect, "call" | "read" | "write" | "delete")) {
+            return true;
+        }
+        event.get("exchange").is_some_and(Value::is_object)
+    })
+}
+
+fn parse_replay_seed(seed: &str) -> Option<u64> {
+    (seed.len() == 16)
+        .then(|| u64::from_str_radix(seed, 16).ok())
+        .flatten()
 }
 
 /// Code identity in priority order: explicit config, then the common CI and
@@ -770,288 +813,4 @@ pub(crate) fn valid_token(value: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-
-    // The environment is an input this suite STATES, never one it inherits.
-    // Proven both ways so the fallback is exercised on purpose rather than by
-    // the accident of a runner setting GITHUB_SHA.
-    #[test]
-    fn a_ci_runner_supplies_the_commit_the_config_omits() {
-        let sha = "f857cb7740a5f857cb7740a5f857cb7740a5f857";
-        let found = super::resolve_commit_from(None, |name| {
-            (name == "GITHUB_SHA").then(|| sha.to_string())
-        });
-        assert_eq!(found.as_deref(), Some(sha));
-    }
-
-    #[test]
-    fn an_empty_environment_yields_no_commit() {
-        assert_eq!(super::resolve_commit_from(None, |_| None), None);
-    }
-
-    #[test]
-    fn a_configured_commit_wins_over_the_environment() {
-        let configured = "0123456789abcdef0123456789abcdef01234567";
-        let found = super::resolve_commit_from(Some(configured.to_string()), |_| {
-            Some("f857cb7740a5f857cb7740a5f857cb7740a5f857".to_string())
-        });
-        assert_eq!(found.as_deref(), Some(configured));
-    }
-    use super::*;
-    use crate::{EffectKind, HttpInput, TraceContext};
-
-    fn finished_trace(status: u16, success: bool) -> BackendTrace {
-        let context = TraceContext {
-            trace_id: "cap-1-1".into(),
-            actor: None,
-            action_index: 0,
-            build: Some("1.2.3".into()),
-            config_contract: None,
-            capture_envelope: true,
-        };
-        let mut trace = BackendTrace::begin(
-            context,
-            "createOrder",
-            None,
-            None,
-            None,
-            HttpInput {
-                body: Some(json!({"item": "widget", "qty": 2})),
-                ..HttpInput::default()
-            }
-            .into_value(),
-            Vec::new(),
-        )
-        .unwrap();
-        trace
-            .effect(
-                EffectKind::Read,
-                Some("inventory"),
-                Some("widget"),
-                None,
-                None,
-                None,
-            )
-            .unwrap();
-        trace
-            .finish(json!({"error": "boom"}), status, success, true)
-            .unwrap();
-        trace
-    }
-
-    /// A capture handle without the worker thread: `record` and `build_batch`
-    /// are synchronous over the shared queue, which is all these tests need.
-    fn test_capture() -> Capture {
-        Capture {
-            shared: Arc::new(Shared {
-                state: Mutex::new(QueueState::default()),
-                signal: Condvar::new(),
-                captured: AtomicU64::new(0),
-                dropped: AtomicU64::new(0),
-                sent: AtomicU64::new(0),
-                failed: AtomicU64::new(0),
-                rng: AtomicU64::new(1),
-                trace_seq: AtomicU64::new(1),
-                batch_seq: AtomicU64::new(1),
-            }),
-            config: Arc::new({
-                let mut config = CaptureConfig::new("http://c/v1/events", "sk", "app-demo");
-                config.build = Some("1.2.3".into());
-                config
-            }),
-        }
-    }
-
-    fn batch_for(status: u16, success: bool) -> Value {
-        let capture = test_capture();
-        let trace = finished_trace(status, success);
-        let operation = CapturedOperation {
-            operation: "createOrder".into(),
-            status: Some(status),
-            events: trace.events().to_vec(),
-        };
-        capture.build_batch(&[operation])
-    }
-
-    #[test]
-    fn server_error_batch_uses_the_universal_causal_contract() {
-        let batch = batch_for(500, false);
-        let parsed: reproit_protocol::CaptureBatch =
-            serde_json::from_value(batch.clone()).expect("batch matches capture-batch-v1");
-        parsed.validate().expect("batch passes protocol validation");
-        let events = batch["events"].as_array().unwrap();
-        assert_eq!(events.len(), 7);
-        // The determinism envelope rides as a named checkpoint after the
-        // trigger.
-        let envelope = &events[2]["event"];
-        assert_eq!(envelope["kind"], "checkpoint");
-        assert_eq!(envelope["name"], "determinism-envelope");
-        assert!(envelope["attributes"]["replaySeed"].is_string());
-        let finding = &events[6]["event"];
-        assert_eq!(finding["kind"], "observation");
-        assert_eq!(
-            finding["failure"]["signature"],
-            format!("{SERVER_ERROR_ORACLE}:createOrder")
-        );
-        // Redaction happened before anything left the process boundary.
-        assert_eq!(
-            events[1]["event"]["value"]["value"]["body"]["item"],
-            json!("widget")
-        );
-        // The raw return event is nested like the raw effects, under a
-        // subject that names it, and round-trips through the protocol
-        // projection as the replayable capture's final return event.
-        let carrier = &events[4]["event"];
-        assert_eq!(carrier["kind"], "effect");
-        assert_eq!(carrier["subject"], "operation-return");
-        let raw_return = &carrier["value"]["value"];
-        assert_eq!(raw_return["kind"], "return");
-        assert_eq!(raw_return["status"], 500);
-        let capture = reproit_protocol::backend_capture_from_batch(&parsed)
-            .expect("server-error batch projects to a replayable capture");
-        assert_eq!(capture["operation"], "createOrder");
-        assert_eq!(capture["oracle"], SERVER_ERROR_ORACLE);
-        assert_eq!(
-            capture["events"].as_array().unwrap().last().unwrap(),
-            raw_return
-        );
-    }
-
-    #[test]
-    fn healthy_operations_ship_causal_events_without_an_observation() {
-        let batch = batch_for(201, true);
-        let events = batch["events"].as_array().unwrap();
-        assert_eq!(events.len(), 6);
-        assert!(events
-            .iter()
-            .all(|event| event["event"]["kind"] != "observation"));
-    }
-
-    #[test]
-    fn oversized_captures_drop_trailing_effects_first() {
-        let mut events = finished_trace(500, false).events().to_vec();
-        let filler = "x".repeat(MAX_CAPTURE_JSON_BYTES);
-        events.insert(
-            2,
-            json!({"kind": "effect", "effect": "write", "resource": filler}),
-        );
-        let operation = CapturedOperation {
-            operation: "createOrder".into(),
-            status: Some(500),
-            events,
-        };
-        let (payload, dropped) = capture_payload(&operation).unwrap();
-        assert_eq!(dropped, 1);
-        let kept = payload["events"].as_array().unwrap();
-        assert_eq!(kept.len(), 3);
-        assert_eq!(kept[1]["kind"], "effect");
-        assert_eq!(kept[1]["resource"], "inventory");
-    }
-
-    fn assist_trace(capture: &Capture, oracle: &str, detail: Value) -> BackendTrace {
-        let mut trace = BackendTrace::begin(
-            capture.context(),
-            "POST /assist",
-            None,
-            None,
-            None,
-            Value::Null,
-            Vec::new(),
-        )
-        .unwrap();
-        trace.oracle(oracle, Some(detail)).unwrap();
-        trace
-    }
-
-    // Mirrors the Node reference's agent-oracle tests in test/capture.test.js.
-    #[test]
-    fn agent_oracle_markers_ride_the_trace_and_reject_unknown_ids() {
-        let capture = test_capture();
-        let mut trace = assist_trace(
-            &capture,
-            AGENT_GUARDRAIL_ORACLE,
-            json!({"tool": "delete_order"}),
-        );
-        assert_eq!(
-            trace.oracle("made-up-oracle", None),
-            Err(crate::TraceError::InvalidOperation)
-        );
-        trace
-            .finish(json!({"error": "guardrail"}), 500, false, true)
-            .unwrap();
-        assert_eq!(marked_oracle(trace.events()), Some(AGENT_GUARDRAIL_ORACLE));
-    }
-
-    #[test]
-    fn a_marked_agent_operation_is_captured_even_without_a_5xx() {
-        let capture = test_capture();
-        let mut trace = assist_trace(
-            &capture,
-            AGENT_LOOP_BOUND_ORACLE,
-            json!({"iterations": 9, "bound": 4}),
-        );
-        trace
-            .finish(json!({"note": "gave up"}), 200, true, true)
-            .unwrap();
-        capture.record(&trace);
-        assert_eq!(capture.stats().captured_operations, 1);
-    }
-
-    #[test]
-    fn a_marked_failure_observation_carries_the_agent_oracle_id() {
-        let capture = test_capture();
-        let mut trace = assist_trace(
-            &capture,
-            AGENT_GUARDRAIL_ORACLE,
-            json!({"tool": "delete_order"}),
-        );
-        trace
-            .finish(json!({"error": "guardrail"}), 500, false, true)
-            .unwrap();
-        let operation = CapturedOperation {
-            operation: "POST /assist".into(),
-            status: Some(500),
-            events: trace.events().to_vec(),
-        };
-        let batch = capture.build_batch(&[operation]);
-        let parsed: reproit_protocol::CaptureBatch =
-            serde_json::from_value(batch.clone()).expect("batch matches capture-batch-v1");
-        parsed.validate().expect("batch passes protocol validation");
-        let observation = &batch["events"].as_array().unwrap().last().unwrap()["event"];
-        assert_eq!(observation["kind"], "observation");
-        assert_eq!(
-            observation["failure"]["signature"],
-            format!("{AGENT_GUARDRAIL_ORACLE}:POST /assist")
-        );
-        assert_eq!(observation["failure"]["observation"], "contract-violation");
-        // A marked healthy operation (no 5xx at all) still carries the
-        // authored observation: the mark IS the failure assertion.
-        let mut healthy = assist_trace(
-            &capture,
-            AGENT_LOOP_BOUND_ORACLE,
-            json!({"iterations": 9, "bound": 4}),
-        );
-        healthy
-            .finish(json!({"note": "gave up"}), 200, true, true)
-            .unwrap();
-        let healthy_batch = capture.build_batch(&[CapturedOperation {
-            operation: "POST /assist".into(),
-            status: Some(200),
-            events: healthy.events().to_vec(),
-        }]);
-        let observation = &healthy_batch["events"].as_array().unwrap().last().unwrap()["event"];
-        assert_eq!(observation["kind"], "observation");
-        assert_eq!(observation["failure"]["observation"], "contract-violation");
-        assert_eq!(
-            observation["failure"]["signature"],
-            format!("{AGENT_LOOP_BOUND_ORACLE}:POST /assist")
-        );
-    }
-
-    #[test]
-    fn unusable_configs_disable_capture_instead_of_failing() {
-        assert!(Capture::new(CaptureConfig::new("", "sk", "app")).is_none());
-        assert!(Capture::new(CaptureConfig::new("http://c", "", "app")).is_none());
-        assert!(Capture::new(CaptureConfig::new("http://c", "sk", "bad app id")).is_none());
-    }
-}
+mod tests;

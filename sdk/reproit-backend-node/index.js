@@ -6,7 +6,7 @@
  * response header (`x-reproit-events`) contains bounded, trace-bound,
  * structurally redacted events. Production: the optional, config-gated capture
  * mode (capture.js) self-samples finished traces (always on 5xx / failure,
- * optional healthy baseline) and posts them to Cloud ingest. It is not a
+ * stable failure oracle) and posts them to Cloud ingest. It is not a
  * public compatibility surface while backend contracts remain experimental.
  *
  * Wire parity with the Rust adapter: events serialize as compact JSON with
@@ -129,6 +129,9 @@ class BackendTrace {
     if (context.actor) common.actor = context.actor;
     if (context.build) common.build = context.build;
     if (context.configContract) common.configContract = context.configContract;
+    if (context.captureEnvelope === true && typeof context.replaySeed === 'string') {
+      common.replaySeed = context.replaySeed;
+    }
     const tenant = opts.tenant == null ? null : bounded(String(opts.tenant), 128);
     if (tenant !== null) common.tenant = tenant;
     if (opts.idempotencyKey != null) common.idempotencyKey = identity(String(opts.idempotencyKey));

@@ -11,7 +11,7 @@ import java.util.TimeZone
  * A failure occurrence that carries recorded dependency exchanges ships on this
  * contract (`POST <endpoint>/v1/capture-batches`) instead of the legacy event
  * batch, because only this shape survives the projection back into a replayable
- * capture. Everything else keeps the legacy path untouched.
+ * capture. Dependency exchanges are conditional evidence.
  *
  * Pure Kotlin with no `android.*` import, so the emitted batch is host-testable
  * against the protocol validator.
@@ -192,7 +192,7 @@ internal fun determinismEnvelope(
   arch: String,
   replaySeed: String,
   imageDigest: String?,
-): Map<String, Any?> {
+): MutableMap<String, Any?> {
   val envelope = LinkedHashMap<String, Any?>()
   envelope["observedAtMs"] = observedAtMs
   envelope["tz"] = TimeZone.getDefault().id
@@ -210,14 +210,15 @@ internal fun determinismEnvelope(
  * order, and the failure observation carrying the oracle signature.
  *
  * Returns null when the identifiers the ingest protocol requires are unusable,
- * so a misconfigured app silently keeps the legacy path instead of emitting a
- * batch the server will reject.
+ * so a misconfigured app stops locally instead of emitting a batch the server
+ * will reject.
  */
 internal fun buildFailureCaptureBatch(
   appId: String,
   sessionId: String,
   operation: String,
   triggerAction: String,
+  triggerValue: Any? = null,
   signature: String,
   summary: String,
   observationPoint: String,
@@ -267,7 +268,7 @@ internal fun buildFailureCaptureBatch(
     recorder.trigger(
       "ui-action",
       operation,
-      replayableValue(linkedMapOf("action" to triggerAction)),
+      replayableValue(triggerValue ?: linkedMapOf("action" to triggerAction)),
       parent,
       sessionId,
       observedAtMs,

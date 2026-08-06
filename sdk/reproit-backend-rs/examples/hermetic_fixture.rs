@@ -84,6 +84,7 @@ async fn capture_mode() {
         build: Some("money-fixture".into()),
         config_contract: None,
         capture_envelope: true,
+        replay_seed: Some("c0ffee00c0ffee00".into()),
     };
     let trace = BackendTrace::begin(
         context,

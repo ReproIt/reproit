@@ -46,7 +46,7 @@ public class E2ETests
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
         var app = builder.Build();
-        app.UseReproit(new ReproitOptions { Capture = capture });
+        app.UseReproit(new ReproitOptions { Capture = capture, EffectsComplete = true });
         app.MapGet("/ok", () => Results.Json(new { ok = true }));
         app.MapPost("/boom", (HttpContext context) =>
         {
@@ -54,6 +54,11 @@ public class E2ETests
             {
                 Resource = "orders",
                 Key = "1",
+                Exchange = new Dictionary<string, object?>
+                {
+                    ["request"] = new Dictionary<string, object?> { ["orderId"] = "1" },
+                    ["response"] = new Dictionary<string, object?> { ["stored"] = true },
+                },
             });
             return Results.Json(new { error = "boom" }, statusCode: 500);
         });

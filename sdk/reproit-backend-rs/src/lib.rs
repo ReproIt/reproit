@@ -4,7 +4,7 @@
 //! carries `x-reproit-trace`. The resulting response header contains bounded,
 //! trace-bound, structurally redacted events. Production: the optional,
 //! config-gated `capture` mode self-samples finished traces (always on 5xx /
-//! failure, optional healthy baseline) and posts them to Cloud ingest; see
+//! stable failure oracle) and posts them to Cloud ingest. See
 //! `capture.rs`. It is not a public compatibility surface while backend
 //! contracts remain experimental.
 
@@ -58,6 +58,7 @@ pub struct TraceContext {
     /// (x-reproit-events header) never carry these, so their wire shape
     /// stays byte-stable.
     pub capture_envelope: bool,
+    pub replay_seed: Option<String>,
 }
 
 impl TraceContext {
@@ -77,6 +78,7 @@ impl TraceContext {
             build,
             config_contract,
             capture_envelope: false,
+            replay_seed: None,
         })
     }
 }
@@ -207,6 +209,11 @@ impl BackendTrace {
         }
         if let Some(config_contract) = context.config_contract {
             common.insert("configContract".into(), Value::String(config_contract));
+        }
+        if context_envelope {
+            if let Some(replay_seed) = context.replay_seed {
+                common.insert("replaySeed".into(), Value::String(replay_seed));
+            }
         }
         if let Some(tenant) = tenant.and_then(|value| bounded(value, 128)) {
             common.insert("tenant".into(), Value::String(tenant));

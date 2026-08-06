@@ -2,7 +2,7 @@
   "version": 1,
   "schemaCommand": "cargo run -q -p reproit-protocol --bin capture-schema",
   "fixture": "capture-batch-v1.json",
-  "fixtureSha256": "3f214ba51c0ad71e8e20111568c77546a162b418d0d01f822778be680d71d518",
+  "fixtureSha256": "659d6a8ec04604d10b722a127bbd46b60739e2d789a18e86379aaab532eb8554",
   "sdks": [
     {
       "id": "android",

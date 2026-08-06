@@ -161,6 +161,7 @@ fn ci_context() -> TraceContext {
         build,
         config_contract: None,
         capture_envelope: true,
+        replay_seed: Some(format!("{:016x}", crate::capture::now_millis() | 1)),
     }
 }
 

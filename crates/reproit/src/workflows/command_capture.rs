@@ -176,16 +176,6 @@ pub(crate) async fn run(ctx: &Ctx, args: CommandCaptureArgs) -> Result<ExitCode>
         max_artifacts: reproit_protocol::MAX_CAPTURE_ARTIFACTS,
     })?;
     recorder.add_artifact(argv_artifact.clone())?;
-    for gap in platform_collection.gaps {
-        recorder.record(
-            EventContext::default(),
-            CaptureEventKind::Defect {
-                defect: reproit_protocol::CaptureDefectKind::Unavailable,
-                detail: gap,
-                artifact_id: None,
-            },
-        );
-    }
 
     let mut command = tokio::process::Command::new(&args.command[0]);
     command
@@ -252,6 +242,17 @@ pub(crate) async fn run(ctx: &Ctx, args: CommandCaptureArgs) -> Result<ExitCode>
             }),
         },
     );
+    let envelope = recorder.checkpoint(
+        EventContext {
+            causal_parent_ids: vec![trigger.clone()],
+            ..event_context(started, process_id)
+        },
+        "determinism-envelope",
+        serde_json::json!({
+            "observedAtMs": observed_at_ms(&observed_at)?,
+            "replaySeed": &capture_hash[32..48],
+        }),
+    );
 
     let process_tree = process_tree::observe(process_id, started);
 
@@ -303,7 +304,7 @@ pub(crate) async fn run(ctx: &Ctx, args: CommandCaptureArgs) -> Result<ExitCode>
     let (exit_code, signal) = exit_details(&outcome);
     let process_exit = recorder.record(
         EventContext {
-            causal_parent_ids: vec![trigger.clone()],
+            causal_parent_ids: vec![envelope],
             ..event_context(started, process_id)
         },
         CaptureEventKind::ProcessExit {
@@ -526,6 +527,12 @@ fn capture_hash(root: &Path, argv: &[String], observed_at: &str) -> String {
     }
     digest.update(observed_at.as_bytes());
     hex_digest(digest.finalize())
+}
+
+fn observed_at_ms(observed_at: &str) -> Result<i64> {
+    Ok(chrono::DateTime::parse_from_rfc3339(observed_at)
+        .with_context(|| format!("parsing capture timestamp {observed_at}"))?
+        .timestamp_millis())
 }
 
 fn deployment_from_environment(
@@ -830,6 +837,9 @@ fn persist_occurrence(
 }
 
 async fn upload_if_configured(batch: &reproit_protocol::CaptureBatch) -> Result<Option<String>> {
+    if !portable_for_cloud(batch)? {
+        return Ok(None);
+    }
     let (cloud, key) = super::cloud::cloud_creds(None, None);
     let Some(key) = key else {
         return Ok(None);
@@ -869,6 +879,15 @@ async fn upload_if_configured(batch: &reproit_protocol::CaptureBatch) -> Result<
         .get("occurrenceId")
         .and_then(serde_json::Value::as_str)
         .map(str::to_string))
+}
+
+fn portable_for_cloud(batch: &reproit_protocol::CaptureBatch) -> Result<bool> {
+    let compilation =
+        compile_capture_failure(batch, &batch.observed_at, CaptureAssessmentScope::Portable)
+            .map_err(|error| anyhow::anyhow!("capture upload check failed: {error}"))?;
+    Ok(compilation.is_some_and(|compiled| {
+        compiled.assessment.status == reproit_protocol::AssessmentStatus::Eligible
+    }))
 }
 
 async fn bounded_response_json(mut response: reqwest::Response) -> Result<serde_json::Value> {
@@ -939,59 +958,4 @@ fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[cfg(unix)]
-    #[test]
-    fn capture_preserves_a_bounded_child_exit_code() {
-        let status = std::process::Command::new("/bin/sh")
-            .args(["-c", "exit 17"])
-            .status()
-            .unwrap();
-        assert_eq!(
-            capture_exit_code(&CommandOutcome::Exited(status)),
-            ExitCode::from(17)
-        );
-        assert_eq!(
-            capture_exit_code(&CommandOutcome::TimedOut),
-            ExitCode::from(124)
-        );
-    }
-
-    #[test]
-    fn token_normalization_is_bounded_and_nonempty() {
-        assert_eq!(token("Invoice Importer"), "Invoice-Importer");
-        assert_eq!(token("***"), "unknown");
-        assert!(token(&"x".repeat(200)).len() <= 128);
-    }
-
-    #[test]
-    fn command_bounds_reject_empty_and_excessive_input() {
-        let args = CommandCaptureArgs {
-            project: None,
-            component: None,
-            identity: None,
-            timeout_ms: 1,
-            include_output: false,
-            local_only: true,
-            command: vec![],
-        };
-        assert!(validate_args(&args).is_err());
-        let args = CommandCaptureArgs {
-            timeout_ms: MAX_TIMEOUT_MS + 1,
-            command: vec!["true".into()],
-            ..args
-        };
-        assert!(validate_args(&args).is_err());
-    }
-
-    #[test]
-    fn identical_output_artifacts_are_retained_once() {
-        let mut retained = std::collections::BTreeSet::new();
-        let digest = format!("sha256:{}", "0".repeat(64));
-        assert!(retained.insert(digest.clone()));
-        assert!(!retained.insert(digest));
-        assert_eq!(retained.len(), 1);
-    }
-}
+mod tests;

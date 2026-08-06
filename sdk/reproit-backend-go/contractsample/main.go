@@ -28,7 +28,14 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
-	err = trace.Effect(reproit.EffectWrite, reproit.EffectOptions{Resource: "orders", Key: "1"})
+	err = trace.Exchange(reproit.EffectWrite, reproit.ExchangeOptions{
+		Resource: "orders",
+		Key:      "1",
+		Exchange: map[string]any{
+			"request":  map[string]any{"id": "1"},
+			"response": map[string]any{"stored": true},
+		},
+	})
 	if err != nil {
 		fail(err)
 	}
@@ -61,14 +68,34 @@ func main() {
 	defer server.Close()
 
 	config := reproit.NewCaptureConfig(
-		"http://"+listener.Addr().String()+"/v1/events", "sk", "app-demo")
+		"http://"+listener.Addr().String()+"/v1/capture-batches", "sk", "app-demo")
 	config.Build = "1.2.3"
 	config.FlushInterval = 100 * time.Millisecond
 	capture := reproit.NewCapture(config)
 	if capture == nil {
 		fail(nil)
 	}
-	capture.Record(trace)
+	captureTrace, err := reproit.Begin(capture.Context(), "createOrder", reproit.BeginOptions{
+		Input: map[string]any{
+			"item": "widget", "password": "hunter22", "apiKey": "sk_live_leak",
+		},
+	})
+	if err != nil {
+		fail(err)
+	}
+	err = captureTrace.Exchange(reproit.EffectWrite, reproit.ExchangeOptions{
+		Resource: "orders", Key: "1",
+		Exchange: map[string]any{
+			"request": map[string]any{"id": "1"}, "response": map[string]any{"stored": true},
+		},
+	})
+	if err != nil {
+		fail(err)
+	}
+	if err := captureTrace.Finish(map[string]any{"error": "boom"}, 500, false, true); err != nil {
+		fail(err)
+	}
+	capture.Record(captureTrace)
 	if !capture.Flush(5 * time.Second) {
 		fail(nil)
 	}

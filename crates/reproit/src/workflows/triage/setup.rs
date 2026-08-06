@@ -88,11 +88,11 @@ jobs:
         continue-on-error: true
         run: |
           set +e
-          OUTPUT="$(~/.local/bin/reproit check --strict --runs 3 2>&1)"
+          OUTPUT="$(~/.local/bin/reproit check --strict --runs 3 --json 2>&1)"
           CODE=$?
           printf '%s\n' "$OUTPUT"
-          if printf '%s\n' "$OUTPUT" | grep -q '^check:'; then
-            touch /tmp/reproit-check-complete
+          if printf '%s\n' "$OUTPUT" | python3 -m json.tool >/dev/null 2>&1; then
+            printf '%s\n' "$OUTPUT" > /tmp/reproit-check-output.json
           fi
           exit "$CODE"
 
@@ -115,12 +115,19 @@ jobs:
           if not key:
               print("Cloud reporting skipped: REPROIT_CLOUD_KEY is unavailable")
               raise SystemExit(0)
-          if not pathlib.Path("/tmp/reproit-check-complete").is_file():
-              raise SystemExit("Cloud reporting refused: replay verification did not complete")
+          output_path = pathlib.Path("/tmp/reproit-check-output.json")
+          if not output_path.is_file():
+              raise SystemExit("Cloud reporting refused: replay proof is unavailable")
 
           base = os.environ.get("REPROIT_CLOUD_URL", "").strip() or "https://ingest.reproit.com"
           default_app = os.environ["REPROIT_APP_ID"]
           commit = os.environ["REPROIT_FIXED_COMMIT"]
+          check = json.loads(output_path.read_text())
+          results = {
+              str(result.get("id")): result
+              for result in check.get("repros", [])
+              if result.get("id")
+          }
           reported = 0
 
           for origin_path in pathlib.Path(".reproit/repros").glob("*/cloud.json"):
@@ -129,40 +136,51 @@ jobs:
               if not meta_path.is_file():
                   continue
               meta = json.loads(meta_path.read_text())
-              result = str(meta.get("last_result", "stale")).lower()
-              status = {
-                  "pass": "not_reproduced",
-                  "fail": "reproduced",
-                  "flaky": "flaky",
-                  "stale": "stale",
-              }.get(result, "stale")
-              failures = 0 if status == "not_reproduced" else (3 if status == "reproduced" else 1)
               app = origin.get("appId") or default_app
               bucket = origin["bucketId"]
-              body = {
-                  "status": status,
-                  "runs": 3,
-                  "failures": failures,
-              }
-              if status == "not_reproduced":
-                  body["fixedInBuild"] = commit
-              req = urllib.request.Request(
-                  f"{base.rstrip('/')}/v1/apps/{app}/buckets/{bucket}/replay-results",
-                  data=json.dumps(body).encode(),
-                  headers={
-                      "Authorization": f"Bearer {key}",
-                      "Content-Type": "application/json",
-                  },
-                  method="POST",
-              )
-              try:
-                  with urllib.request.urlopen(req) as response:
-                      response.read()
-              except urllib.error.HTTPError as error:
-                  print(error.read().decode(errors="replace"))
-                  raise
-              reported += 1
-              print(f"reported {bucket}: {status}")
+              local_id = str(meta.get("id") or origin_path.parent.name)
+              result = results.get(local_id, {})
+              eligible_runs = [
+                  run for run in result.get("runs", [])
+                  if run.get("cellReceipt", {}).get("cleanup") == "verified"
+              ]
+              if not eligible_runs:
+                  print(f"skipped {bucket}: no verified execution-cell receipt")
+                  continue
+              for run in eligible_runs:
+                  status = {
+                      "reproduced": "reproduced",
+                      "not-reproduced": "not_reproduced",
+                      "flaky": "flaky",
+                      "stale": "stale",
+                  }.get(str(run.get("verdict", "stale")).lower(), "stale")
+                  body = {
+                      "mode": "authoritative",
+                      "status": status,
+                      "runs": 1,
+                      "failures": 1 if status == "reproduced" else 0,
+                      "where": "ci",
+                      "cellReceipt": run["cellReceipt"],
+                  }
+                  if status == "not_reproduced":
+                      body["fixedInBuild"] = commit
+                  req = urllib.request.Request(
+                      f"{base.rstrip('/')}/v1/apps/{app}/buckets/{bucket}/replay-results",
+                      data=json.dumps(body).encode(),
+                      headers={
+                          "Authorization": f"Bearer {key}",
+                          "Content-Type": "application/json",
+                      },
+                      method="POST",
+                  )
+                  try:
+                      with urllib.request.urlopen(req) as response:
+                          response.read()
+                  except urllib.error.HTTPError as error:
+                      print(error.read().decode(errors="replace"))
+                      raise
+                  reported += 1
+                  print(f"reported {bucket}: {status}")
 
           print(f"reported {reported} production repro(s)")
           PY

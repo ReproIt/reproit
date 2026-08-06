@@ -3,7 +3,7 @@
  *
  * The legacy `/v1/events` batch stores a signature, a message, and an action
  * path: enough to group and prioritize a bug, not enough to re-execute it.
- * A failure whose exchanges were recorded ships here instead, on
+ * A complete failure capture ships here instead, on
  * `/v1/capture-batches`, carrying the trigger, every dependency exchange, the
  * determinism envelope, and the failure observation.
  *
@@ -187,15 +187,17 @@ export function buildCaptureBatch(options: {
     policy: { consent: 'application-telemetry', retentionClass: 'standard' },
     capabilities: [
       {
-        capability: 'network',
-        completeness: 'complete',
-        detail: 'outbound dependency exchanges recorded with responses',
-      },
-      {
         capability: 'user-interface',
-        completeness: 'partial',
-        detail: 'structural state signatures and the action path, not pixels',
+        completeness: 'complete',
+        detail: 'the trigger action and structural state path were recorded',
       },
+      ...(occurrence.exchanges.length
+        ? [{
+            capability: 'network',
+            completeness: 'complete',
+            detail: 'outbound dependency exchanges recorded with responses',
+          }]
+        : []),
     ],
     events,
     artifacts: [],
@@ -214,6 +216,7 @@ export function buildEnvelope(options: {
   locale?: string;
   timezone?: string;
   replaySeed: string;
+  context?: object;
 }): Record<string, unknown> {
   return {
     observedAtMs: options.observedAtMs,
@@ -223,6 +226,7 @@ export function buildEnvelope(options: {
     ...(options.osVersion ? { osVersion: options.osVersion } : {}),
     ...(options.locale ? { locale: options.locale } : {}),
     replaySeed: options.replaySeed,
+    ...(options.context ? { context: options.context } : {}),
   };
 }
 

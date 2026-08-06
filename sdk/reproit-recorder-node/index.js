@@ -296,6 +296,7 @@ class Transport {
 
   submit(batch, artifactBytes = {}) {
     try {
+      if (!portableCaptureBatch(batch)) return false;
       const body = canonicalJson(batch);
       if (Buffer.byteLength(body) > MAX_BATCH_BYTES) return false;
       const artifacts = validateArtifactBytes(batch, artifactBytes);
@@ -404,6 +405,85 @@ class Transport {
     }
     return false;
   }
+}
+
+function portableCaptureBatch(batch) {
+  if (!batch || !Array.isArray(batch.events) || !Array.isArray(batch.artifacts)) return false;
+  const artifacts = new Map(batch.artifacts.map((artifact) => [artifact.id, artifact]));
+  const capabilities = new Map(
+    (batch.capabilities ?? []).map((entry) => [entry.capability, entry.completeness]),
+  );
+  let hasFailure = false;
+  let hasTrigger = false;
+  let hasEnvelope = false;
+  for (const captured of batch.events) {
+    const event = captured?.event;
+    if (!event || event.kind === 'defect') return false;
+    if (event.kind === 'trigger') {
+      hasTrigger = true;
+      if (triggerRequiresValue(event.trigger) && !portableValue(event.value, artifacts)) {
+        return false;
+      }
+    }
+    if (event.kind === 'input' && !portableValue(event.value, artifacts)) return false;
+    if (event.kind === 'state-access') {
+      if (!portableValue(event.value, artifacts)) return false;
+      if (capabilities.get(event.state) !== 'complete') return false;
+    }
+    if (event.kind === 'dependency') {
+      if (!portableValue(event.value, artifacts)) return false;
+      if (capabilities.get('network') !== 'complete') return false;
+    }
+    if (event.kind === 'effect' && boundaryEffect(event.effect)) return false;
+    if (event.kind === 'checkpoint' && event.name === 'determinism-envelope') {
+      hasEnvelope = validEnvelope(event.attributes);
+    }
+    if (event.kind === 'observation') {
+      const failure = event.failure;
+      if (!failure || failure.authority === 'source-claim' || !TOKEN.test(failure.signature ?? '')) {
+        return false;
+      }
+      if (!(failure.artifactIds ?? []).every((id) => exportableArtifact(artifacts.get(id)))) {
+        return false;
+      }
+      hasFailure = true;
+    }
+  }
+  return hasFailure && hasTrigger && hasEnvelope;
+}
+
+function portableValue(value, artifacts) {
+  if (value?.representation === 'replayable') return true;
+  if (value?.representation !== 'artifact-ref') return false;
+  return exportableArtifact(artifacts.get(value.artifactId));
+}
+
+function exportableArtifact(artifact) {
+  return artifact?.policy === 'exportable';
+}
+
+function validEnvelope(attributes) {
+  return attributes &&
+    Number.isSafeInteger(attributes.observedAtMs) &&
+    attributes.observedAtMs >= 0 &&
+    typeof attributes.replaySeed === 'string' &&
+    /^[0-9a-f]{16}$/.test(attributes.replaySeed) &&
+    (attributes.tz == null || (typeof attributes.tz === 'string' && attributes.tz.length > 0));
+}
+
+function triggerRequiresValue(trigger) {
+  return new Set([
+    'ui-action', 'http-request', 'rpc-request', 'message', 'installer-step',
+    'upgrade-step', 'migration-step', 'filesystem-change', 'concurrency-schedule',
+    'device-interaction',
+  ]).has(trigger);
+}
+
+function boundaryEffect(effect) {
+  return new Set([
+    'read', 'write', 'delete', 'call', 'return', 'publish', 'consume',
+    'connect', 'disconnect',
+  ]).has(effect);
 }
 
 function validateArtifactBytes(batch, artifactBytes) {
@@ -580,4 +660,5 @@ module.exports = {
   replayable,
   environmentBound,
   canonicalJson,
+  portableCaptureBatch,
 };

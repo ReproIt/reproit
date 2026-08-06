@@ -1,13 +1,12 @@
 /*!
- * Production capture mode: config-gated self-sampling upload of finished
- * operation traces to the source-neutral Reproit Cloud ingest endpoint
+ * Production capture mode: config-gated upload of complete failed operation
+ * traces to the source-neutral Repro It Cloud ingest endpoint
  * (`/v1/capture-batches`).
  *
  * Node port of sdk/reproit-backend-rs/src/capture.rs. Scan-time tracing stays
  * untouched: this module only adds a place to hand a finished BackendTrace
- * when no `x-reproit-trace` header exists. Operations that end in a server
- * error (HTTP 5xx) or report `success == false` are always captured; healthy
- * operations only under an optional per-mille baseline sample (default 0).
+ * when no `x-reproit-trace` header exists. A stable 5xx or marked agent oracle,
+ * complete effects, and a pre-operation replay seed are required before queueing.
  *
  * Everything is bounded and capture failure is invisible to the host app:
  * a fixed-depth queue drops oldest on overflow, batches and retries are
@@ -145,6 +144,7 @@ class Capture {
       // Capture-mode traces stamp per-event wall-clock and monotonic offsets
       // (the determinism envelope); scan-time traces never do.
       captureEnvelope: true,
+      replaySeed: crypto.randomBytes(8).toString('hex'),
     };
   }
 
@@ -158,16 +158,11 @@ class Capture {
         .reverse()
         .find((event) => event && event.kind === 'return');
       if (!returned) return;
-      const success = typeof returned.success === 'boolean' ? returned.success : true;
       const status =
         Number.isInteger(returned.status) && returned.status >= 0 && returned.status <= 0xffff
           ? returned.status
           : null;
-      const error = !success || (status !== null && status >= 500);
-      // A marked agent oracle is an authored failure assertion, so the
-      // operation is always captured, like a 5xx.
-      const marked = markedOracle(events) !== null;
-      if (!error && !marked && !this._sampleHealthy()) return;
+      if (!portableOperation(events, returned, status)) return;
       const operation = events[0] && typeof events[0].operation === 'string'
         ? events[0].operation
         : null;
@@ -261,7 +256,13 @@ class Capture {
     }
     const operation = operations[0];
     const batchId = 'cb-node-' + Date.now() + '-' + this._batchSeq++;
-    const hasExchanges = operation.events.some((event) => event.exchange !== undefined);
+    const hasNetworkExchanges = operation.events.some(
+      (event) => event.effect === 'call' && event.exchange !== undefined,
+    );
+    const hasDatabaseExchanges = operation.events.some(
+      (event) => ['read', 'write', 'delete'].includes(event.effect)
+        && event.exchange !== undefined,
+    );
     const recorder = new Recorder({
       batchId,
       projectId: this._config.appId,
@@ -285,15 +286,13 @@ class Capture {
       },
       capabilities: [
         { capability: 'http', completeness: 'complete' },
-        {
-          capability: 'database',
-          completeness: 'partial',
-          detail: 'effect records do not prove complete database state capture',
-        },
+        ...(hasDatabaseExchanges
+          ? [{ capability: 'database', completeness: 'complete' }]
+          : []),
         // Declared only when instrument.js actually recorded exchanges, so
         // the capsule completeness model never over-claims on captures from
         // apps without the outbound wrappers installed.
-        ...(hasExchanges
+        ...(hasNetworkExchanges
           ? [{
               capability: 'network',
               completeness: 'complete',
@@ -315,7 +314,7 @@ class Capture {
     });
     const first = operation.events[0] ?? {};
     let parent = recorder.operationStart(operation.operation, context(first));
-    const input = first.input == null ? structural({ type: 'unknown' }) : replayable(first.input);
+    const input = replayable(first.input ?? null);
     parent = recorder.trigger(
       'http-request',
       operation.operation,
@@ -333,7 +332,7 @@ class Capture {
         node: process.version,
         os: process.platform,
         arch: process.arch,
-        replaySeed: crypto.randomBytes(8).toString('hex'),
+        replaySeed: first.replaySeed,
         ...(validToken(process.env.REPROIT_IMAGE_DIGEST)
           ? { imageDigest: process.env.REPROIT_IMAGE_DIGEST }
           : {}),
@@ -456,6 +455,20 @@ function effectValue(event) {
   return Object.keys(detail).length === 0 ? null : structural(detail);
 }
 
+function portableOperation(events, returned, status) {
+  const marked = markedOracle(events);
+  if (marked === null && (status === null || status < 500)) return false;
+  if (returned.effectsComplete !== true) return false;
+  if (!/^[0-9a-f]{16}$/.test(events[0]?.replaySeed ?? '')) return false;
+  return events.every((event) => {
+    if (!event || event.kind !== 'effect') return true;
+    if (!['call', 'read', 'write', 'delete'].includes(event.effect)) return true;
+    return event.exchange !== null
+      && typeof event.exchange === 'object'
+      && !Array.isArray(event.exchange);
+  });
+}
+
 // The replayable capture object (`reproit debug replay-capture` input).
 // Trailing effect events are dropped first when the payload exceeds the
 // context budget; a payload that stays oversized with only start/return
@@ -506,4 +519,5 @@ module.exports = {
   AGENT_ORACLES,
   ORACLE_MARKER_RESOURCE,
   markedOracle,
+  portableOperation,
 };

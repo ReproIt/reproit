@@ -111,7 +111,7 @@ $ingestPort = free_port();
 $appPort = free_port();
 $ingest = start_server($ingestPort, __DIR__ . '/e2e_ingest.php', ['REPROIT_E2E_LOG' => $log]);
 $app = start_server($appPort, __DIR__ . '/e2e_app.php', [
-    'REPROIT_E2E_INGEST' => 'http://127.0.0.1:' . $ingestPort . '/v1/events',
+    'REPROIT_E2E_INGEST' => 'http://127.0.0.1:' . $ingestPort . '/v1/capture-batches',
 ]);
 $base = 'http://127.0.0.1:' . $appPort;
 
@@ -153,7 +153,7 @@ try {
     $kinds = array_map(fn (array $event) => $event['event']['kind'], $batch['events']);
     check_same(
         [
-            'operation-start', 'trigger', 'checkpoint', 'effect', 'effect',
+            'operation-start', 'trigger', 'checkpoint', 'state-access', 'effect',
             'operation-end', 'observation',
         ],
         $kinds,

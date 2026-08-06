@@ -1,15 +1,14 @@
 /*
- * Functional cross-SDK contract test for the backend SDK family (Node, Python,
- * and Go; the Rust reference pins the same contract in-crate through
- * reproit_protocol::EventBatch::validate). For each SDK this builds a real 5xx
+ * Functional cross-SDK contract test for the backend SDK family. For each SDK
+ * this builds a real 5xx
  * capture batch and asserts:
- *   1. the batch is valid event-batch-v1 (event_batch_v1.js protocol mirror);
+ *   1. the batch is a portable capture-batch-v1;
  *   2. the error finding is tagged with the `backend-server-error` oracle;
  *   3. the scan-time response header name is `x-reproit-events` and decodes;
  *   4. obvious secret-shaped fields are structurally redacted before upload.
  *
  * Run: node sdk/test/backend_batch_test.js
- * (The Python sample needs `python3` on PATH; the Go sample needs `go`.)
+ * The language-specific checks require their SDK toolchains.
  */
 'use strict';
 
@@ -88,6 +87,20 @@ function checkCausalCapture(label, batch) {
   );
 }
 
+function checkProducerSuite(label, command, args, cwd) {
+  var result = child_process.spawnSync(command, args, {
+    cwd: cwd,
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  assert.strictEqual(
+    result.status,
+    0,
+    label + ': producer conformance failed: ' + (result.error || result.stderr),
+  );
+  console.log('PASS: ' + label + ' producer gate rejects incomplete captures');
+}
+
 // One shared scenario per SDK: a scan-time trace (for the header) and a 5xx
 // capture batch built from a failed operation.
 
@@ -103,7 +116,11 @@ function nodeSample() {
   var trace = sdk.BackendTrace.begin(context, 'createOrder', {
     input: { item: 'widget', password: 'hunter22', apiKey: 'sk_live_leak' },
   });
-  trace.effect('write', { resource: 'orders', key: '1' });
+  trace.effect('write', {
+    resource: 'orders',
+    key: '1',
+    exchange: { request: { id: '1' }, response: { stored: true } },
+  });
   trace.finish({ error: 'boom' }, 500, false, true);
   var capture = sdk.Capture.create({
     endpoint: 'http://c/v1/capture-batches',
@@ -111,8 +128,17 @@ function nodeSample() {
     appId: 'app-demo',
     build: '1.2.3',
   });
+  var captureTrace = sdk.BackendTrace.begin(capture.context(), 'createOrder', {
+    input: { item: 'widget', password: 'hunter22', apiKey: 'sk_live_leak' },
+  });
+  captureTrace.effect('write', {
+    resource: 'orders',
+    key: '1',
+    exchange: { request: { id: '1' }, response: { stored: true } },
+  });
+  captureTrace.finish({ error: 'boom' }, 500, false, true);
   var batch = capture._buildBatch([
-    { operation: 'createOrder', status: 500, events: trace.events().slice() },
+    { operation: 'createOrder', status: 500, events: captureTrace.events().slice() },
   ]);
   return { batch: batch, header: trace.header(), headerName: HEADER_NAME };
 }
@@ -125,11 +151,17 @@ function pythonSample() {
     '           "build": None, "config_contract": None}',
     'trace = BackendTrace.begin(context, "createOrder",',
     '    input={"item": "widget", "password": "hunter22", "apiKey": "sk_live_leak"})',
-    'trace.effect("write", resource="orders", key="1")',
+    'trace.effect("write", resource="orders", key="1",',
+    '             exchange={"request": {"id": "1"}, "response": {"stored": True}})',
     'trace.finish({"error": "boom"}, 500, False, True)',
-    'capture = Capture.create("http://c/v1/events", "sk", "app-demo", build="1.2.3")',
+    'capture = Capture.create("http://c/v1/capture-batches", "sk", "app-demo", build="1.2.3")',
+    'capture_trace = BackendTrace.begin(capture.context(), "createOrder",',
+    '    input={"item": "widget", "password": "hunter22", "apiKey": "sk_live_leak"})',
+    'capture_trace.effect("write", resource="orders", key="1",',
+    '    exchange={"request": {"id": "1"}, "response": {"stored": True}})',
+    'capture_trace.finish({"error": "boom"}, 500, False, True)',
     'batch = capture._build_batch([',
-    '    {"operation": "createOrder", "status": 500, "events": list(trace.events())}])',
+    '    {"operation": "createOrder", "status": 500, "events": list(capture_trace.events())}])',
     'print(json.dumps({"batch": batch, "header": trace.header(),',
     '                  "headerName": "x-reproit-events"}))',
   ].join('\n');
@@ -169,12 +201,18 @@ function rubySample() {
     '            "build" => nil, "config_contract" => nil }',
     'trace = ReproitBackendRb::BackendTrace.begin(context, "createOrder",',
     '  input: { "item" => "widget", "password" => "hunter22", "apiKey" => "sk_live_leak" })',
-    'trace.effect("write", resource: "orders", key: "1")',
+    'trace.effect("write", resource: "orders", key: "1",',
+    '  exchange: { "request" => { "id" => "1" }, "response" => { "stored" => true } })',
     'trace.finish({ "error" => "boom" }, 500, false, true)',
-    'capture = ReproitBackendRb::Capture.create(endpoint: "http://c/v1/events",',
+    'capture = ReproitBackendRb::Capture.create(endpoint: "http://c/v1/capture-batches",',
     '  api_key: "sk", app_id: "app-demo", build: "1.2.3")',
+    'capture_trace = ReproitBackendRb::BackendTrace.begin(capture.context, "createOrder",',
+    '  input: { "item" => "widget", "password" => "hunter22", "apiKey" => "sk_live_leak" })',
+    'capture_trace.effect("write", resource: "orders", key: "1",',
+    '  exchange: { "request" => { "id" => "1" }, "response" => { "stored" => true } })',
+    'capture_trace.finish({ "error" => "boom" }, 500, false, true)',
     'batch = capture.build_batch([',
-    '  { "operation" => "createOrder", "status" => 500, "events" => trace.events.dup }])',
+    '  { "operation" => "createOrder", "status" => 500, "events" => capture_trace.events.dup }])',
     'puts JSON.generate({ batch: batch, header: trace.header,',
     '                     headerName: "x-reproit-events" })',
   ].join('\n');
@@ -192,12 +230,18 @@ function phpSample() {
     '            "build" => null, "configContract" => null];',
     '$trace = BackendTrace::begin($context, "createOrder", ["input" =>',
     '  ["item" => "widget", "password" => "hunter22", "apiKey" => "sk_live_leak"]]);',
-    '$trace->effect("write", ["resource" => "orders", "key" => "1"]);',
+    '$trace->effect("write", ["resource" => "orders", "key" => "1",',
+    '  "exchange" => ["request" => ["id" => "1"], "response" => ["stored" => true]]]);',
     '$trace->finish(["error" => "boom"], 500, false, true);',
-    '$capture = Capture::create(["endpoint" => "http://c/v1/events",',
+    '$capture = Capture::create(["endpoint" => "http://c/v1/capture-batches",',
     '  "apiKey" => "sk", "appId" => "app-demo", "build" => "1.2.3"]);',
+    '$captureTrace = BackendTrace::begin($capture->context(), "createOrder", ["input" =>',
+    '  ["item" => "widget", "password" => "hunter22", "apiKey" => "sk_live_leak"]]);',
+    '$captureTrace->effect("write", ["resource" => "orders", "key" => "1",',
+    '  "exchange" => ["request" => ["id" => "1"], "response" => ["stored" => true]]]);',
+    '$captureTrace->finish(["error" => "boom"], 500, false, true);',
     '$batch = $capture->buildBatch([["operation" => "createOrder",',
-    '  "status" => 500, "events" => $trace->events()]]);',
+    '  "status" => 500, "events" => $captureTrace->events()]]);',
     'echo json_encode(["batch" => $batch, "header" => $trace->header(),',
     '  "headerName" => "x-reproit-events"]);',
   ]
@@ -215,4 +259,29 @@ checkSdk('Go backend SDK', goSample());
 checkSdk('Ruby backend SDK', rubySample());
 checkSdk('PHP backend SDK', phpSample());
 
-console.log('PASS: backend SDK batches match capture-batch-v1 and the oracle/redaction contract');
+checkProducerSuite(
+  'Rust backend SDK',
+  'cargo',
+  ['test', '--quiet', '--all-features', 'capture::tests'],
+  path.join(root, 'reproit-backend-rs'),
+);
+checkProducerSuite(
+  'Java backend SDK',
+  'mvn',
+  ['-q', '-Dtest=CaptureTest,E2eTest', 'test'],
+  path.join(root, 'reproit-backend-java'),
+);
+checkProducerSuite(
+  '.NET backend SDK',
+  process.env.DOTNET || path.join(process.env.HOME, '.dotnet', 'dotnet'),
+  [
+    'test',
+    'ReproitBackend.Tests/ReproitBackend.Tests.csproj',
+    '--nologo',
+    '--filter',
+    'FullyQualifiedName~CaptureTests',
+  ],
+  path.join(root, 'reproit-backend-dotnet'),
+);
+
+console.log('PASS: all eight backend SDKs enforce the portable capture contract');

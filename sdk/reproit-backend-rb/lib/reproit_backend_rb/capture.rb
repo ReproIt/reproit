@@ -1,12 +1,11 @@
-# Production capture mode: config-gated self-sampling upload of finished
-# operation traces to the Reproit Cloud ingest endpoint
+# Production capture mode: config-gated upload of complete failed operation
+# traces to the Repro It Cloud ingest endpoint
 # (`/v1/capture-batches`).
 #
 # Ruby port of sdk/reproit-backend-rs/src/capture.rs. Scan-time tracing stays
 # untouched: this module only adds a place to hand a finished BackendTrace when
-# no `x-reproit-trace` header exists. Operations that end in a server error
-# (HTTP 5xx) or report `success == false` are always captured; healthy
-# operations only under an optional per-mille baseline sample (default 0).
+# no `x-reproit-trace` header exists. A stable 5xx or marked agent oracle,
+# complete effects, and a pre-operation replay seed are required before queueing.
 #
 # Everything is bounded and capture failure is invisible to the host app: a
 # fixed-depth queue drops oldest on overflow, batches and retries are capped,
@@ -77,7 +76,7 @@ module ReproitBackendRb
   # Where and when the capture happened, and a seed that makes REPLAY runs
   # deterministic. Honesty note: the seed does not reproduce the randomness
   # the app drew in production; it pins the replay's.
-  def self.determinism_envelope(observed_at_ms = nil)
+  def self.determinism_envelope(observed_at_ms = nil, replay_seed = nil)
     envelope = {
       "observedAtMs" =>
         observed_at_ms.is_a?(Integer) ? observed_at_ms : (Time.now.to_f * 1000).to_i,
@@ -85,7 +84,7 @@ module ReproitBackendRb
       "runtime" => "ruby #{RUBY_VERSION}",
       "os" => RbConfig::CONFIG["host_os"].to_s,
       "arch" => RbConfig::CONFIG["host_cpu"].to_s,
-      "replaySeed" => SecureRandom.hex(8),
+      "replaySeed" => replay_seed&.match?(/\A[0-9a-f]{16}\z/) ? replay_seed : SecureRandom.hex(8),
     }
     digest = ENV["REPROIT_IMAGE_DIGEST"]
     envelope["imageDigest"] = digest if valid_token?(digest)
@@ -204,6 +203,7 @@ module ReproitBackendRb
         # Capture-mode traces stamp per-event wall-clock and monotonic
         # offsets (the determinism envelope); scan-time traces never do.
         "capture_envelope" => true,
+        "replay_seed" => SecureRandom.hex(8),
       }
     end
 
@@ -216,14 +216,9 @@ module ReproitBackendRb
         event.is_a?(Hash) && event["kind"] == "return"
       end
       return if returned.nil?
-      success = returned.fetch("success", true)
       status = returned["status"]
       status = nil unless status.is_a?(Integer) && status >= 0 && status <= 0xFFFF
-      error = success == false || (!status.nil? && status >= 500)
-      # A marked agent oracle is an authored failure assertion, so the
-      # operation is always captured, like a 5xx.
-      marked = !ReproitBackendRb.marked_oracle(events).nil?
-      return if !error && !marked && !sample_healthy?
+      return unless portable_operation?(events, returned, status)
       operation = events.empty? ? nil : events[0]["operation"]
       return unless operation.is_a?(String)
       captured = { "operation" => operation, "status" => status, "events" => events.dup }
@@ -349,15 +344,11 @@ module ReproitBackendRb
       end
       add.call({ "kind" => "operation-start", "name" => operation["operation"] }, first)
       input = first["input"]
-      captured_input = if input.nil?
-                         { "representation" => "structural", "shape" => { "type" => "unknown" } }
-                       else
-                         {
-                           "representation" => "replayable",
-                           "value" => input,
-                           "redaction" => "redacted-at-source",
-                         }
-                       end
+      captured_input = {
+        "representation" => "replayable",
+        "value" => input,
+        "redaction" => "redacted-at-source",
+      }
       add.call({
         "kind" => "trigger",
         "trigger" => "http-request",
@@ -374,16 +365,45 @@ module ReproitBackendRb
       }, first)
       operation["events"].each do |source|
         next unless source["kind"] == "effect"
-        add.call({
-          "kind" => "effect",
-          "effect" => source["effect"] || "backend-effect",
-          "subject" => source["resource"] || source["service"] || operation["operation"],
-          "value" => {
+        effect = source["effect"] || "backend-effect"
+        subject = source["resource"] || source["service"] || operation["operation"]
+        value = if source["exchange"].is_a?(Hash)
+                  {
             "representation" => "replayable",
             "value" => source,
             "redaction" => "redacted-at-source",
-          },
-        }, source)
+                  }
+                else
+                  {
+                    "representation" => "structural",
+                    "shape" => { "effect" => effect, "subject" => subject },
+                  }
+                end
+        causal = if effect == "call"
+                   {
+                     "kind" => "dependency",
+                     "system" => "service",
+                     "operation" => "call",
+                     "subject" => subject,
+                     "value" => value,
+                   }
+                 elsif %w[read write delete].include?(effect)
+                   {
+                     "kind" => "state-access",
+                     "state" => "database",
+                     "operation" => effect,
+                     "subject" => subject,
+                     "value" => value,
+                   }
+                 else
+                   {
+                     "kind" => "effect",
+                     "effect" => effect,
+                     "subject" => subject,
+                     "value" => value,
+                   }
+                 end
+        add.call(causal, source)
       end
       returned = operation["events"].reverse.find { |event| event["kind"] == "return" } || {}
       # Nest the raw return event exactly like the raw effect events, so the
@@ -463,29 +483,46 @@ module ReproitBackendRb
     # `network: complete` is declared ONLY when the instrument layer actually
     # recorded exchanges, so a capsule never claims a capability it lacks.
     def capabilities(operation)
-      has_exchanges = operation["events"].any? do |event|
-        event.is_a?(Hash) && event["exchange"]
-      end
       list = [
         { "capability" => "http", "completeness" => "complete" },
-        {
-          "capability" => "database",
-          "completeness" => "partial",
-          "detail" => "effect records do not prove complete database state capture",
-        },
       ]
-      if has_exchanges
+      has_network = operation["events"].any? do |event|
+        event.is_a?(Hash) && event["effect"] == "call" && event["exchange"].is_a?(Hash)
+      end
+      has_database = operation["events"].any? do |event|
+        event.is_a?(Hash) &&
+          %w[read write delete].include?(event["effect"]) &&
+          event["exchange"].is_a?(Hash)
+      end
+      if has_network
         list << {
           "capability" => "network",
           "completeness" => "complete",
           "detail" => "outbound dependency exchanges recorded with responses",
         }
       end
+      if has_database
+        list << { "capability" => "database", "completeness" => "complete" }
+      end
       list
     end
 
+    def portable_operation?(events, returned, status)
+      missing_oracle = ReproitBackendRb.marked_oracle(events).nil? &&
+        (status.nil? || status < 500)
+      return false if missing_oracle
+      return false unless returned["effectsComplete"] == true
+      return false unless events[0]["replaySeed"]&.match?(/\A[0-9a-f]{16}\z/)
+      events.all? do |event|
+        next true unless event.is_a?(Hash) && event["kind"] == "effect"
+        next true unless %w[call read write delete].include?(event["effect"])
+        event["exchange"].is_a?(Hash)
+      end
+    end
+
     def envelope_attributes(first)
-      ReproitBackendRb.determinism_envelope(first["at"].is_a?(Integer) ? first["at"] : nil)
+      observed_at_ms = first["at"].is_a?(Integer) ? first["at"] : nil
+      ReproitBackendRb.determinism_envelope(observed_at_ms, first["replaySeed"])
     end
 
     def send_batch(batch)

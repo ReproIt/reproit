@@ -2,8 +2,8 @@ use super::*;
 use reproit_protocol::{
     compile_capture_failure, CaptureAssessmentScope, CaptureCapability, CaptureCapabilityKind,
     CaptureCompleteness, CaptureEmitter, CaptureEmitterKind, CapturedValue, ConsentClass,
-    EvidencePolicy, FailureRecord, ObservationAuthority, ObservationKind, ReproductionPackage,
-    TriggerKind, PACKAGE_VERSION,
+    EvidencePolicy, FailureRecord, ObservationAuthority, ObservationKind, RedactionState,
+    ReproductionPackage, TriggerKind, PACKAGE_VERSION,
 };
 use reproit_recorder::{EventContext, Recorder, RecorderConfig};
 use sha2::{Digest, Sha256};
@@ -243,14 +243,31 @@ pub(super) fn persist_preproduction_occurrence(
             },
             TriggerKind::UiAction,
             action.action.clone(),
-            None,
+            Some(CapturedValue::Replayable {
+                value: serde_json::Value::String(action.action.clone()),
+                redaction: RedactionState::RedactedAtSource,
+            }),
         );
     }
-    let identity = capsule.finding.bug_id();
-    recorder.failure(
+    let envelope = recorder.checkpoint(
         EventContext {
             monotonic_ns: capsule.actions.len() as u64 + 2,
             causal_parent_ids: vec![parent],
+            ..EventContext::default()
+        },
+        "determinism-envelope",
+        serde_json::json!({
+            "observedAtMs": chrono::DateTime::parse_from_rfc3339(&observed_at)
+                .context("parsing the preproduction capture timestamp")?
+                .timestamp_millis(),
+            "replaySeed": capsule.id,
+        }),
+    );
+    let identity = capsule.finding.bug_id();
+    recorder.failure(
+        EventContext {
+            monotonic_ns: capsule.actions.len() as u64 + 3,
+            causal_parent_ids: vec![envelope],
             ..EventContext::default()
         },
         FailureRecord {

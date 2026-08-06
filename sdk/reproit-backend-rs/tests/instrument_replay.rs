@@ -19,6 +19,7 @@ fn context() -> TraceContext {
         build: None,
         config_contract: None,
         capture_envelope: true,
+        replay_seed: Some("00ff00ff00ff00ff".into()),
     }
 }
 

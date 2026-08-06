@@ -13,6 +13,9 @@ use crate::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+mod policy;
+use policy::*;
+
 pub struct CaptureCompilation {
     pub occurrence: OccurrenceEnvelope,
     pub assessment: CapabilityAssessment,
@@ -140,14 +143,14 @@ fn assess(
         .iter()
         .map(|capability| (capability.capability, capability.completeness))
         .collect::<BTreeMap<_, _>>();
-    let input_artifacts = batch
+    let inputs = batch
         .events
         .iter()
         .filter_map(|event| match &event.event {
-            CaptureEventKind::Input { value, .. } => artifact_id(value),
+            CaptureEventKind::Input { name, value } => Some((name.as_str(), value)),
             _ => None,
         })
-        .collect::<BTreeSet<_>>();
+        .collect::<Vec<_>>();
     let mut requirements = Vec::new();
     let mut unresolved = Vec::new();
     let mut seen = BTreeSet::new();
@@ -164,7 +167,10 @@ fn assess(
                 if !seen.insert(key) {
                     continue;
                 }
-                let mut artifacts = input_artifacts.iter().cloned().collect::<Vec<_>>();
+                let mut artifacts = inputs
+                    .iter()
+                    .filter_map(|(_, value)| artifact_id(value))
+                    .collect::<Vec<_>>();
                 if let Some(id) = value.as_ref().and_then(artifact_id) {
                     artifacts.push(id);
                 }
@@ -182,17 +188,29 @@ fn assess(
                     evidence_artifact_ids: artifacts,
                 });
                 if !capability_complete(&capabilities, trigger_capability(*trigger)) {
-                    unresolved.push(missing_capability(id, trigger_capability(*trigger)));
-                } else if value.as_ref().is_some_and(structural_only) {
+                    unresolved.push(missing_capability(id.clone(), trigger_capability(*trigger)));
+                } else if (trigger_requires_value(*trigger) && value.is_none())
+                    || value.as_ref().is_some_and(structural_only)
+                {
                     unresolved.push(missing_evidence(
-                        id,
+                        id.clone(),
                         "replayable trigger value or construction recipe",
                     ));
                 } else if value
                     .as_ref()
                     .is_some_and(|value| environment_bound(value, scope))
                 {
-                    unresolved.push(environment_bound_requirement(id));
+                    unresolved.push(environment_bound_requirement(id.clone()));
+                }
+                for (name, input) in &inputs {
+                    if structural_only(input) {
+                        unresolved.push(missing_evidence(
+                            id.clone(),
+                            &format!("replayable input {name}"),
+                        ));
+                    } else if environment_bound(input, scope) {
+                        unresolved.push(environment_bound_requirement(id.clone()));
+                    }
                 }
             }
             CaptureEventKind::StateAccess {
@@ -315,7 +333,33 @@ fn assess(
                     .is_some_and(|value| environment_bound(value, scope))
                 {
                     unresolved.push(environment_bound_requirement(id));
+                } else if !capability_complete(&capabilities, CaptureCapabilityKind::Network) {
+                    unresolved.push(missing_capability(id, CaptureCapabilityKind::Network));
                 }
+            }
+            CaptureEventKind::Effect {
+                effect, subject, ..
+            } if is_ambiguous_boundary_effect(effect) => {
+                let key = format!("ambiguous-effect:{effect}:{subject}");
+                if !seen.insert(key) {
+                    continue;
+                }
+                let id = requirement_id(requirement_number, "typed-boundary");
+                requirement_number += 1;
+                requirements.push(ReproductionRequirement {
+                    id: id.clone(),
+                    level: RequirementLevel::Required,
+                    requirement: RequirementKind::Dependency {
+                        dependency: DependencyKind::CapturedReplay,
+                        subject: format!("{effect}:{subject}"),
+                    },
+                    evidence_artifact_ids: vec![],
+                });
+                unresolved.push(UnresolvedRequirement {
+                    requirement_id: id,
+                    reason: UnresolvedRequirementReason::AmbiguousMapping,
+                    detail: "a dependency or state boundary used an untyped effect event".into(),
+                });
             }
             _ => {}
         }
@@ -363,34 +407,52 @@ fn assess(
         }
     }
 
-    if !has_runtime_oracle(batch) {
+    let oracle = runtime_oracle(batch);
+    let oracle_environment_bound = oracle.is_some_and(|failure| {
+        failure
+            .artifact_ids
+            .iter()
+            .any(|artifact_id| artifact_is_environment_bound(batch, artifact_id, scope))
+    });
+    if oracle.is_none() || oracle_environment_bound {
         let id = requirement_id(requirement_number, "oracle");
         requirement_number += 1;
         requirements.push(ReproductionRequirement {
             id: id.clone(),
             level: RequirementLevel::Required,
             requirement: RequirementKind::Observation {
-                observation: batch
-                    .events
-                    .iter()
-                    .find_map(|event| match &event.event {
-                        CaptureEventKind::Observation { failure } => Some(failure.observation),
-                        _ => None,
+                observation: oracle
+                    .map(|failure| failure.observation)
+                    .or_else(|| {
+                        batch.events.iter().find_map(|event| match &event.event {
+                            CaptureEventKind::Observation { failure } => Some(failure.observation),
+                            _ => None,
+                        })
                     })
                     .unwrap_or(crate::ObservationKind::Diagnostic),
                 subject: batch.emitter.component.clone(),
             },
-            evidence_artifact_ids: vec![],
+            evidence_artifact_ids: oracle
+                .into_iter()
+                .flat_map(|failure| failure.artifact_ids.iter().cloned())
+                .collect(),
         });
-        unresolved.push(UnresolvedRequirement {
-            requirement_id: id,
-            reason: UnresolvedRequirementReason::MissingEvidence,
-            detail: "the capture does not contain a runtime oracle with a stable signature".into(),
-        });
+        let unresolved_requirement = if oracle_environment_bound {
+            environment_bound_requirement(id)
+        } else {
+            UnresolvedRequirement {
+                requirement_id: id,
+                reason: UnresolvedRequirementReason::MissingEvidence,
+                detail: "the capture does not contain a runtime oracle with a stable signature"
+                    .into(),
+            }
+        };
+        unresolved.push(unresolved_requirement);
     }
 
     if !has_determinism_envelope(batch) {
         let id = requirement_id(requirement_number, "envelope");
+        requirement_number += 1;
         requirements.push(ReproductionRequirement {
             id: id.clone(),
             level: RequirementLevel::Required,
@@ -403,7 +465,33 @@ fn assess(
         unresolved.push(UnresolvedRequirement {
             requirement_id: id,
             reason: UnresolvedRequirementReason::MissingEvidence,
-            detail: "the capture does not contain a determinism envelope".into(),
+            detail: "the capture does not contain a valid determinism envelope".into(),
+        });
+    }
+
+    let explicit_defects = batch
+        .events
+        .iter()
+        .filter(|event| matches!(event.event, CaptureEventKind::Defect { .. }));
+    for event in explicit_defects {
+        let CaptureEventKind::Defect { detail, .. } = &event.event else {
+            continue;
+        };
+        let id = requirement_id(requirement_number, "capture-integrity");
+        requirement_number += 1;
+        requirements.push(ReproductionRequirement {
+            id: id.clone(),
+            level: RequirementLevel::Required,
+            requirement: RequirementKind::Environment {
+                environment: EnvironmentKind::Runtime,
+                required_value: None,
+            },
+            evidence_artifact_ids: vec![],
+        });
+        unresolved.push(UnresolvedRequirement {
+            requirement_id: id,
+            reason: UnresolvedRequirementReason::MissingEvidence,
+            detail: format!("the producer reported a capture defect: {detail}"),
         });
     }
 
@@ -425,541 +513,5 @@ fn assess(
     }
 }
 
-fn has_runtime_oracle(batch: &CaptureBatch) -> bool {
-    batch.events.iter().any(|event| {
-        let CaptureEventKind::Observation { failure } = &event.event else {
-            return false;
-        };
-        failure.authority != ObservationAuthority::SourceClaim
-            && failure
-                .signature
-                .as_deref()
-                .is_some_and(|value| !value.is_empty())
-    })
-}
-
-fn has_determinism_envelope(batch: &CaptureBatch) -> bool {
-    batch.events.iter().any(|event| {
-        matches!(
-            &event.event,
-            CaptureEventKind::Checkpoint { name, attributes }
-                if name == "determinism-envelope"
-                    && attributes.as_object().is_some_and(|values| !values.is_empty())
-        )
-    })
-}
-
-fn requirement_id(number: usize, suffix: &str) -> String {
-    format!("req_{number:03}_{suffix}")
-}
-
-fn artifact_id(value: &CapturedValue) -> Option<String> {
-    match value {
-        CapturedValue::Artifact { artifact_id, .. } => Some(artifact_id.clone()),
-        CapturedValue::Structural { .. }
-        | CapturedValue::Replayable { .. }
-        | CapturedValue::EnvironmentBound { .. } => None,
-    }
-}
-
-fn environment_bound(value: &CapturedValue, scope: CaptureAssessmentScope) -> bool {
-    match value {
-        CapturedValue::EnvironmentBound { .. } => true,
-        CapturedValue::Artifact { policy, .. } => {
-            scope == CaptureAssessmentScope::Portable
-                && *policy != crate::ArtifactPolicy::Exportable
-        }
-        CapturedValue::Structural { .. } | CapturedValue::Replayable { .. } => false,
-    }
-}
-
-fn structural_only(value: &CapturedValue) -> bool {
-    matches!(value, CapturedValue::Structural { .. })
-}
-
-fn deterministic_required_value(subject: &str, value: Option<&CapturedValue>) -> Option<String> {
-    match value {
-        Some(CapturedValue::Artifact { artifact_id, .. }) => {
-            Some(format!("artifact:{artifact_id}"))
-        }
-        Some(CapturedValue::Replayable { value, .. })
-            if value.is_string() || value.is_number() || value.is_boolean() =>
-        {
-            let encoded = value.to_string();
-            (encoded.len() <= crate::MAX_TEXT_BYTES).then(|| format!("{subject}:{encoded}"))
-        }
-        _ => Some(subject.to_string()),
-    }
-}
-
-fn requires_stream_artifact(environment: EnvironmentKind) -> bool {
-    matches!(
-        environment,
-        EnvironmentKind::Clock
-            | EnvironmentKind::WallClock
-            | EnvironmentKind::MonotonicClock
-            | EnvironmentKind::Randomness
-            | EnvironmentKind::RandomBytes
-    )
-}
-
-fn capability_complete(
-    capabilities: &BTreeMap<CaptureCapabilityKind, CaptureCompleteness>,
-    required: CaptureCapabilityKind,
-) -> bool {
-    capabilities.get(&required) == Some(&CaptureCompleteness::Complete)
-}
-
-fn trigger_capability(trigger: TriggerKind) -> CaptureCapabilityKind {
-    match trigger {
-        TriggerKind::UiAction => CaptureCapabilityKind::UserInterface,
-        TriggerKind::HttpRequest => CaptureCapabilityKind::Http,
-        TriggerKind::RpcRequest => CaptureCapabilityKind::Rpc,
-        TriggerKind::Command
-        | TriggerKind::Installer
-        | TriggerKind::Upgrade
-        | TriggerKind::Migration => CaptureCapabilityKind::Commands,
-        TriggerKind::Message => CaptureCapabilityKind::Queue,
-        TriggerKind::Timer => CaptureCapabilityKind::Timers,
-        TriggerKind::ProcessStartup | TriggerKind::Signal => CaptureCapabilityKind::ProcessTree,
-        TriggerKind::FilesystemEvent => CaptureCapabilityKind::Filesystem,
-        TriggerKind::ResourcePressure => CaptureCapabilityKind::ResourcePressure,
-        TriggerKind::ConcurrencySchedule => CaptureCapabilityKind::Concurrency,
-        TriggerKind::DeviceInteraction => CaptureCapabilityKind::Device,
-    }
-}
-
-fn state_capability(state: StateKind) -> CaptureCapabilityKind {
-    match state {
-        StateKind::Filesystem => CaptureCapabilityKind::Filesystem,
-        StateKind::Registry => CaptureCapabilityKind::Environment,
-        StateKind::Database => CaptureCapabilityKind::Database,
-        StateKind::Cache => CaptureCapabilityKind::Cache,
-        StateKind::Queue => CaptureCapabilityKind::Queue,
-        StateKind::ObjectStore => CaptureCapabilityKind::ObjectStore,
-        StateKind::ApplicationStorage => CaptureCapabilityKind::Filesystem,
-        StateKind::Device => CaptureCapabilityKind::Device,
-    }
-}
-
-fn environment_capability(environment: EnvironmentKind) -> CaptureCapabilityKind {
-    match environment {
-        EnvironmentKind::Clock | EnvironmentKind::WallClock | EnvironmentKind::MonotonicClock => {
-            CaptureCapabilityKind::Clock
-        }
-        EnvironmentKind::Randomness
-        | EnvironmentKind::RandomSeed
-        | EnvironmentKind::RandomBytes => CaptureCapabilityKind::Randomness,
-        _ => CaptureCapabilityKind::Environment,
-    }
-}
-
-fn missing_capability(
-    requirement_id: String,
-    capability: CaptureCapabilityKind,
-) -> UnresolvedRequirement {
-    UnresolvedRequirement {
-        requirement_id,
-        reason: UnresolvedRequirementReason::MissingEvidence,
-        detail: format!("capture capability {capability:?} was not complete"),
-    }
-}
-
-fn missing_evidence(requirement_id: String, evidence: &str) -> UnresolvedRequirement {
-    UnresolvedRequirement {
-        requirement_id,
-        reason: UnresolvedRequirementReason::MissingEvidence,
-        detail: format!("capture did not retain required {evidence}"),
-    }
-}
-
-fn environment_bound_requirement(requirement_id: String) -> UnresolvedRequirement {
-    UnresolvedRequirement {
-        requirement_id,
-        reason: UnresolvedRequirementReason::UnauthorizedDestination,
-        detail: "required evidence is restricted to its source environment".into(),
-    }
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        CaptureCapability, CaptureEmitter, CaptureEmitterKind, CaptureEvent, EvidencePolicy,
-        FailureRecord, ObservationAuthority, OperationOutcome, ProcessIdentity,
-        CAPTURE_BATCH_VERSION,
-    };
-
-    fn command_failure() -> CaptureBatch {
-        CaptureBatch {
-            version: CAPTURE_BATCH_VERSION,
-            batch_id: "cb_compile".into(),
-            project_id: "tools".into(),
-            session_id: "session-1".into(),
-            emitter: CaptureEmitter {
-                id: "collector".into(),
-                kind: CaptureEmitterKind::HostCollector,
-                component: "migrator".into(),
-                runtime: Some("native".into()),
-                parent_id: None,
-            },
-            deployment: None,
-            observed_at: "2026-07-27T12:00:00Z".into(),
-            policy: EvidencePolicy {
-                consent: crate::ConsentClass::LocalAnalysis,
-                retention_class: "local".into(),
-            },
-            capabilities: vec![
-                CaptureCapability {
-                    capability: CaptureCapabilityKind::Commands,
-                    completeness: CaptureCompleteness::Complete,
-                    detail: None,
-                },
-                CaptureCapability {
-                    capability: CaptureCapabilityKind::ProcessTree,
-                    completeness: CaptureCompleteness::Partial,
-                    detail: Some("root process only".into()),
-                },
-            ],
-            events: vec![
-                CaptureEvent {
-                    id: "evt_1".into(),
-                    sequence: 1,
-                    monotonic_ns: 1,
-                    wall_time: None,
-                    process_id: Some(7),
-                    thread_id: None,
-                    actor: None,
-                    causal_parent_ids: vec![],
-                    trace_id: None,
-                    span_id: None,
-                    event: CaptureEventKind::ProcessStart {
-                        process: ProcessIdentity {
-                            process_id: 7,
-                            executable: "migrate".into(),
-                            parent_process_id: None,
-                            executable_hash: None,
-                        },
-                        arguments: None,
-                        working_directory: None,
-                    },
-                },
-                CaptureEvent {
-                    id: "evt_2".into(),
-                    sequence: 2,
-                    monotonic_ns: 2,
-                    wall_time: None,
-                    process_id: Some(7),
-                    thread_id: None,
-                    actor: None,
-                    causal_parent_ids: vec!["evt_1".into()],
-                    trace_id: None,
-                    span_id: None,
-                    event: CaptureEventKind::Trigger {
-                        trigger: TriggerKind::Command,
-                        subject: "migrate".into(),
-                        value: None,
-                    },
-                },
-                CaptureEvent {
-                    id: "evt_3".into(),
-                    sequence: 3,
-                    monotonic_ns: 3,
-                    wall_time: None,
-                    process_id: Some(7),
-                    thread_id: None,
-                    actor: None,
-                    causal_parent_ids: vec!["evt_2".into()],
-                    trace_id: None,
-                    span_id: None,
-                    event: CaptureEventKind::Observation {
-                        failure: FailureRecord {
-                            observation: crate::ObservationKind::Exit,
-                            authority: ObservationAuthority::RuntimeDiagnosis,
-                            summary: "migrator exited 17".into(),
-                            signature: Some("process-exit:17".into()),
-                            observation_point: Some("migrator/exit".into()),
-                            artifact_ids: vec![],
-                        },
-                    },
-                },
-                CaptureEvent {
-                    id: "evt_4".into(),
-                    sequence: 4,
-                    monotonic_ns: 4,
-                    wall_time: None,
-                    process_id: Some(7),
-                    thread_id: None,
-                    actor: None,
-                    causal_parent_ids: vec!["evt_3".into()],
-                    trace_id: None,
-                    span_id: None,
-                    event: CaptureEventKind::OperationEnd {
-                        name: "migrate".into(),
-                        outcome: OperationOutcome::Failed,
-                    },
-                },
-                CaptureEvent {
-                    id: "evt_5".into(),
-                    sequence: 5,
-                    monotonic_ns: 5,
-                    wall_time: None,
-                    process_id: Some(7),
-                    thread_id: None,
-                    actor: None,
-                    causal_parent_ids: vec!["evt_4".into()],
-                    trace_id: None,
-                    span_id: None,
-                    event: CaptureEventKind::Checkpoint {
-                        name: "determinism-envelope".into(),
-                        attributes: serde_json::json!({"runtime": "native", "replaySeed": 7}),
-                    },
-                },
-            ],
-            artifacts: vec![],
-        }
-    }
-
-    #[test]
-    fn command_failure_is_eligible_even_if_unneeded_process_tree_detail_is_partial() {
-        let compiled = compile_capture_failure(
-            &command_failure(),
-            "2026-07-27T12:01:00Z",
-            CaptureAssessmentScope::SourceEnvironment,
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(compiled.assessment.status, AssessmentStatus::Eligible);
-        assert_eq!(compiled.assessment.requirements.len(), 1);
-        assert!(matches!(
-            compiled.assessment.requirements[0].requirement,
-            RequirementKind::Trigger {
-                trigger: TriggerKind::Command,
-                ..
-            }
-        ));
-        assert!(compiled
-            .occurrence
-            .capture_defects
-            .iter()
-            .any(|defect| defect.kind == CaptureDefectKind::Truncated));
-    }
-
-    #[test]
-    fn successful_capture_does_not_create_a_failure_occurrence() {
-        let mut batch = command_failure();
-        batch
-            .events
-            .retain(|event| !matches!(event.event, CaptureEventKind::Observation { .. }));
-        for (index, event) in batch.events.iter_mut().enumerate() {
-            event.sequence = (index + 1) as u64;
-            event.causal_parent_ids.clear();
-        }
-        assert!(compile_capture_failure(
-            &batch,
-            "2026-07-27T12:01:00Z",
-            CaptureAssessmentScope::SourceEnvironment,
-        )
-        .unwrap()
-        .is_none());
-    }
-
-    #[test]
-    fn observation_without_a_trigger_is_incomplete() {
-        let mut batch = command_failure();
-        batch.events.retain(|event| {
-            !matches!(
-                event.event,
-                CaptureEventKind::Trigger { .. } | CaptureEventKind::ProcessStart { .. }
-            )
-        });
-        let compiled = compile_capture_failure(
-            &batch,
-            "2026-07-27T12:01:00Z",
-            CaptureAssessmentScope::Portable,
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(compiled.assessment.status, AssessmentStatus::Incomplete);
-        assert!(compiled
-            .assessment
-            .unresolved
-            .iter()
-            .any(|item| item.detail.contains("action that starts")));
-    }
-
-    #[test]
-    fn capture_without_a_determinism_envelope_is_incomplete() {
-        let mut batch = command_failure();
-        batch.events.retain(|event| {
-            !matches!(
-                &event.event,
-                CaptureEventKind::Checkpoint { name, .. } if name == "determinism-envelope"
-            )
-        });
-        let compiled = compile_capture_failure(
-            &batch,
-            "2026-07-27T12:01:00Z",
-            CaptureAssessmentScope::Portable,
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(compiled.assessment.status, AssessmentStatus::Incomplete);
-        assert!(compiled
-            .assessment
-            .unresolved
-            .iter()
-            .any(|item| item.detail.contains("determinism envelope")));
-    }
-
-    #[test]
-    fn source_claim_is_not_an_executable_oracle() {
-        let mut batch = command_failure();
-        let observation = batch
-            .events
-            .iter_mut()
-            .find_map(|event| match &mut event.event {
-                CaptureEventKind::Observation { failure } => Some(failure),
-                _ => None,
-            })
-            .expect("fixture has an observation");
-        observation.authority = ObservationAuthority::SourceClaim;
-        let compiled = compile_capture_failure(
-            &batch,
-            "2026-07-27T12:01:00Z",
-            CaptureAssessmentScope::Portable,
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(compiled.assessment.status, AssessmentStatus::Incomplete);
-        assert!(compiled
-            .assessment
-            .unresolved
-            .iter()
-            .any(|item| item.detail.contains("runtime oracle")));
-    }
-
-    #[test]
-    fn local_only_command_input_is_environment_bound_for_portable_compilation() {
-        let mut batch = command_failure();
-        let artifact_id = format!("sha256:{}", "a".repeat(64));
-        batch.artifacts.push(crate::EvidenceArtifact {
-            id: artifact_id.clone(),
-            kind: crate::EvidenceArtifactKind::InteractionTrace,
-            media_type: "application/json".into(),
-            bytes: 2,
-            policy: crate::ArtifactPolicy::LocalAnalysisOnly,
-            redaction: crate::RedactionState::UnredactedRestricted,
-            collection: crate::CollectionMethod::FlightRecorder,
-            encryption_key_id: None,
-            name: Some("argv.json".into()),
-        });
-        let CaptureEventKind::Trigger { value, .. } = &mut batch.events[1].event else {
-            panic!("fixture has command trigger");
-        };
-        *value = Some(CapturedValue::Artifact {
-            artifact_id,
-            policy: crate::ArtifactPolicy::LocalAnalysisOnly,
-        });
-        let compiled = compile_capture_failure(
-            &batch,
-            "2026-07-27T12:01:00Z",
-            CaptureAssessmentScope::Portable,
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(
-            compiled.assessment.status,
-            AssessmentStatus::EnvironmentBound
-        );
-    }
-
-    #[test]
-    fn deterministic_inputs_compile_with_typed_clock_and_randomness_requirements() {
-        let mut batch = command_failure();
-        batch.capabilities.push(CaptureCapability {
-            capability: CaptureCapabilityKind::Clock,
-            completeness: CaptureCompleteness::Complete,
-            detail: None,
-        });
-        batch.capabilities.push(CaptureCapability {
-            capability: CaptureCapabilityKind::Randomness,
-            completeness: CaptureCompleteness::Complete,
-            detail: None,
-        });
-        batch.events.push(CaptureEvent {
-            id: "evt_6".into(),
-            sequence: 6,
-            monotonic_ns: 6,
-            wall_time: None,
-            process_id: Some(7),
-            thread_id: None,
-            actor: None,
-            causal_parent_ids: vec![],
-            trace_id: None,
-            span_id: None,
-            event: CaptureEventKind::EnvironmentRead {
-                environment: EnvironmentKind::RandomSeed,
-                subject: "seed".into(),
-                value: Some(CapturedValue::Replayable {
-                    value: serde_json::json!(42),
-                    redaction: crate::RedactionState::NotRequired,
-                }),
-            },
-        });
-        batch.events.push(CaptureEvent {
-            id: "evt_7".into(),
-            sequence: 7,
-            monotonic_ns: 7,
-            wall_time: None,
-            process_id: Some(7),
-            thread_id: None,
-            actor: None,
-            causal_parent_ids: vec![],
-            trace_id: None,
-            span_id: None,
-            event: CaptureEventKind::EnvironmentRead {
-                environment: EnvironmentKind::WallClock,
-                subject: "wall-clock-read-stream".into(),
-                value: Some(CapturedValue::Structural {
-                    shape: serde_json::json!({"reads": 3}),
-                }),
-            },
-        });
-
-        let compiled = compile_capture_failure(
-            &batch,
-            "2026-07-27T12:01:00Z",
-            CaptureAssessmentScope::Portable,
-        )
-        .unwrap()
-        .unwrap();
-        assert!(compiled
-            .assessment
-            .requirements
-            .iter()
-            .any(|requirement| matches!(
-                &requirement.requirement,
-                RequirementKind::Environment {
-                    environment: EnvironmentKind::RandomSeed,
-                    required_value: Some(value),
-                } if value == "seed:42"
-            )));
-        assert!(compiled
-            .assessment
-            .requirements
-            .iter()
-            .any(|requirement| matches!(
-                requirement.requirement,
-                RequirementKind::Environment {
-                    environment: EnvironmentKind::WallClock,
-                    ..
-                }
-            )));
-        assert!(compiled
-            .assessment
-            .unresolved
-            .iter()
-            .any(|item| item.detail.contains("replayable deterministic value")));
-    }
-}
+mod tests;

@@ -47,7 +47,7 @@ class CaptureTest {
     }
     private static Capture capture(String build) {
         return Capture.create(new Capture.Config()
-            .endpoint("http://127.0.0.1:9/v1/events")
+            .endpoint("http://127.0.0.1:9/v1/capture-batches")
             .apiKey("sk")
             .appId("app-demo")
             .build(build));
@@ -57,7 +57,12 @@ class CaptureTest {
         BackendTrace trace = BackendTrace.begin(capture.context(), "createOrder",
             new BackendTrace.Options()
                 .input(Map.of("body", Map.of("item", "widget", "qty", 2L))));
-        trace.effect("read", new BackendTrace.Effect().resource("inventory").key("widget"));
+        trace.effect("read", new BackendTrace.Effect()
+            .resource("inventory")
+            .key("widget")
+            .exchange(Map.of(
+                "request", Map.of("key", "widget"),
+                "response", Map.of("available", true))));
         trace.finish(Map.of("error", "boom"), status, success, true);
         return trace;
     }
@@ -181,11 +186,17 @@ class CaptureTest {
         BackendTrace failed = BackendTrace.begin(capture.context(), "op", null);
         failed.finish(null, 200, false, true);
         capture.record(failed);
-        assertEquals(1, capture.stats().capturedOperations());
+        assertEquals(0, capture.stats().capturedOperations());
         assertTrue(capture.flush(10000));
         Capture.Stats stats = capture.stats();
-        // 127.0.0.1:9 refuses connections: the batch fails, the op is dropped.
-        assertEquals(1, stats.failedBatches());
-        assertEquals(1, stats.droppedOperations());
+        assertEquals(0, stats.failedBatches());
+        assertEquals(0, stats.droppedOperations());
+    }
+
+    @Test
+    void recordQueuesOnlyAPortableServerFailure() {
+        Capture capture = capture(null);
+        capture.record(finishedTrace(capture, 500, false));
+        assertEquals(1, capture.stats().capturedOperations());
     }
 }

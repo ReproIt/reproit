@@ -24,17 +24,21 @@ import { ReproIt } from '../src/index';
 
 afterEach(() => ReproIt.dispose());
 
-/** Post one snapshot, flush, and return the JSON batch body the SDK POSTed. */
+/** Capture one failure and return the capture batch body the SDK posted. */
 function flushOneBatch(opts: Parameters<typeof ReproIt.init>[0]): {
   version: number;
-  frames: Array<{ event: { kind: string; context?: Record<string, unknown> } }>;
+  deployment?: { version?: string; commit?: string };
 } {
   const fetchMock = jest.fn(() => Promise.resolve({} as Response));
   (globalThis as { fetch?: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
   ReproIt.init({ ...opts, endpoint: 'https://ingest.example' });
   ReproIt.recordSnapshot({ role: 'screen', children: [{ role: 'header', id: 'title' }] }, 'load');
   ReproIt.captureBug();
-  const [, fetchOpts] = fetchMock.mock.calls[0] as unknown as [string, { body: string }];
+  const calls = fetchMock.mock.calls as unknown as Array<[string, { body: string }]>;
+  const captureCall = calls.find(([url]) =>
+    String(url).endsWith('/v1/capture-batches'),
+  );
+  const [, fetchOpts] = captureCall as unknown as [string, { body: string }];
   delete (globalThis as { fetch?: typeof fetch }).fetch;
   return JSON.parse(fetchOpts.body);
 }
@@ -46,20 +50,15 @@ describe('developer-provided build identity (context.build)', () => {
     expect(ctx.build).toEqual({ version: '1.4.2', commit: 'abc123' });
   });
 
-  test('the finding frame carries context.build = { version, commit }', () => {
+  test('the capture batch carries deployment version and commit', () => {
     const body = flushOneBatch({ appId: 'b', build: { version: '1.4.2', commit: 'abc123' } });
     expect(body.version).toBe(1);
-    const finding = body.frames.find((frame) => frame.event.kind === 'finding');
-    expect(finding?.event.context?.build).toEqual({ version: '1.4.2', commit: 'abc123' });
-    // The auto dimensions still ride alongside it.
-    expect(finding?.event.context?.platform).toBe('ios');
+    expect(body.deployment).toEqual({ version: '1.4.2', commit: 'abc123' });
   });
 
   test('init WITHOUT build -> no build key', () => {
     const body = flushOneBatch({ appId: 'b' });
-    const finding = body.frames.find((frame) => frame.event.kind === 'finding');
-    expect(finding?.event.context).toBeDefined();
-    expect('build' in (finding?.event.context ?? {})).toBe(false);
+    expect(body.deployment).toBeUndefined();
     expect(ReproIt.context().build).toBeUndefined();
   });
 

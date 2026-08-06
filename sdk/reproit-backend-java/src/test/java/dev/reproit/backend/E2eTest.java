@@ -51,7 +51,12 @@ class E2eTest {
             BackendTrace trace =
                 (BackendTrace) request.getAttribute(ReproitFilter.REQUEST_ATTRIBUTE);
             assertNotNull(trace);
-            trace.effect("write", new BackendTrace.Effect().resource("orders").key("1"));
+            trace.effect("write", new BackendTrace.Effect()
+                .resource("orders")
+                .key("1")
+                .exchange(Map.of(
+                    "request", Map.of("id", "1"),
+                    "response", Map.of("stored", true))));
             response.setStatus(500);
             response.setContentType("application/json");
             response.getWriter().write("{\"error\":\"boom\"}");
@@ -71,7 +76,7 @@ class E2eTest {
     void plantedFiveHundredShipsATaggedFindingBatchToTheStubIngest() throws Exception {
         List<Received> received = new ArrayList<>();
         HttpServer ingest = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        ingest.createContext("/v1/events", exchange -> {
+        ingest.createContext("/v1/capture-batches", exchange -> {
             String body = new String(
                 exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             synchronized (received) {
@@ -87,7 +92,7 @@ class E2eTest {
         });
         ingest.start();
         String ingestUrl =
-            "http://127.0.0.1:" + ingest.getAddress().getPort() + "/v1/events";
+            "http://127.0.0.1:" + ingest.getAddress().getPort() + "/v1/capture-batches";
 
         Capture capture = Capture.create(new Capture.Config()
             .endpoint(ingestUrl)
@@ -104,7 +109,20 @@ class E2eTest {
         server.addConnector(connector);
         ServletContextHandler handler = new ServletContextHandler();
         handler.setContextPath("/");
-        handler.addFilter(new FilterHolder(new ReproitFilter(capture)), "/*",
+        BackendTrace[] observedTrace = new BackendTrace[1];
+        TraceSink sink = new TraceSink() {
+            @Override
+            public TraceContext context() {
+                return capture.context();
+            }
+
+            @Override
+            public void record(BackendTrace trace) {
+                observedTrace[0] = trace;
+                capture.record(trace);
+            }
+        };
+        handler.addFilter(new FilterHolder(new ReproitFilter(sink).effectsComplete(true)), "/*",
             EnumSet.of(DispatcherType.REQUEST));
         handler.addServlet(new ServletHolder(new OkServlet()), "/ok");
         handler.addServlet(new ServletHolder(new BoomServlet()), "/boom");
@@ -122,6 +140,12 @@ class E2eTest {
                     .build(),
                 HttpResponse.BodyHandlers.ofString());
             assertEquals(500, boom.statusCode());
+            assertNotNull(observedTrace[0]);
+            List<Map<String, Object>> traceEvents = observedTrace[0].events();
+            Map<String, Object> returned = traceEvents.get(traceEvents.size() - 1);
+            assertEquals(500, returned.get("status"));
+            assertEquals(true, returned.get("effectsComplete"));
+            assertEquals(1, capture.stats().capturedOperations());
             assertEquals(true, capture.flush(5000));
 
             assertEquals(1, received.size());
@@ -144,7 +168,7 @@ class E2eTest {
             for (Object event : events) kinds.add(at(event, "event").get("kind"));
             assertEquals(
                 List.of(
-                    "operation-start", "trigger", "checkpoint", "effect", "effect",
+                    "operation-start", "trigger", "checkpoint", "state-access", "effect",
                     "operation-end", "observation"),
                 kinds);
             assertEquals("orders", at(events.get(3), "event").get("subject"));

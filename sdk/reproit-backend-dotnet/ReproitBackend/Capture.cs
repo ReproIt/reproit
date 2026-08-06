@@ -1,11 +1,10 @@
-// Production capture mode: config-gated self-sampling upload of finished operation traces to
-// the Reproit Cloud ingest endpoint (`/v1/capture-batches`).
+// Production capture mode uploads complete failed operation traces to the Repro It Cloud ingest
+// endpoint (`/v1/capture-batches`).
 //
 // .NET port of sdk/reproit-backend-rs/src/capture.rs. Scan-time tracing stays untouched: this
 // class only adds a place to hand a finished BackendTrace when no `x-reproit-trace` header
-// exists. Operations that end in a server error (HTTP 5xx) or report `success == false` are
-// always captured; healthy operations only under an optional per-mille baseline sample
-// (default 0).
+// exists. A stable 5xx or marked agent oracle, complete effects, and a pre-operation replay seed
+// are required before queueing.
 //
 // Everything is bounded and capture failure is invisible to the host app: a fixed-depth queue
 // drops oldest on overflow, batches and retries are capped, uploads run on one background
@@ -200,6 +199,7 @@ public sealed class Capture
             ActionIndex = 0,
             Build = _build,
             CaptureEnvelope = true,
+            ReplaySeed = ReplaySeed(),
         };
     }
 
@@ -220,15 +220,9 @@ public sealed class Capture
                 }
             }
             if (returned == null) return;
-            var success = !returned.TryGetValue("success", out var rawSuccess) ||
-                rawSuccess is not bool flag || flag;
             long? status = returned.TryGetValue("status", out var rawStatus) &&
                 rawStatus is long code && code >= 0 && code <= 0xffff ? code : null;
-            var error = !success || status >= 500;
-            // A marked agent oracle is an authored failure assertion, so the operation is
-            // always captured, like a 5xx.
-            var marked = MarkedOracle(events) != null;
-            if (!error && !marked && !SampleHealthy()) return;
+            if (!PortableOperation(events, returned, status)) return;
             if (events.Count == 0 ||
                 !events[0].TryGetValue("operation", out var rawOperation) ||
                 rawOperation is not string operation)
@@ -412,12 +406,8 @@ public sealed class Capture
             },
         };
         var parent = recorder.OperationStart(operation.Operation, Context(first));
-        var input = first.TryGetValue("input", out var capturedInput)
-            ? CaptureValues.Replayable(capturedInput)
-            : CaptureValues.Structural(new Dictionary<string, object?>
-            {
-                ["type"] = "unknown",
-            });
+        first.TryGetValue("input", out var capturedInput);
+        var input = CaptureValues.Replayable(capturedInput);
         parent = recorder.Trigger(
             "http-request",
             operation.Operation,
@@ -516,15 +506,10 @@ public sealed class Capture
         var capabilities = new List<Dictionary<string, object?>>
         {
             new() { ["capability"] = "http", ["completeness"] = "complete" },
-            new()
-            {
-                ["capability"] = "database",
-                ["completeness"] = "partial",
-                ["detail"] = "effect records do not prove complete database state capture",
-            },
         };
-        var hasExchanges = operation.Events.Any(evt => evt.ContainsKey("exchange"));
-        if (hasExchanges)
+        var hasNetworkExchanges = HasExchange(operation.Events, "call");
+        var hasDatabaseExchanges = HasExchange(operation.Events, "read", "write", "delete");
+        if (hasNetworkExchanges)
         {
             capabilities.Add(new Dictionary<string, object?>
             {
@@ -533,7 +518,47 @@ public sealed class Capture
                 ["detail"] = "outbound dependency exchanges recorded with responses",
             });
         }
+        if (hasDatabaseExchanges)
+        {
+            capabilities.Add(new Dictionary<string, object?>
+            {
+                ["capability"] = "database",
+                ["completeness"] = "complete",
+            });
+        }
         return capabilities;
+    }
+
+    private static bool HasExchange(
+        IEnumerable<Dictionary<string, object?>> events,
+        params string[] effects) => events.Any(evt =>
+            evt.GetValueOrDefault("effect") is string effect &&
+            effects.Contains(effect) &&
+            evt.GetValueOrDefault("exchange") is Dictionary<string, object?>);
+
+    private static bool PortableOperation(
+        IReadOnlyList<Dictionary<string, object?>> events,
+        Dictionary<string, object?> returned,
+        long? status)
+    {
+        if (MarkedOracle(events) == null && (status == null || status < 500)) return false;
+        if (returned.GetValueOrDefault("effectsComplete") is not true) return false;
+        if (events[0].GetValueOrDefault("replaySeed") is not string seed ||
+            !System.Text.RegularExpressions.Regex.IsMatch(seed, "^[0-9a-f]{16}$"))
+        {
+            return false;
+        }
+        foreach (var evt in events)
+        {
+            if (evt.GetValueOrDefault("kind") as string != "effect") continue;
+            if (evt.GetValueOrDefault("effect") is not string effect ||
+                !new[] { "call", "read", "write", "delete" }.Contains(effect))
+            {
+                continue;
+            }
+            if (evt.GetValueOrDefault("exchange") is not Dictionary<string, object?>) return false;
+        }
+        return true;
     }
 
     // Where and when the capture happened, and a seed that makes REPLAY runs deterministic.
@@ -562,7 +587,10 @@ public sealed class Capture
             ["os"] = Environment.OSVersion.Platform.ToString(),
             ["arch"] = System.Runtime.InteropServices.RuntimeInformation
                 .ProcessArchitecture.ToString().ToLowerInvariant(),
-            ["replaySeed"] = ReplaySeed(),
+            ["replaySeed"] = first.GetValueOrDefault("replaySeed") is string seed &&
+                System.Text.RegularExpressions.Regex.IsMatch(seed, "^[0-9a-f]{16}$")
+                    ? seed
+                    : ReplaySeed(),
         };
         var imageDigest = Environment.GetEnvironmentVariable("REPROIT_IMAGE_DIGEST");
         if (imageDigest != null && Token.IsMatch(imageDigest))

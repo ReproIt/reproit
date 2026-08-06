@@ -52,11 +52,11 @@ config-gated: nothing leaves the process unless the host constructs a `Capture`.
 `Capture.create(...)` returns `None` (capture disabled, host unaffected) when the config is
 unusable. `capture.record(trace)` never blocks, never raises, and never surfaces errors.
 
-Sampling: operations whose return reports `success == False` or HTTP 5xx are always captured;
-healthy operations are captured only under `healthy_sample_per_mille` (default 0, backend frames
-only, no finding). A 5xx capture is posted as one universal capture-batch-v1 containing exactly that
-operation, carrying the full redacted start/effects/return sequence for deterministic local
-replay:
+Eligibility: an operation needs a stable HTTP 5xx or marked agent oracle, complete effects, and a
+pre-operation replay seed. `success == False` alone is not an oracle. Healthy operations are not
+uploaded. `healthy_sample_per_mille` remains available for source compatibility but has no effect.
+An eligible capture is posted as one universal capture-batch-v1 containing exactly that operation.
+It carries the full redacted start, effects, and return sequence for deterministic local replay:
 
 ```sh
 # pull the occurrence the capture became, and re-execute it locally:

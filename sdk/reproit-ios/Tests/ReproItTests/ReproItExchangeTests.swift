@@ -166,19 +166,24 @@ final class ReproItExchangeTests: XCTestCase {
     let deployment = batch?["deployment"] as? [String: Any]
     XCTAssertEqual(deployment?["version"] as? String, "1.2.3")
     XCTAssertEqual(deployment?["commit"] as? String, "abc123")
-    let capability = (batch?["capabilities"] as? [[String: Any]])?.first
+    let capability = (batch?["capabilities"] as? [[String: Any]])?.first {
+      $0["capability"] as? String == "network"
+    }
     XCTAssertEqual(capability?["capability"] as? String, "network")
     XCTAssertEqual(capability?["completeness"] as? String, "complete")
   }
 
-  func testCaptureBatchIsWithheldWithoutExchanges() {
+  func testCaptureBatchUsesTheUiBoundaryWithoutExchanges() {
     let batch = ReproItCaptureBatch.build(
       appId: "app-demo", sessionId: "ses-1", batchId: "cb-ios-1",
-      operation: "A:home", triggerSubject: "tap", triggerValue: nil,
+      operation: "A:home", triggerSubject: "tap", triggerValue: ["action": "tap"],
       exchanges: [],
       failureSummary: "boom", failureSignature: "crash:A:home",
       buildVersion: nil, buildCommit: nil)
-    XCTAssertNil(batch, "a capsule with no exchanges could not be re-executed")
+    XCTAssertNotNil(batch)
+    let capabilities = (batch?["capabilities"] as? [[String: Any]]) ?? []
+    XCTAssertTrue(capabilities.contains { $0["capability"] as? String == "user-interface" })
+    XCTAssertFalse(capabilities.contains { $0["capability"] as? String == "network" })
   }
 
   /// The emitted batch must satisfy the Rust semantic validator, which is the

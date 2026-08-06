@@ -7,7 +7,7 @@
 declare(strict_types=1);
 
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
-if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && $path === '/v1/events') {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && $path === '/v1/capture-batches') {
     $record = json_encode([
         'authorization' => $_SERVER['HTTP_AUTHORIZATION'] ?? null,
         'batch' => json_decode((string) file_get_contents('php://input'), true),

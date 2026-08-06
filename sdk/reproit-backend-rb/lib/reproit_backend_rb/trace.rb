@@ -186,6 +186,9 @@ module ReproitBackendRb
       common["actor"] = context["actor"] if context["actor"]
       common["build"] = context["build"] if context["build"]
       common["configContract"] = context["config_contract"] if context["config_contract"]
+      if context["capture_envelope"] == true && context["replay_seed"].is_a?(String)
+        common["replaySeed"] = context["replay_seed"]
+      end
       unless tenant.nil?
         bounded_tenant = ReproitBackendRb.bounded(tenant.to_s, 128)
         common["tenant"] = bounded_tenant unless bounded_tenant.nil?

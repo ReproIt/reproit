@@ -21,6 +21,7 @@ use tower::ServiceExt;
 fn test_app(capture: Option<Capture>) -> Router {
     let layer = ReproitLayer::new(MiddlewareConfig {
         capture,
+        effects_complete: true,
         ..MiddlewareConfig::default()
     });
     Router::new()
@@ -29,13 +30,14 @@ fn test_app(capture: Option<Capture>) -> Router {
             "/boom",
             post(|request: Request<Body>| async move {
                 if let Some(recorder) = request.extensions().get::<Recorder>() {
-                    let _ = recorder.effect(
+                    let _ = recorder.exchange(
                         EffectKind::Write,
                         Some("orders"),
                         Some("1"),
-                        None,
-                        None,
-                        None,
+                        json!({
+                            "request": {"id": "1"},
+                            "response": {"stored": true},
+                        }),
                     );
                 }
                 (
@@ -85,7 +87,7 @@ async fn planted_500_ships_a_tagged_finding_batch() {
             "operation-start",
             "trigger",
             "checkpoint",
-            "effect",
+            "state-access",
             "effect",
             "operation-end",
             "observation"

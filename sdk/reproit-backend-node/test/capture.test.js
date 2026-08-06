@@ -43,7 +43,14 @@ function finishedTrace(status, success) {
   const trace = BackendTrace.begin(context, 'createOrder', {
     input: { body: { item: 'widget', qty: 2 } },
   });
-  trace.effect('read', { resource: 'inventory', key: 'widget' });
+  trace.effect('read', {
+    resource: 'inventory',
+    key: 'widget',
+    exchange: {
+      request: { key: 'widget' },
+      response: { available: true },
+    },
+  });
   trace.finish({ error: 'boom' }, status, success, true);
   return trace;
 }
@@ -140,10 +147,10 @@ test('record ignores unfinished traces and healthy traces when sampling is off',
   healthy.finish(null, 200, true, true);
   capture.record(healthy);
   assert.strictEqual(capture.stats().capturedOperations, 0);
-  const failed = BackendTrace.begin(capture.context(), 'op', { input: null });
-  failed.finish(null, 200, false, true);
-  capture.record(failed);
-  assert.strictEqual(capture.stats().capturedOperations, 1);
+  const failedWithoutOracle = BackendTrace.begin(capture.context(), 'op', { input: null });
+  failedWithoutOracle.finish(null, 200, false, true);
+  capture.record(failedWithoutOracle);
+  assert.strictEqual(capture.stats().capturedOperations, 0);
 });
 
 test('agent oracle markers ride the trace and reject unknown ids', () => {

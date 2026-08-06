@@ -161,7 +161,7 @@ def _raise():
     raise RuntimeError("relation missing")
 
 
-def test_batch_declares_network_only_when_exchanges_exist():
+def test_batch_declares_the_recorded_database_boundary():
     capture = Capture.create("http://c/v1/capture-batches", "sk", "app-demo")
     trace = _trace()
     token = use_trace(trace)
@@ -174,7 +174,8 @@ def test_batch_declares_network_only_when_exchanges_exist():
         [{"operation": "GET /quote", "status": 500, "events": list(trace.events())}]
     )
     capabilities = {item["capability"] for item in batch["capabilities"]}
-    assert "network" in capabilities
+    assert "database" in capabilities
+    assert "network" not in capabilities
 
     bare = _trace()
     bare.finish({"error": "boom"}, 500, False, True)

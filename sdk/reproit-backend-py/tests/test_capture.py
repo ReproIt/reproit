@@ -71,7 +71,7 @@ def test_server_error_batch_uses_the_universal_causal_contract():
 def test_healthy_operations_ship_causal_events_without_an_observation():
     batch = _batch_for(201, True)
     assert [item["event"]["kind"] for item in batch["events"]] == [
-        "operation-start", "trigger", "checkpoint", "effect", "effect", "operation-end"
+        "operation-start", "trigger", "checkpoint", "state-access", "effect", "operation-end"
     ]
 
 
@@ -116,12 +116,11 @@ def test_record_samples_failures_only_by_default():
     failed = BackendTrace.begin(capture.context(), "op")
     failed.finish(None, 200, False, True)
     capture.record(failed)
-    assert capture.stats()["captured_operations"] == 1
+    assert capture.stats()["captured_operations"] == 0
     assert capture.flush(5.0) is True
     stats = capture.stats()
-    # http://c is unreachable: the batch fails and its operation is dropped.
-    assert stats["failed_batches"] == 1
-    assert stats["dropped_operations"] == 1
+    assert stats["failed_batches"] == 0
+    assert stats["dropped_operations"] == 0
 
 
 def test_agent_oracle_markers_ride_the_trace_and_reject_unknown_ids():

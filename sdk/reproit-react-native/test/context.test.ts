@@ -87,7 +87,7 @@ describe('ReproIt context API (mirrors Flutter)', () => {
     expect(ctx.seats).toBe(3);
   });
 
-  test('finding frames posted to /v1/events carry context', () => {
+  test('failure capture envelopes carry context without duplicate finding telemetry', () => {
     const batches: unknown[] = [];
     const fetchMock = jest.fn(() => Promise.resolve({} as Response));
     (globalThis as { fetch?: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
@@ -107,17 +107,29 @@ describe('ReproIt context API (mirrors Flutter)', () => {
     );
     ReproIt.captureBug();
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [, opts] = fetchMock.mock.calls[0] as unknown as [string, { body: string }];
+    const calls = fetchMock.mock.calls as unknown as Array<[string, { body: string }]>;
+    const captureCall = calls.find(([url]) =>
+      String(url).endsWith('/v1/capture-batches'),
+    );
+    expect(captureCall).toBeDefined();
+    const [, opts] = captureCall as unknown as [string, { body: string }];
     const body = JSON.parse(opts.body);
     batches.push(body);
     expect(body.version).toBe(1);
-    expect(Array.isArray(body.frames)).toBe(true);
-    const finding = body.frames.find(
-      (frame: { event: { kind: string } }) => frame.event.kind === 'finding',
+    const checkpoint = body.events.find(
+      (captured: { event: { kind: string; name?: string } }) =>
+        captured.event.kind === 'checkpoint' && captured.event.name === 'determinism-envelope',
     );
-    expect(finding.event.context.uid).toBe(hashUid('u1'));
-    expect(finding.event.context.platform).toBe('ios');
+    expect(checkpoint.event.attributes.context.uid).toBe(hashUid('u1'));
+    expect(checkpoint.event.attributes.context.platform).toBe('ios');
+    for (const [url, request] of fetchMock.mock.calls as unknown as Array<
+      [string, { body: string }]
+    >) {
+      if (!url.endsWith('/v1/events')) continue;
+      const telemetry = JSON.parse(request.body);
+      expect(telemetry.frames.some((frame: { event: { kind: string } }) =>
+        frame.event.kind === 'finding')).toBe(false);
+    }
 
     delete (globalThis as { fetch?: typeof fetch }).fetch;
   });

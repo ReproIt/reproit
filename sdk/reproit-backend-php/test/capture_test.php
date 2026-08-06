@@ -173,7 +173,7 @@ check_same(0, $capture->stats()['capturedOperations'], 'unfinished and healthy i
 $failed = BackendTrace::begin($capture->context(), 'op', ['input' => null]);
 $failed->finish(null, 200, false, true);
 $capture->record($failed);
-check_same(1, $capture->stats()['capturedOperations'], 'success=false always captured');
+check_same(0, $capture->stats()['capturedOperations'], 'failure without oracle is not captured');
 $reflectedQueue = new \ReflectionProperty(Capture::class, 'queue');
 $reflectedQueue->setValue($capture, []); // keep the process-end shutdown drain a no-op
 

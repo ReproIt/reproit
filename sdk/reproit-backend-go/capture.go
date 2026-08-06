@@ -1,12 +1,11 @@
-// Production capture mode: config-gated self-sampling upload of finished
-// operation traces to the Reproit Cloud ingest endpoint
+// Production capture mode: config-gated upload of complete failed operation
+// traces to the Repro It Cloud ingest endpoint
 // (`/v1/capture-batches`).
 //
 // Go port of sdk/reproit-backend-rs/src/capture.rs. Scan-time tracing stays
 // untouched: this file only adds a place to hand a finished BackendTrace when
-// no `x-reproit-trace` header exists. Operations that end in a server error
-// (HTTP 5xx) or report success == false are always captured; healthy
-// operations only under an optional per-mille baseline sample (default 0).
+// no `x-reproit-trace` header exists. A stable 5xx or marked agent oracle,
+// complete effects, and a pre-operation replay seed are required before queueing.
 //
 // Everything is bounded and capture failure is invisible to the host app: a
 // fixed-depth queue drops oldest on overflow, batches and retries are capped,
@@ -101,9 +100,8 @@ type CaptureConfig struct {
 	// Commit is the code identity for the capture. When unset, REPROIT_COMMIT
 	// then GITHUB_SHA are consulted; never derived by shelling out to git.
 	Commit string
-	// HealthySamplePerMille is the per-mille of healthy (successful,
-	// non-5xx) operations captured as baseline evidence. 0 disables healthy
-	// sampling entirely.
+	// HealthySamplePerMille remains for source compatibility. Healthy
+	// operations are never uploaded as capture batches.
 	HealthySamplePerMille int
 	// FlushInterval is the gather window before a pending batch is sent.
 	FlushInterval time.Duration
@@ -114,8 +112,8 @@ type CaptureConfig struct {
 	RetryLimit int
 }
 
-// NewCaptureConfig returns a config with the family defaults: no healthy
-// sampling, 3 s flush interval, 5 s request timeout, 2 retries.
+// NewCaptureConfig returns a config with a 3 s flush interval, a 5 s request
+// timeout, and 2 retries.
 func NewCaptureConfig(endpoint, apiKey, appID string) CaptureConfig {
 	return CaptureConfig{
 		Endpoint:       endpoint,
@@ -207,6 +205,7 @@ func (c *Capture) Context() *TraceContext {
 		// Capture-mode traces stamp per-event wall-clock and monotonic
 		// offsets (the determinism envelope); scan-time traces never do.
 		CaptureEnvelope: true,
+		ReplaySeed:      c.nextReplaySeed(),
 	}
 }
 
@@ -232,20 +231,13 @@ func (c *Capture) Record(trace *BackendTrace) {
 	if returned == nil {
 		return
 	}
-	success := true
-	if value, ok := returned["success"].(bool); ok {
-		success = value
-	}
 	status := 0
 	if number, ok := returned["status"].(json.Number); ok {
 		if parsed, err := strconv.Atoi(number.String()); err == nil && parsed >= 0 {
 			status = parsed
 		}
 	}
-	// A marked agent oracle is an authored failure assertion, so the
-	// operation is always captured, like a 5xx.
-	marked := MarkedOracle(events) != ""
-	if success && status < 500 && !marked && !c.sampleHealthy() {
+	if !portableOperation(events, returned, status) {
 		return
 	}
 	operation, _ := events[0]["operation"].(string)
@@ -423,19 +415,11 @@ func (c *Capture) buildBatch(operations []capturedOperation) map[string]any {
 	}
 	firstMono := monoOf(first)
 	add(map[string]any{"kind": "operation-start", "name": operation.operation}, firstMono)
-	input, hasInput := first["input"]
-	var inputValue map[string]any
-	if hasInput && input != nil {
-		inputValue = map[string]any{
-			"representation": "replayable",
-			"value":          input,
-			"redaction":      "redacted-at-source",
-		}
-	} else {
-		inputValue = map[string]any{
-			"representation": "structural",
-			"shape":          map[string]any{"type": "unknown"},
-		}
+	input := first["input"]
+	inputValue := map[string]any{
+		"representation": "replayable",
+		"value":          input,
+		"redaction":      "redacted-at-source",
 	}
 	add(map[string]any{
 		"kind": "trigger", "trigger": "http-request",
@@ -446,7 +430,7 @@ func (c *Capture) buildBatch(operations []capturedOperation) map[string]any {
 	// reproduce the app's original randomness; it pins the replay's.
 	add(map[string]any{
 		"kind": "checkpoint", "name": "determinism-envelope",
-		"attributes": c.determinismEnvelope(first["at"]),
+		"attributes": c.determinismEnvelope(first["at"], first["replaySeed"]),
 	}, firstMono)
 	for _, source := range operation.events {
 		if source["kind"] != "effect" {
@@ -460,14 +444,31 @@ func (c *Capture) buildBatch(operations []capturedOperation) map[string]any {
 		if subject == "" {
 			subject = operation.operation
 		}
-		add(map[string]any{
-			"kind": "effect", "effect": effect, "subject": subject,
-			"value": map[string]any{
+		value := map[string]any{
+			"representation": "structural",
+			"shape": map[string]any{"effect": effect, "subject": subject},
+		}
+		if exchange, ok := source["exchange"].(map[string]any); ok && exchange != nil {
+			value = map[string]any{
 				"representation": "replayable",
-				"value":          source,
-				"redaction":      "redacted-at-source",
-			},
-		}, monoOf(source))
+				"value": source, "redaction": "redacted-at-source",
+			}
+		}
+		causal := map[string]any{
+			"kind": "effect", "effect": effect, "subject": subject, "value": value,
+		}
+		if effect == "call" {
+			causal = map[string]any{
+				"kind": "dependency", "system": "service", "operation": "call",
+				"subject": subject, "value": value,
+			}
+		} else if effect == "read" || effect == "write" || effect == "delete" {
+			causal = map[string]any{
+				"kind": "state-access", "state": "database", "operation": effect,
+				"subject": subject, "value": value,
+			}
+		}
+		add(causal, monoOf(source))
 	}
 	// Nest the raw return event exactly like the raw effect events, so the
 	// batch can be projected back to a replayable backend capture. The
@@ -647,35 +648,91 @@ func validToken(value string) bool {
 // capability is claimed only when outbound exchanges were actually recorded,
 // so a capsule never advertises replayability it does not have.
 func captureCapabilities(operation capturedOperation) []any {
-	hasExchanges := false
+	hasNetworkExchanges := false
+	hasDatabaseExchanges := false
 	for _, event := range operation.events {
-		if exchange, ok := event["exchange"]; ok && exchange != nil {
-			hasExchanges = true
-			break
+		if exchange, ok := event["exchange"].(map[string]any); ok && exchange != nil {
+			effect, _ := event["effect"].(string)
+			if effect == "call" {
+				hasNetworkExchanges = true
+			}
+			if effect == "read" || effect == "write" || effect == "delete" {
+				hasDatabaseExchanges = true
+			}
 		}
 	}
 	list := []any{
 		map[string]any{"capability": "http", "completeness": "complete"},
-		map[string]any{
-			"capability": "database", "completeness": "partial",
-			"detail": "effect records do not prove complete database state capture",
-		},
 	}
-	if hasExchanges {
+	if hasNetworkExchanges {
 		list = append(list, map[string]any{
 			"capability": "network", "completeness": "complete",
 			"detail": "outbound dependency exchanges recorded with responses",
 		})
 	}
+	if hasDatabaseExchanges {
+		list = append(list, map[string]any{
+			"capability": "database", "completeness": "complete",
+		})
+	}
 	return list
+}
+
+func portableOperation(events []map[string]any, returned map[string]any, status int) bool {
+	if MarkedOracle(events) == "" && status < 500 {
+		return false
+	}
+	if complete, _ := returned["effectsComplete"].(bool); !complete {
+		return false
+	}
+	seed, _ := events[0]["replaySeed"].(string)
+	if !validReplaySeed(seed) {
+		return false
+	}
+	for _, event := range events {
+		if event["kind"] != "effect" {
+			continue
+		}
+		effect, _ := event["effect"].(string)
+		if effect != "call" && effect != "read" && effect != "write" && effect != "delete" {
+			continue
+		}
+		if exchange, ok := event["exchange"].(map[string]any); !ok || exchange == nil {
+			return false
+		}
+	}
+	return true
 }
 
 // determinismEnvelope describes where and when the capture happened, plus the
 // seed a replay pins its randomness to. The timezone comes from TZ when set;
 // Go has no cheap IANA zone name for an unset TZ.
-func (c *Capture) determinismEnvelope(observedAt any) map[string]any {
+func (c *Capture) determinismEnvelope(observedAt, replaySeed any) map[string]any {
+	attributes := determinismEnvelopeFrom(c.rng.Load(), observedAt)
+	if seed, ok := replaySeed.(string); ok && validReplaySeed(seed) {
+		attributes["replaySeed"] = seed
+	}
+	return attributes
+}
+
+func (c *Capture) nextReplaySeed() string {
 	seed := c.rng.Add(0x9e3779b97f4a7c15)
-	return determinismEnvelopeFrom(seed, observedAt)
+	seed ^= seed << 13
+	seed ^= seed >> 7
+	seed ^= seed << 17
+	return fmt.Sprintf("%016x", seed)
+}
+
+func validReplaySeed(seed string) bool {
+	if len(seed) != 16 {
+		return false
+	}
+	for _, digit := range seed {
+		if !strings.ContainsRune("0123456789abcdef", digit) {
+			return false
+		}
+	}
+	return true
 }
 
 // DeterminismEnvelope builds a standalone determinism envelope for callers

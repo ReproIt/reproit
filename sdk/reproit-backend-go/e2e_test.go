@@ -50,13 +50,20 @@ func testApp(capture *Capture) http.Handler {
 	})
 	mux.HandleFunc("POST /boom", func(w http.ResponseWriter, r *http.Request) {
 		if trace := FromRequest(r); trace != nil {
-			_ = trace.Effect(EffectWrite, EffectOptions{Resource: "orders", Key: "1"})
+			_ = trace.Exchange(EffectWrite, ExchangeOptions{
+				Resource: "orders",
+				Key:      "1",
+				Exchange: map[string]any{
+					"request":  map[string]any{"id": "1"},
+					"response": map[string]any{"stored": true},
+				},
+			})
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(`{"error":"boom"}`))
 	})
-	middleware := Middleware(MiddlewareOptions{Capture: capture})
+	middleware := Middleware(MiddlewareOptions{Capture: capture, EffectsComplete: true})
 	return middleware(mux)
 }
 
@@ -65,7 +72,8 @@ func TestE2EPlanted500ShipsATaggedFindingBatch(t *testing.T) {
 	ingestServer := httptest.NewServer(ingest)
 	defer ingestServer.Close()
 
-	config := NewCaptureConfig(ingestServer.URL+"/v1/events", "sk_live_test", "app-e2e")
+	config := NewCaptureConfig(
+		ingestServer.URL+"/v1/capture-batches", "sk_live_test", "app-e2e")
 	config.Build = "9.9.9"
 	config.FlushInterval = 100 * time.Millisecond
 	capture := NewCapture(config)
@@ -131,7 +139,7 @@ func TestE2EPlanted500ShipsATaggedFindingBatch(t *testing.T) {
 	}
 	if len(kinds) != 7 || kinds[0] != "operation-start" ||
 		kinds[1] != "trigger" || kinds[2] != "checkpoint" ||
-		kinds[3] != "effect" || kinds[4] != "effect" ||
+		kinds[3] != "state-access" || kinds[4] != "effect" ||
 		kinds[5] != "operation-end" || kinds[6] != "observation" {
 		t.Fatalf("capture sequence wrong: %v", kinds)
 	}

@@ -7,6 +7,23 @@ import XCTest
   import AppKit
 #endif
 
+private final class ReproItRequestSpyProtocol: URLProtocol {
+  static var observe: ((URLRequest) -> Void)?
+
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+  override func startLoading() {
+    Self.observe?(request)
+    let response = HTTPURLResponse(
+      url: request.url!, statusCode: 202, httpVersion: nil, headerFields: nil)!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+
+  override func stopLoading() {}
+}
+
 /// These tests run on the macOS HOST under `swift test`. They cover the
 /// canonical contract (STRUCTURAL signature parity against the golden vectors,
 /// name normalization, snapshot rules, event/batch encoding, engine edge logic)
@@ -615,6 +632,29 @@ final class ReproItTests: XCTestCase {
     let identity = obj["findingIdentity"] as? [String: String]
     XCTAssertEqual(identity?["boundary"], sig)
     XCTAssertEqual(trigger, path.last?.action)
+  }
+
+  func testTesterCaptureUsesOneCaptureRequestAndNoFailureTelemetry() {
+    let capture = expectation(description: "capture batch")
+    let telemetry = expectation(description: "failure telemetry")
+    telemetry.isInverted = true
+    ReproItRequestSpyProtocol.observe = { request in
+      if request.url?.path == "/v1/capture-batches" { capture.fulfill() }
+      if request.url?.path == "/v1/events" { telemetry.fulfill() }
+    }
+    defer { ReproItRequestSpyProtocol.observe = nil }
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [ReproItRequestSpyProtocol.self]
+    let engine = ReproItEngine(
+      config: ReproItConfig(appId: "t", endpoint: "https://ingest.example"),
+      session: URLSession(configuration: configuration))
+    engine.observe(
+      ReproItSnapshot.build(
+        anchor: "/login", tree: ReproItTests.loginTree(),
+        labels: [], maxLabels: 24, maxLabelLen: 40))
+
+    XCTAssertTrue(engine.captureBug())
+    wait(for: [capture, telemetry], timeout: 0.5)
   }
 
   func testStackCappedAtEight() {

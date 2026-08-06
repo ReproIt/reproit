@@ -11,7 +11,25 @@ public record TraceContext(
     long actionIndex,
     String build,
     String configContract,
-    boolean captureEnvelope) {
+    boolean captureEnvelope,
+    String replaySeed) {
+
+    public TraceContext(
+            String traceId,
+            String actor,
+            long actionIndex,
+            String build,
+            String configContract,
+            boolean captureEnvelope) {
+        this(
+            traceId,
+            actor,
+            actionIndex,
+            build,
+            configContract,
+            captureEnvelope,
+            captureEnvelope ? Capture.replaySeed() : null);
+    }
 
     /**
      * Scan-time contexts never stamp the determinism envelope; capture mode
@@ -19,6 +37,6 @@ public record TraceContext(
      */
     public TraceContext(
             String traceId, String actor, long actionIndex, String build, String configContract) {
-        this(traceId, actor, actionIndex, build, configContract, false);
+        this(traceId, actor, actionIndex, build, configContract, false, null);
     }
 }

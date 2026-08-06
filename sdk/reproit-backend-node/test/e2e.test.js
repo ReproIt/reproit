@@ -100,10 +100,14 @@ test('express: planted 500 ships a tagged finding batch to the stub ingest', asy
   });
   const app = express();
   app.use(express.json());
-  app.use(reproitExpress({ capture }));
+  app.use(reproitExpress({ capture, effectsComplete: true }));
   app.get('/ok', (req, res) => res.json({ ok: true }));
   app.post('/boom', (req, res) => {
-    req.reproit?.effect('write', { resource: 'orders', key: '1' });
+    req.reproit?.effect('write', {
+      resource: 'orders',
+      key: '1',
+      exchange: { request: { key: '1' }, response: { written: true } },
+    });
     res.status(500).json({ error: 'boom' });
   });
   const server = await new Promise((resolve) => {
@@ -140,10 +144,14 @@ test('fastify: planted 500 ships a tagged finding batch to the stub ingest', asy
     flushIntervalMs: 100,
   });
   const app = fastify();
-  await app.register(reproitFastify, { capture });
+  await app.register(reproitFastify, { capture, effectsComplete: true });
   app.get('/ok', async () => ({ ok: true }));
   app.post('/boom', async (request, reply) => {
-    request.reproit?.effect('write', { resource: 'orders', key: '1' });
+    request.reproit?.effect('write', {
+      resource: 'orders',
+      key: '1',
+      exchange: { request: { key: '1' }, response: { written: true } },
+    });
     reply.code(500);
     return { error: 'boom' };
   });
@@ -197,7 +205,7 @@ test('express: outbound exchanges ship with responses in the capture batch', asy
   });
   const app = express();
   app.use(express.json());
-  app.use(reproitExpress({ capture }));
+  app.use(reproitExpress({ capture, effectsComplete: true }));
   app.get('/quote', async (req, res) => {
     try {
       await pgClient.query('SELECT id FROM issuers WHERE symbol = $1', ['ACME']);

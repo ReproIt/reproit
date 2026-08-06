@@ -67,7 +67,7 @@ class E2eTest < Minitest::Test
       BindAddress: "127.0.0.1", Port: 0,
       Logger: WEBrick::Log.new(File::NULL), AccessLog: []
     )
-    server.mount_proc("/v1/events") do |request, response|
+    server.mount_proc("/v1/capture-batches") do |request, response|
       received << {
         "authorization" => request["authorization"],
         "batch" => JSON.parse(request.body),
@@ -77,7 +77,7 @@ class E2eTest < Minitest::Test
       response.body = '{"accepted":true}'
     end
     Thread.new { server.start }
-    [server, "http://127.0.0.1:#{server.config[:Port]}/v1/events"]
+    [server, "http://127.0.0.1:#{server.config[:Port]}/v1/capture-batches"]
   end
 
   def app(capture)
@@ -87,13 +87,23 @@ class E2eTest < Minitest::Test
         [200, { "content-type" => "application/json" }, ['{"ok":true}']]
       when ["POST", "/boom"]
         trace = env["reproit.trace"]
-        trace&.effect("write", resource: "orders", key: "1")
+        trace&.effect(
+          "write",
+          resource: "orders",
+          key: "1",
+          exchange: {
+            "request" => { "id" => "1" },
+            "response" => { "stored" => true },
+          }
+        )
         [500, { "content-type" => "application/json" }, ['{"error":"boom"}']]
       else
         [404, { "content-type" => "application/json" }, ['{"error":"not found"}']]
       end
     end
-    Rack::Lint.new(R::Middleware.new(Rack::Lint.new(inner), capture: capture))
+    Rack::Lint.new(R::Middleware.new(
+      Rack::Lint.new(inner), capture: capture, effects_complete: true
+    ))
   end
 
   def request(url, method: "GET", body: nil, headers: {})
@@ -167,7 +177,7 @@ class E2eTest < Minitest::Test
         finding["failure"]["signature"]
       )
       assert_equal(
-        %w[operation-start trigger checkpoint effect effect operation-end observation],
+        %w[operation-start trigger checkpoint state-access effect operation-end observation],
         batch["events"].map { |event| event["event"]["kind"] }
       )
       # The determinism envelope rides as a named checkpoint after the trigger.

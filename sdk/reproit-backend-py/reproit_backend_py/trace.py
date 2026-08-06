@@ -242,6 +242,8 @@ class BackendTrace:
             common["build"] = context["build"]
         if context.get("config_contract"):
             common["configContract"] = context["config_contract"]
+        if context.get("capture_envelope") is True and isinstance(context.get("replay_seed"), str):
+            common["replaySeed"] = context["replay_seed"]
         bounded_tenant = _bounded(str(tenant), 128) if tenant is not None else None
         if bounded_tenant is not None:
             common["tenant"] = bounded_tenant

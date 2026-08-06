@@ -6,7 +6,7 @@ use super::*;
 /// the session, so this run is no verdict on the bug at all). The old code
 /// collapsed both into "not_reproduced" and also counted any process failure as
 /// reproduced.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ReproVerdict {
     Reproduced,
     NotReproduced,
@@ -66,13 +66,18 @@ pub(crate) fn classify_repro(outcome: Option<&str>, exit_code: Option<i32>) -> R
 /// a human reproduction summary, and return the classification (so callers can
 /// report it back to the cloud). Used by `reproduce_bucket`, where `<target>`
 /// is the just-pulled repro's alias.
+pub(crate) struct ReplayEvidence {
+    pub(crate) verdict: ReproVerdict,
+    pub(crate) cell_receipt: Option<reproit_protocol::CellReceipt>,
+}
+
 fn run_check_and_classify(
     root: &std::path::Path,
     target: &str,
     context_hint: Option<&Value>,
     record_video: bool,
     flicker: bool,
-) -> Result<ReproVerdict> {
+) -> Result<ReplayEvidence> {
     println!("\nRunning the replay ({target})...");
     let exe = std::env::current_exe()?;
     let mut check_args = vec!["check", "--repro-id", target, "--json"];
@@ -93,12 +98,26 @@ fn run_check_and_classify(
     let log = String::from_utf8_lossy(&out.stdout);
     // Use `check`'s deterministic verdict (its --json `outcome`) rather than
     // grepping, so "replayed without reproducing" and "could not replay" are distinct.
-    let outcome = log
+    let result_json = log
         .find('{')
         .zip(log.rfind('}'))
         .filter(|(i, j)| j > i)
-        .and_then(|(i, j)| serde_json::from_str::<serde_json::Value>(&log[i..=j]).ok())
-        .and_then(|v| v["outcome"].as_str().map(String::from));
+        .and_then(|(i, j)| serde_json::from_str::<serde_json::Value>(&log[i..=j]).ok());
+    let outcome = result_json
+        .as_ref()
+        .and_then(|value| value["outcome"].as_str().map(String::from));
+    let cell_receipt = result_json
+        .as_ref()
+        .and_then(|value| value["runs"].as_array())
+        .and_then(|runs| {
+            runs.iter().find_map(|run| {
+                serde_json::from_value::<reproit_protocol::CellReceipt>(
+                    run.get("cellReceipt")?.clone(),
+                )
+                .ok()
+            })
+        })
+        .filter(|receipt| receipt.cleanup == reproit_protocol::CleanupStatus::Verified);
     let marker = log
         .lines()
         .find(|l| l.contains("EXCEPTION CAUGHT"))
@@ -114,7 +133,10 @@ fn run_check_and_classify(
              a setup error (the repro/journey did not resolve), not a reproduction.",
             out.status.code()
         );
-        return Ok(ReproVerdict::CouldNotReplay);
+        return Ok(ReplayEvidence {
+            verdict: ReproVerdict::CouldNotReplay,
+            cell_receipt: None,
+        });
     }
     let verdict = classify_repro(outcome.as_deref(), out.status.code());
     match &verdict {
@@ -147,7 +169,10 @@ fn run_check_and_classify(
             println!("Could not classify the replay (no verdict from `reproit check`).");
         }
     }
-    Ok(verdict)
+    Ok(ReplayEvidence {
+        verdict,
+        cell_receipt,
+    })
 }
 
 /// Bucket-first production reproduction, the ONE pull -> save -> confirm
@@ -214,34 +239,42 @@ pub async fn verify_tester_capture(
     json: bool,
     cloud: Option<String>,
     key: Option<String>,
-) -> Result<ReproVerdict> {
+) -> Result<ReplayEvidence> {
     pull_and_save(root, Some(app), bucket, as_name, json, cloud, key).await?;
     print_pull_next_step(as_name, json, PullContinuation::ReplayFollows);
     run_check_and_classify(root, as_name, None, false, false)
 }
 
 /// Publish the final tester-capture verdict after local verification is done.
+#[allow(clippy::too_many_arguments)]
 pub async fn report_tester_capture(
     app: &str,
     bucket: &str,
     local_repro_id: &str,
     verdict: ReproVerdict,
     runs: u64,
+    cell_receipt: Option<&reproit_protocol::CellReceipt>,
     cloud: Option<String>,
     key: Option<String>,
-) -> Result<()> {
+) -> Result<bool> {
+    let Some(cell_receipt) = cell_receipt else {
+        return Ok(false);
+    };
     let status = match verdict {
         ReproVerdict::Reproduced => "reproduced",
         ReproVerdict::NotReproduced => "not_reproduced",
         ReproVerdict::Stale => "stale",
         ReproVerdict::Flaky => "flaky",
-        ReproVerdict::CouldNotReplay => return Ok(()),
+        ReproVerdict::CouldNotReplay => return Ok(false),
     };
     let body = serde_json::json!({
+        "mode": "authoritative",
         "status": status,
         "runs": runs,
         "failures": if status == "reproduced" { runs } else { 0 },
         "localReproId": local_repro_id,
+        "where": "local",
+        "cellReceipt": cell_receipt,
     });
     Cloud::new(cloud, key)
         .post(
@@ -249,7 +282,7 @@ pub async fn report_tester_capture(
             &body,
         )
         .await?;
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) async fn report_diagnostic_session(
@@ -301,25 +334,23 @@ pub(crate) async fn report_plan_run(
     if !run.authoritative {
         anyhow::bail!("diagnostic plan run cannot be reported as authoritative");
     }
-    if run
+    let cell_receipt = run
         .cell_receipt
         .as_ref()
-        .is_some_and(|receipt| receipt.cleanup != reproit_protocol::CleanupStatus::Verified)
-    {
+        .context("authoritative plan run did not produce a cell receipt")?;
+    if cell_receipt.cleanup != reproit_protocol::CleanupStatus::Verified {
         anyhow::bail!("cell cleanup was not verified, so no authoritative result can be uploaded");
     }
     let (configured_cloud, key) = matching_cloud_origin(cloud_base)?;
-    let mut body = serde_json::json!({
+    let body = serde_json::json!({
         "mode": "authoritative",
         "status": status,
         "runs": runs,
         "failures": failures,
         "localReproId": occurrence_id,
         "where": "local",
+        "cellReceipt": cell_receipt,
     });
-    if let Some(receipt) = &run.cell_receipt {
-        body["cellReceipt"] = serde_json::to_value(receipt)?;
-    }
     Cloud::new(Some(configured_cloud), key)
         .post(
             &format!("/v1/apps/{app}/buckets/{bucket}/replay-results"),
@@ -358,8 +389,8 @@ async fn report_reproduction(
     }
     // Reuse the standard local verification by alias; no context hint (the pulled
     // repro carries its own fixture, so a CLEAN verdict is a genuine no-repro).
-    let verdict = run_check_and_classify(root, as_name, None, record_video, flicker)?;
-    let status = match verdict {
+    let evidence = run_check_and_classify(root, as_name, None, record_video, flicker)?;
+    let status = match evidence.verdict {
         ReproVerdict::Reproduced => "reproduced",
         ReproVerdict::NotReproduced => "not_reproduced",
         ReproVerdict::Stale => "stale",
@@ -367,11 +398,21 @@ async fn report_reproduction(
         // No verdict = nothing to report; the run never happened.
         ReproVerdict::CouldNotReplay => return Ok(ReproVerdict::CouldNotReplay),
     };
+    let Some(cell_receipt) = evidence.cell_receipt.as_ref() else {
+        println!(
+            "The local verdict was not uploaded because this replay did not produce a verified \
+             execution-cell receipt."
+        );
+        return Ok(evidence.verdict);
+    };
     let mut body = serde_json::json!({
+        "mode": "authoritative",
         "status": status,
         "runs": 1,
         "failures": if status == "reproduced" { 1 } else { 0 },
         "localReproId": as_name,
+        "where": if run_id.is_some() { "ci" } else { "local" },
+        "cellReceipt": cell_receipt,
     });
     if let Some(id) = run_id {
         body["runId"] = serde_json::json!(id);
@@ -388,10 +429,10 @@ async fn report_reproduction(
         // Best-effort: the local reproduction stands even if the report fails.
         Err(e) => println!("Could not report the verdict to the cloud: {e}"),
     }
-    if matches!(&verdict, ReproVerdict::Reproduced) {
+    if matches!(&evidence.verdict, ReproVerdict::Reproduced) {
         println!("\n{}", candidate_fix_next_step(as_name));
     }
-    Ok(verdict)
+    Ok(evidence.verdict)
 }
 
 /// What a pulled cloud package materializes into LOCALLY: the same on-disk

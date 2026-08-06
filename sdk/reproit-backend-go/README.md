@@ -78,11 +78,11 @@ config-gated: nothing leaves the process unless the host constructs a `Capture`.
 `NewCapture(config)` returns nil (capture disabled, host unaffected) when the config is
 unusable. `capture.Record(trace)` never blocks, never panics, and never surfaces errors.
 
-Sampling: operations whose return reports `success == false` or HTTP 5xx are always captured;
-healthy operations are captured only under `HealthySamplePerMille` (default 0, backend frames
-only, no finding). A 5xx capture is posted as one universal capture-batch-v1 containing exactly that
-operation, carrying the full redacted start/effects/return sequence for deterministic local
-replay:
+Eligibility: an operation needs a stable HTTP 5xx or marked agent oracle, complete effects, and a
+pre-operation replay seed. `success == false` alone is not an oracle. Healthy operations are not
+uploaded. `HealthySamplePerMille` remains available for source compatibility but has no effect.
+An eligible capture is posted as one universal capture-batch-v1 containing exactly that operation.
+It carries the full redacted start, effects, and return sequence for deterministic local replay:
 
 ```sh
 # pull the occurrence the capture became, and re-execute it locally:

@@ -51,9 +51,11 @@ config-gated: nothing leaves the process unless the host constructs a `Capture`.
 `Capture.create(config)` returns `null` (capture disabled, host unaffected) when the config is
 unusable. `capture.record(trace)` never blocks, never throws, and never surfaces errors.
 
-Sampling: operations whose return reports `success == false` or HTTP 5xx are always captured.
-Healthy operations are captured only under `healthySamplePerMille` (default 0). Every operation
-becomes its own universal capture batch, so unrelated failures never share an occurrence identity.
+Eligibility: an operation needs a stable HTTP 5xx or marked agent oracle, complete effects, and a
+pre-operation replay seed. `success == false` alone is not an oracle. Healthy operations are not
+uploaded. `healthySamplePerMille` remains available for source compatibility but has no effect.
+Every eligible operation becomes its own universal capture batch, so unrelated failures never
+share an occurrence identity.
 The trace becomes typed operation, request trigger, state, dependency, effect, and failure events.
 Cloud compiles these facts into an immutable occurrence and reports any missing reproduction input.
 

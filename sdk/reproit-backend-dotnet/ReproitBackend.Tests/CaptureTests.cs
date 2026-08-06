@@ -23,6 +23,8 @@ public class CaptureTests
         {
             TraceId = capture.Context().TraceId,
             Build = "1.2.3",
+            CaptureEnvelope = true,
+            ReplaySeed = "00ff00ff00ff00ff",
         };
         var trace = BackendTrace.Begin(context, "createOrder", new BeginOptions
         {
@@ -35,7 +37,16 @@ public class CaptureTests
                 },
             },
         });
-        trace.Effect("read", new EffectOptions { Resource = "inventory", Key = "widget" });
+        trace.Effect("read", new EffectOptions
+        {
+            Resource = "inventory",
+            Key = "widget",
+            Exchange = new Dictionary<string, object?>
+            {
+                ["request"] = new Dictionary<string, object?> { ["key"] = "widget" },
+                ["response"] = new Dictionary<string, object?> { ["available"] = true },
+            },
+        });
         trace.Finish(new Dictionary<string, object?> { ["error"] = "boom" },
             status, success, true);
         return trace;
@@ -193,7 +204,7 @@ public class CaptureTests
         var failed = BackendTrace.Begin(capture.Context(), "op");
         failed.Finish(null, 200, false, true);
         capture.Record(failed);
-        Assert.Equal(1, capture.Stats().CapturedOperations);
+        Assert.Equal(0, capture.Stats().CapturedOperations);
     }
 
     [Fact]

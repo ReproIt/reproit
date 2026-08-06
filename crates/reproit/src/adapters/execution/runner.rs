@@ -477,7 +477,13 @@ pub(crate) fn compile_local_command_package(
         .validate(&occurrence)
         .map_err(|error| anyhow::anyhow!("invalid local assessment: {error}"))?;
     if assessment.status != AssessmentStatus::Eligible {
-        anyhow::bail!("local command capture is not eligible for reproduction");
+        let unresolved = assessment
+            .unresolved
+            .iter()
+            .map(|requirement| requirement.detail.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        anyhow::bail!("local command capture is not eligible for reproduction: {unresolved}");
     }
     let root = root
         .canonicalize()

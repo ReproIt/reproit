@@ -1,10 +1,9 @@
 // capture-batch-v1 emission for iOS production failure occurrences.
 //
 // Port of the batch builder in sdk/reproit-backend-node/capture.js. A failure
-// that carries recorded dependency exchanges ships as a source-neutral causal
-// capture batch (`POST <endpoint>/v1/capture-batches`) so the occurrence can
-// be re-executed hermetically instead of only re-evaluated. The legacy event
-// batch (`/v1/events`) is untouched and still carries every other event.
+// ships as a source-neutral causal capture batch
+// (`POST <endpoint>/v1/capture-batches`) so the occurrence can
+// be re-executed. Dependency exchanges are conditional evidence.
 //
 // Event order mirrors the backend SDKs exactly:
 //   operation-start, trigger, determinism-envelope checkpoint,
@@ -40,7 +39,11 @@ enum ReproItCaptureBatch {
   /// that makes REPLAY runs deterministic. Honesty note, carried from the
   /// backend SDKs: the seed does not reproduce the randomness the app drew in
   /// production; it pins the replay's.
-  static func envelopeAttributes(observedAtMs: Int64, replaySeed: String? = nil) -> [String: Any] {
+  static func envelopeAttributes(
+    observedAtMs: Int64,
+    replaySeed: String? = nil,
+    context: [String: Any]? = nil
+  ) -> [String: Any] {
     var attributes: [String: Any] = [
       "observedAtMs": observedAtMs,
       "tz": TimeZone.current.identifier,
@@ -58,14 +61,12 @@ enum ReproItCaptureBatch {
     {
       attributes["buildDigest"] = build
     }
+    if let context, !context.isEmpty { attributes["context"] = context }
     return attributes
   }
 
-  /// Build the batch. Returns nil when the occurrence carries no exchanges:
-  /// without them a capsule cannot be re-executed, so claiming the network
-  /// capability would be an over-claim and the legacy path already covers the
-  /// evidence-only case.
-  ///
+  /// Build the batch. The UI trigger is sufficient when the operation did not
+  /// cross a dependency boundary.
   /// - Parameters:
   ///   - appId: the cloud project id.
   ///   - sessionId: the SDK session identity (also the batch's trace id).
@@ -88,10 +89,9 @@ enum ReproItCaptureBatch {
     buildVersion: String?,
     buildCommit: String?,
     observedAtMs: Int64 = reproitNowMs(),
-    replaySeed: String? = nil
+    replaySeed: String? = nil,
+    context: [String: Any]? = nil
   ) -> [String: Any]? {
-    guard !exchanges.isEmpty else { return nil }
-
     var events: [[String: Any]] = []
     var sequence = 0
     var previousId: String?
@@ -117,12 +117,10 @@ enum ReproItCaptureBatch {
     }
 
     append(["kind": "operation-start", "name": operation])
-    let value: [String: Any] =
-      triggerValue == nil
-      ? ["representation": "structural", "shape": ["type": "unknown"]]
-      : [
+    guard let triggerValue else { return nil }
+    let value: [String: Any] = [
         "representation": "replayable",
-        "value": reproitRedactExchangeValue(triggerValue!),
+        "value": reproitRedactExchangeValue(triggerValue),
         "redaction": "redacted-at-source",
       ]
     append([
@@ -131,7 +129,8 @@ enum ReproItCaptureBatch {
     append([
       "kind": "checkpoint",
       "name": "determinism-envelope",
-      "attributes": envelopeAttributes(observedAtMs: observedAtMs, replaySeed: replaySeed),
+      "attributes": envelopeAttributes(
+        observedAtMs: observedAtMs, replaySeed: replaySeed, context: context),
     ])
     for exchange in exchanges {
       append([
@@ -174,14 +173,23 @@ enum ReproItCaptureBatch {
       "policy": ["consent": "application-telemetry", "retentionClass": "standard"],
       "capabilities": [
         [
-          "capability": "network",
+          "capability": "user-interface",
           "completeness": "complete",
-          "detail": "outbound dependency exchanges recorded with responses",
+          "detail": "the trigger action and structural state path were recorded",
         ]
       ],
       "events": events,
       "artifacts": [] as [Any],
     ]
+    if !exchanges.isEmpty {
+      var capabilities = batch["capabilities"] as! [[String: Any]]
+      capabilities.append([
+        "capability": "network",
+        "completeness": "complete",
+        "detail": "outbound dependency exchanges recorded with responses",
+      ])
+      batch["capabilities"] = capabilities
+    }
     let commit = resolveCommit(buildCommit)
     var deployment: [String: Any] = [:]
     if reproitIsProtocolToken(buildVersion) { deployment["version"] = buildVersion! }

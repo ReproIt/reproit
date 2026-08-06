@@ -72,9 +72,10 @@
         "kind": "checkpoint",
         "name": "determinism-envelope",
         "attributes": {
+          "observedAtMs": 1753617600000,
           "runtime": "node",
-          "timezone": "UTC",
-          "replaySeed": 42
+          "tz": "UTC",
+          "replaySeed": "000000000000002a"
         }
       }
     },

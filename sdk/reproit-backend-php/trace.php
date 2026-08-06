@@ -8,7 +8,7 @@
  * response header (`x-reproit-events`) contains bounded, trace-bound,
  * structurally redacted events. Production: the optional, config-gated capture
  * mode (capture.php) self-samples finished traces (always on 5xx / failure,
- * optional healthy baseline) and posts them to Cloud ingest. It is not a
+ * stable failure oracle) and posts them to Cloud ingest. It is not a
  * public compatibility surface while backend contracts remain experimental.
  *
  * Wire parity with the Rust adapter: events serialize as compact JSON with
@@ -311,6 +311,11 @@ final class BackendTrace
             if (!empty($context[$field])) {
                 $common[$field] = $context[$field];
             }
+        }
+        if (($context['captureEnvelope'] ?? false) === true
+            && \is_string($context['replaySeed'] ?? null)
+        ) {
+            $common['replaySeed'] = $context['replaySeed'];
         }
         $tenant = isset($opts['tenant']) ? bounded((string) $opts['tenant'], 128) : null;
         if ($tenant !== null) {

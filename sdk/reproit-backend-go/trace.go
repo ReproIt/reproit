@@ -5,7 +5,7 @@
 // resulting response header (`x-reproit-events`) contains bounded,
 // trace-bound, structurally redacted events. Production: the optional,
 // config-gated capture mode (capture.go) self-samples finished traces
-// (always on 5xx / failure, optional healthy baseline) and posts them to
+// with a stable failure oracle and posts them to
 // Cloud ingest. It is not a public compatibility surface while backend
 // contracts remain experimental.
 //
@@ -71,6 +71,7 @@ type TraceContext struct {
 	// event: wall-clock `at` and monotonic `monoNs`. Scan-time traces never
 	// carry them, so the `x-reproit-events` wire stays byte-stable.
 	CaptureEnvelope bool
+	ReplaySeed      string
 }
 
 // TraceContextFromHeaders builds a context from a request header lookup
@@ -243,6 +244,9 @@ func Begin(context *TraceContext, operation string, opts BeginOptions) (*Backend
 	}
 	if context.ConfigContract != "" {
 		common["configContract"] = context.ConfigContract
+	}
+	if context.CaptureEnvelope && context.ReplaySeed != "" {
+		common["replaySeed"] = context.ReplaySeed
 	}
 	if tenant, ok := bounded(opts.Tenant, 128); ok {
 		common["tenant"] = tenant

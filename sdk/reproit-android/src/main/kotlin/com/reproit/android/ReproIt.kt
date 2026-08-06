@@ -197,9 +197,12 @@ object ReproIt {
   @JvmStatic
   fun captureBug(): Boolean {
     val e = engine ?: return false
-    val captured = e.captureBug() != null
-    if (captured) io.execute { e.flush() }
-    return captured
+    val event = e.captureBug(enqueueTelemetry = false) ?: return false
+    if (!postRecordedFailureCapture(event)) {
+      e.enqueueTelemetry(event, notify = false)
+      io.execute { e.flush() }
+    }
+    return true
   }
 
   /**
@@ -269,7 +272,13 @@ object ReproIt {
     else
       results
         .filter { it.status == ReproItContractStatus.VIOLATION }
-        .forEach { engine?.captureContractBug(it.id, it.message ?: it.id) }
+        .forEach {
+          val e = engine ?: return@forEach
+          val event =
+            e.captureContractBug(it.id, it.message ?: it.id, enqueueTelemetry = false)
+              ?: return@forEach
+          if (!postRecordedFailureCapture(event)) e.enqueueTelemetry(event, notify = false)
+        }
   }
 
   /**
@@ -967,10 +976,9 @@ object ReproIt {
           } else {
             null
           }
-        // A crash with recorded exchanges is a re-executable occurrence, so it
-        // ships on the capture-batch contract instead of the legacy event
-        // batch. Without exchanges nothing changes.
-        val shipped = postFailureCapture(throwable)
+        // A crash is a capture occurrence. It uses the capture-batch contract.
+        // Recorded dependency exchanges are conditional evidence.
+        val shipped = postFailureCapture(throwable, context)
         if (!shipped) {
           engine?.recordError(
             message = throwable.toString(),
@@ -991,40 +999,44 @@ object ReproIt {
   // ---- capture batches ----------------------------------------------------
 
   private var captureBatchSequence = 0L
+  private val captureSessionId = "session-android-${System.currentTimeMillis()}"
+  private val captureReplaySeed = replaySeedHex { Random.nextLong() }
 
   /**
-   * Ship one crash as a capture batch when production exchange recording is on
-   * and at least one exchange was recorded. Returns false when there is nothing
-   * re-executable to ship, so the caller keeps the legacy path.
+   * Ship one crash as a capture batch. Dependency exchanges are conditional.
+   * Returns false when the SDK cannot build or store the capture.
    */
-  private fun postFailureCapture(throwable: Throwable): Boolean {
+  private fun postFailureCapture(
+    throwable: Throwable,
+    additionalContext: Map<String, Any?>?,
+  ): Boolean {
     val config = cfg ?: return false
-    if (!causalHttp.capturing()) return false
     val endpoint = config.endpoint ?: return false
     return try {
-      val exchanges = causalHttp.drainCaptured()
-      if (exchanges.isEmpty()) return false
+      val exchanges = if (causalHttp.capturing()) causalHttp.drainCaptured() else emptyList()
       val nowMs = System.currentTimeMillis()
       val signature = engine?.currentSignature() ?: ""
       val operation = "crash:" + (throwable.javaClass.simpleName ?: "Throwable")
+      val envelope =
+        determinismEnvelope(
+          observedAtMs = nowMs,
+          osRelease = android.os.Build.VERSION.RELEASE ?: "",
+          arch = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "",
+          replaySeed = captureReplaySeed,
+          imageDigest = System.getenv("REPROIT_IMAGE_DIGEST"),
+        )
+      engine?.captureContext(additionalContext)?.let { envelope["context"] = it }
       val batch =
         buildFailureCaptureBatch(
           appId = config.appId,
-          sessionId = "session-android-$nowMs",
+          sessionId = captureSessionId,
           operation = operation,
           triggerAction = signature,
           signature = "crash:" + (throwable.javaClass.name ?: "Throwable"),
           summary = throwable.toString(),
           observationPoint = throwable.stackTrace.firstOrNull()?.toString() ?: operation,
           exchanges = exchanges,
-          envelope =
-            determinismEnvelope(
-              observedAtMs = nowMs,
-              osRelease = android.os.Build.VERSION.RELEASE ?: "",
-              arch = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "",
-              replaySeed = replaySeedHex { Random.nextLong() },
-              imageDigest = System.getenv("REPROIT_IMAGE_DIGEST"),
-            ),
+          envelope = envelope,
           buildVersion = config.buildVersion,
           buildCommit = config.buildCommit,
           observedAtIso = isoTimestamp(nowMs),
@@ -1045,6 +1057,59 @@ object ReproIt {
       } else {
         true
       }
+    } catch (_: Throwable) {
+      false
+    }
+  }
+
+  /** Ship a tester or contract failure without also uploading event telemetry. */
+  private fun postRecordedFailureCapture(event: Map<String, Any?>): Boolean {
+    val config = cfg ?: return false
+    if (config.endpoint == null) return false
+    return try {
+      val nowMs = System.currentTimeMillis()
+      val oracle = event["oracle"] as? String ?: return false
+      val signature = event["sig"] as? String ?: return false
+      val path = event["path"] as? List<*> ?: emptyList<Any?>()
+      val identity = event["findingIdentity"] as? Map<*, *>
+      val triggerAction = identity?.get("trigger") as? String ?: "load"
+      val failureIdentity = identity?.get("invariant") as? String ?: signature
+      val exchanges = if (causalHttp.capturing()) causalHttp.drainCaptured() else emptyList()
+      val envelope =
+        determinismEnvelope(
+          observedAtMs = nowMs,
+          osRelease = Build.VERSION.RELEASE ?: "",
+          arch = Build.SUPPORTED_ABIS.firstOrNull() ?: "",
+          replaySeed = captureReplaySeed,
+          imageDigest = System.getenv("REPROIT_IMAGE_DIGEST"),
+        )
+      val additionalContext =
+        (event["context"] as? Map<*, *>)
+          ?.mapNotNull { (key, value) -> (key as? String)?.let { it to value } }
+          ?.toMap()
+      engine?.captureContext(additionalContext)?.let {
+        envelope["context"] = it
+      }
+      val batch =
+        buildFailureCaptureBatch(
+          appId = config.appId,
+          sessionId = captureSessionId,
+          operation = signature,
+          triggerAction = triggerAction,
+          triggerValue = linkedMapOf("action" to triggerAction, "path" to path),
+          signature = "$oracle:$failureIdentity",
+          summary = event["message"] as? String ?: failureIdentity,
+          observationPoint = signature,
+          exchanges = exchanges,
+          envelope = envelope,
+          buildVersion = config.buildVersion,
+          buildCommit = config.buildCommit,
+          observedAtIso = isoTimestamp(nowMs),
+          batchSequence = ++captureBatchSequence,
+          observedAtMs = nowMs,
+        ) ?: return false
+      io.execute { post(config, Json.encode(batch), "/v1/capture-batches") }
+      true
     } catch (_: Throwable) {
       false
     }

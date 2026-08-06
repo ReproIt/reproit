@@ -30,9 +30,16 @@ if ($path === '/ok' && $method === 'GET') {
     handle_request($capture, fn (?BackendTrace $trace) => [200, ['ok' => true]]);
 } elseif ($path === '/boom' && $method === 'POST') {
     handle_request($capture, function (?BackendTrace $trace) {
-        $trace?->effect('write', ['resource' => 'orders', 'key' => '1']);
+        $trace?->effect('write', [
+            'resource' => 'orders',
+            'key' => '1',
+            'exchange' => [
+                'request' => ['id' => '1'],
+                'response' => ['stored' => true],
+            ],
+        ]);
         return [500, ['error' => 'boom']];
-    });
+    }, ['effectsComplete' => true]);
 } else {
     http_response_code(404);
     header('Content-Type: application/json');

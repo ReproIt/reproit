@@ -282,7 +282,10 @@ class Engine(
   }
 
   /** Capture the current structural state as a tester-observed bug. */
-  fun captureBug(context: Map<String, Any?>? = null): Map<String, Any?>? {
+  fun captureBug(
+    context: Map<String, Any?>? = null,
+    enqueueTelemetry: Boolean = true,
+  ): Map<String, Any?>? {
     val sig = currentSig ?: return null
     val pathOut = path.map { it.toMap() }.toMutableList()
     pending?.let { pathOut.add(it.toStep(sig).toMap()) }
@@ -307,11 +310,15 @@ class Engine(
         "t" to now(),
       )
     if (context != null && context.isNotEmpty()) ev["context"] = context
-    enqueue(ev)
+    if (enqueueTelemetry) enqueue(ev) else notify(ev)
     return ev
   }
 
-  fun captureContractBug(identity: String, message: String): Map<String, Any?>? {
+  fun captureContractBug(
+    identity: String,
+    message: String,
+    enqueueTelemetry: Boolean = true,
+  ): Map<String, Any?>? {
     val sig = currentSig ?: return null
     val pathOut = path.map { it.toMap() }.toMutableList()
     pending?.let { pathOut.add(it.toStep(sig).toMap()) }
@@ -335,14 +342,28 @@ class Engine(
           ),
         "t" to now(),
       )
-    enqueue(ev)
+    if (enqueueTelemetry) enqueue(ev) else notify(ev)
     return ev
   }
 
-  private fun enqueue(ev: Map<String, Any?>) {
+  internal fun enqueueTelemetry(event: Map<String, Any?>, notify: Boolean = true) {
+    enqueue(event, notify)
+  }
+
+  internal fun captureContext(additional: Map<String, Any?>? = null): Map<String, Any?>? {
+    val captured = synchronized(context) { LinkedHashMap(context) }
+    if (additional != null) captured.putAll(additional)
+    return captured.takeIf { it.isNotEmpty() }
+  }
+
+  private fun notify(ev: Map<String, Any?>) {
     try {
       cfg.onEvent?.invoke(ev)
     } catch (_: Throwable) {}
+  }
+
+  private fun enqueue(ev: Map<String, Any?>, notify: Boolean = true) {
+    if (notify) notify(ev)
     if (cfg.endpoint == null) {
       if (cfg.onEvent == null) log?.invoke("reproit " + Json.encode(ev))
       return

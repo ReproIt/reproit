@@ -19,6 +19,19 @@ function stubTransport(posted: Posted[]): void {
   }) as typeof fetch;
 }
 
+function telemetryContainsFinding(posted: Posted[]): boolean {
+  return posted
+    .filter((entry) => entry.url.endsWith('/v1/events'))
+    .some((entry) => {
+      const frames = entry.body.frames;
+      return Array.isArray(frames) && frames.some((frame) => {
+        if (!frame || typeof frame !== 'object') return false;
+        const event = (frame as { event?: { kind?: string } }).event;
+        return event?.kind === 'finding';
+      });
+    });
+}
+
 describe('production capture gate', () => {
   const original = globalThis.fetch;
   afterEach(() => {
@@ -26,7 +39,7 @@ describe('production capture gate', () => {
     globalThis.fetch = original;
   });
 
-  test('is OFF by default: no exchange capture, no capture batch', async () => {
+  test('a UI-only failure ships one capture batch by default', async () => {
     const posted: Posted[] = [];
     stubTransport(posted);
     ReproIt.init({ appId: 'app-demo', endpoint: 'https://ingest.test' });
@@ -34,8 +47,8 @@ describe('production capture gate', () => {
     ReproIt.recordSnapshot({ role: 'screen', children: [{ role: 'button', id: 'quote' }] }, 'load');
     expect(ReproIt.captureBug()).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(posted.some((entry) => entry.url.endsWith('/v1/capture-batches'))).toBe(false);
-    expect(posted.some((entry) => entry.url.endsWith('/v1/events'))).toBe(true);
+    expect(posted.some((entry) => entry.url.endsWith('/v1/capture-batches'))).toBe(true);
+    expect(telemetryContainsFinding(posted)).toBe(false);
   });
 
   test('opted in: a failure ships a capture batch carrying the recorded response', async () => {
@@ -81,11 +94,10 @@ describe('production capture gate', () => {
       $reproit: { redacted: true, type: 'string', length: 10 },
     });
     expect(JSON.stringify(batch)).not.toContain('raw-secret');
-    // The legacy telemetry path still ships alongside it.
-    expect(posted.some((entry) => entry.url.endsWith('/v1/events'))).toBe(true);
+    expect(telemetryContainsFinding(posted)).toBe(false);
   });
 
-  test('opted in with no recorded exchange sends no capture batch', async () => {
+  test('an operation with no dependency exchange still sends a capture batch', async () => {
     const posted: Posted[] = [];
     stubTransport(posted);
     ReproIt.init({
@@ -96,7 +108,10 @@ describe('production capture gate', () => {
     ReproIt.recordSnapshot({ role: 'screen', children: [{ role: 'button', id: 'quote' }] }, 'load');
     expect(ReproIt.captureBug()).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 10));
-    // Never claim a completeness the capture does not have.
-    expect(posted.some((entry) => entry.url.endsWith('/v1/capture-batches'))).toBe(false);
+    const capture = posted.find((entry) => entry.url.endsWith('/v1/capture-batches'));
+    expect(capture).toBeDefined();
+    const batch = capture!.body as { capabilities: Array<{ capability: string }> };
+    expect(batch.capabilities.map((entry) => entry.capability)).not.toContain('network');
+    expect(telemetryContainsFinding(posted)).toBe(false);
   });
 });

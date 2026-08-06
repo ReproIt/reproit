@@ -1,12 +1,11 @@
-"""Production capture mode: config-gated self-sampling upload of finished
-operation traces to the Reproit Cloud ingest endpoint
+"""Production capture mode: config-gated upload of complete failed operation
+traces to the Repro It Cloud ingest endpoint
 (`/v1/capture-batches`).
 
 Python port of sdk/reproit-backend-rs/src/capture.rs. Scan-time tracing stays
 untouched: this module only adds a place to hand a finished BackendTrace when
-no `x-reproit-trace` header exists. Operations that end in a server error
-(HTTP 5xx) or report `success == False` are always captured; healthy
-operations only under an optional per-mille baseline sample (default 0).
+no `x-reproit-trace` header exists. A stable 5xx or marked agent oracle,
+complete effects, and a pre-operation replay seed are required before queueing.
 
 Everything is bounded and capture failure is invisible to the host app: a
 fixed-depth queue drops oldest on overflow, batches and retries are capped,
@@ -69,6 +68,28 @@ def marked_oracle(events):
             return event["key"]
     return None
 
+
+def _portable_operation(events, returned, status):
+    marked = marked_oracle(events)
+    if marked is None and (status is None or status < 500):
+        return False
+    if returned.get("effectsComplete") is not True:
+        return False
+    first = events[0] if events else {}
+    replay_seed = first.get("replaySeed") if isinstance(first, dict) else None
+    if not isinstance(replay_seed, str) or len(replay_seed) != 16:
+        return False
+    if any(character not in "0123456789abcdef" for character in replay_seed):
+        return False
+    for event in events:
+        if not isinstance(event, dict) or event.get("kind") != "effect":
+            continue
+        if event.get("effect") not in ("call", "read", "write", "delete"):
+            continue
+        if not isinstance(event.get("exchange"), dict):
+            return False
+    return True
+
 # Bounds. Queue overflow drops the OLDEST pending operation; an oversized
 # capture payload drops trailing effect events before it drops itself.
 MAX_QUEUE_OPERATIONS = 64
@@ -91,7 +112,7 @@ def _valid_token(value):
     )
 
 
-def determinism_envelope(observed_at_ms=None):
+def determinism_envelope(observed_at_ms=None, replay_seed=None):
     """Where and when the capture happened, and a seed that makes REPLAY runs
     deterministic. Honesty note: the seed does not reproduce the randomness
     the app drew in production; it pins the replay's."""
@@ -103,7 +124,9 @@ def determinism_envelope(observed_at_ms=None):
         "runtime": "python " + platform.python_version(),
         "os": sys.platform,
         "arch": platform.machine(),
-        "replaySeed": secrets.token_hex(8),
+        "replaySeed": replay_seed
+        if isinstance(replay_seed, str) and len(replay_seed) == 16
+        else secrets.token_hex(8),
     }
     image_digest = os.environ.get("REPROIT_IMAGE_DIGEST")
     if _valid_token(image_digest):
@@ -254,6 +277,7 @@ class Capture:
             # Capture-mode traces stamp per-event wall-clock and monotonic
             # offsets (the determinism envelope); scan-time traces never do.
             "capture_envelope": True,
+            "replay_seed": secrets.token_hex(8),
         }
 
     def record(self, trace):
@@ -272,17 +296,12 @@ class Capture:
             )
             if returned is None:
                 return
-            success = returned.get("success", True)
             status = returned.get("status")
             if isinstance(status, bool) or not (
                 isinstance(status, int) and 0 <= status <= 0xFFFF
             ):
                 status = None
-            error = success is False or (status is not None and status >= 500)
-            # A marked agent oracle is an authored failure assertion, so the
-            # operation is always captured, like a 5xx.
-            marked = marked_oracle(events) is not None
-            if not error and not marked and not self._sample_healthy():
+            if not _portable_operation(events, returned, status):
                 return
             operation = events[0].get("operation") if events else None
             if not isinstance(operation, str):
@@ -395,15 +414,11 @@ class Capture:
 
         event({"kind": "operation-start", "name": operation["operation"]}, first)
         input_value = first.get("input")
-        value = (
-            {"representation": "structural", "shape": {"type": "unknown"}}
-            if input_value is None
-            else {
-                "representation": "replayable",
-                "value": input_value,
-                "redaction": "redacted-at-source",
-            }
-        )
+        value = {
+            "representation": "replayable",
+            "value": input_value,
+            "redaction": "redacted-at-source",
+        }
         event(
             {
                 "kind": "trigger",
@@ -420,7 +435,8 @@ class Capture:
                 "kind": "checkpoint",
                 "name": "determinism-envelope",
                 "attributes": determinism_envelope(
-                    first.get("at") if isinstance(first.get("at"), int) else None
+                    first.get("at") if isinstance(first.get("at"), int) else None,
+                    first.get("replaySeed"),
                 ),
             },
             first,
@@ -430,17 +446,44 @@ class Capture:
                 continue
             effect = source.get("effect") or "backend-effect"
             subject = source.get("resource") or source.get("service") or operation["operation"]
-            event(
+            exchange = source.get("exchange")
+            value = (
                 {
+                    "representation": "replayable",
+                    "value": source,
+                    "redaction": "redacted-at-source",
+                }
+                if isinstance(exchange, dict)
+                else {
+                    "representation": "structural",
+                    "shape": {"effect": effect, "subject": subject},
+                }
+            )
+            if effect == "call":
+                causal = {
+                    "kind": "dependency",
+                    "system": "service",
+                    "operation": "call",
+                    "subject": subject,
+                    "value": value,
+                }
+            elif effect in ("read", "write", "delete"):
+                causal = {
+                    "kind": "state-access",
+                    "state": "database",
+                    "operation": effect,
+                    "subject": subject,
+                    "value": value,
+                }
+            else:
+                causal = {
                     "kind": "effect",
                     "effect": effect,
                     "subject": subject,
-                    "value": {
-                        "representation": "replayable",
-                        "value": source,
-                        "redaction": "redacted-at-source",
-                    },
-                },
+                    "value": value,
+                }
+            event(
+                causal,
                 source,
             )
         returned = next(
@@ -517,27 +560,34 @@ class Capture:
                 "consent": "application-telemetry",
                 "retentionClass": "standard",
             },
-            "capabilities": [
-                {"capability": "http", "completeness": "complete"},
-                {
-                    "capability": "database",
-                    "completeness": "partial",
-                    "detail": "effect records do not prove complete database state capture",
-                },
-            ],
+            "capabilities": [{"capability": "http", "completeness": "complete"}],
             "events": events,
             "artifacts": [],
         }
         # Declared only when the instrument layer actually recorded
         # exchanges, so the capsule completeness model never over-claims on
         # captures from apps without the outbound hooks installed.
-        if any(isinstance(item, dict) and item.get("exchange") for item in source_events):
+        if any(
+            isinstance(item, dict)
+            and item.get("effect") == "call"
+            and isinstance(item.get("exchange"), dict)
+            for item in source_events
+        ):
             batch["capabilities"].append(
                 {
                     "capability": "network",
                     "completeness": "complete",
                     "detail": "outbound dependency exchanges recorded with responses",
                 }
+            )
+        if any(
+            isinstance(item, dict)
+            and item.get("effect") in ("read", "write", "delete")
+            and isinstance(item.get("exchange"), dict)
+            for item in source_events
+        ):
+            batch["capabilities"].append(
+                {"capability": "database", "completeness": "complete"}
             )
         deployment = {}
         if self._build is not None:

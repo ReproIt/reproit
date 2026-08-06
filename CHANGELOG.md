@@ -30,6 +30,18 @@ independent patch updates.
 
 ## 1.0.0 - 2026-08-04
 
+### Corrected: capture ownership and replay trust
+
+- SDKs and local collectors now reject incomplete captures before a network
+  request. Portable Cloud uploads require a failure oracle, trigger evidence,
+  a determinism envelope, and complete evidence for each crossed boundary.
+- Mobile SDKs now send one capture batch for a failure. They use version 1
+  event telemetry only when they cannot construct the capture.
+- The conformance validator now proves portable replay eligibility instead of
+  only validating the wire shape.
+- Replay-result clients now state the trust mode and execution location.
+  Authoritative results require a verified execution-cell receipt.
+
 ### Hardened: version 1 contract
 
 - Added explicit `schemaVersion: 1` configuration output while preserving

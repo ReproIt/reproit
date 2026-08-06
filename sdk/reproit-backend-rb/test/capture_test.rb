@@ -149,12 +149,11 @@ class CaptureTest < Minitest::Test
     failed = R::BackendTrace.begin(handle.context, "op")
     failed.finish(nil, 200, false, true)
     handle.record(failed)
-    assert_equal 1, handle.stats[:captured_operations]
+    assert_equal 0, handle.stats[:captured_operations]
     assert_equal true, handle.flush(10.0)
     stats = handle.stats
-    # http://c is unreachable: the batch fails and its operation is dropped.
-    assert_equal 1, stats[:failed_batches]
-    assert_equal 1, stats[:dropped_operations]
+    assert_equal 0, stats[:failed_batches]
+    assert_equal 0, stats[:dropped_operations]
   end
 
   def test_agent_oracle_markers_ride_the_trace_and_reject_unknown_ids

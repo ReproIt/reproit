@@ -61,7 +61,7 @@ def test_fastapi_planted_500_ships_a_tagged_finding_batch():
     _StubIngest.received = []
     ingest = ThreadingHTTPServer(("127.0.0.1", 0), _StubIngest)
     threading.Thread(target=ingest.serve_forever, daemon=True).start()
-    ingest_url = "http://127.0.0.1:%d/v1/events" % ingest.server_address[1]
+    ingest_url = "http://127.0.0.1:%d/v1/capture-batches" % ingest.server_address[1]
 
     capture = Capture.create(
         ingest_url, "sk_live_test", "app-e2e", build="9.9.9", flush_interval_ms=100
@@ -69,7 +69,7 @@ def test_fastapi_planted_500_ships_a_tagged_finding_batch():
     assert capture is not None
 
     app = fastapi.FastAPI()
-    app.add_middleware(ReproitMiddleware, capture=capture)
+    app.add_middleware(ReproitMiddleware, capture=capture, effects_complete=True)
 
     @app.get("/ok")
     async def ok():
@@ -79,7 +79,12 @@ def test_fastapi_planted_500_ships_a_tagged_finding_batch():
     async def boom(request: fastapi.Request):
         trace = getattr(request.state, "reproit", None)
         assert trace is not None
-        trace.effect("write", resource="orders", key="1")
+        trace.effect(
+            "write",
+            resource="orders",
+            key="1",
+            exchange={"request": {"id": "1"}, "response": {"stored": True}},
+        )
         return fastapi.responses.JSONResponse(status_code=500, content={"error": "boom"})
 
     port = _free_port()
@@ -113,7 +118,7 @@ def test_fastapi_planted_500_ships_a_tagged_finding_batch():
             "operation-start",
             "trigger",
             "checkpoint",
-            "effect",
+            "state-access",
             "effect",
             "operation-end",
             "observation",

@@ -1,13 +1,12 @@
 /*
- * Production capture mode: config-gated self-sampling upload of finished
- * operation traces to the Reproit Cloud ingest endpoint
+ * Production capture mode: config-gated upload of complete failed operation
+ * traces to the Repro It Cloud ingest endpoint
  * (`/v1/capture-batches`).
  *
  * Java port of sdk/reproit-backend-rs/src/capture.rs. Scan-time tracing stays
  * untouched: this class only adds a place to hand a finished BackendTrace
- * when no `x-reproit-trace` header exists. Operations that end in a server
- * error (HTTP 5xx) or report `success == false` are always captured; healthy
- * operations only under an optional per-mille baseline sample (default 0).
+ * when no `x-reproit-trace` header exists. A stable 5xx or marked agent oracle,
+ * complete effects, and a pre-operation replay seed are required before queueing.
  *
  * Everything is bounded and capture failure is invisible to the host app:
  * a fixed-depth queue drops oldest on overflow, batches and retries are
@@ -228,8 +227,6 @@ public final class Capture implements TraceSink {
                 }
             }
             if (returned == null) return;
-            Object rawSuccess = returned.get("success");
-            boolean success = rawSuccess instanceof Boolean bool ? bool : true;
             Integer status = null;
             if (returned.get("status") instanceof Number number
                     && !(returned.get("status") instanceof Double)
@@ -237,11 +234,7 @@ public final class Capture implements TraceSink {
                 long value = number.longValue();
                 if (value >= 0 && value <= 0xffff) status = (int) value;
             }
-            boolean error = !success || (status != null && status >= 500);
-            // A marked agent oracle is an authored failure assertion, so the
-            // operation is always captured, like a 5xx.
-            boolean marked = markedOracle(events) != null;
-            if (!error && !marked && !sampleHealthy()) return;
+            if (!portableOperation(events, returned, status)) return;
             Object operation = events.isEmpty() ? null : events.get(0).get("operation");
             if (!(operation instanceof String name)) return;
             lock.lock();
@@ -410,14 +403,9 @@ public final class Capture implements TraceSink {
             "kind", "operation-start", "name", operation.operation())));
         Object input = first.get("input");
         Map<String, Object> value = new LinkedHashMap<>();
-        if (input == null) {
-            value.put("representation", "structural");
-            value.put("shape", Map.of("type", "unknown"));
-        } else {
-            value.put("representation", "replayable");
-            value.put("value", input);
-            value.put("redaction", "redacted-at-source");
-        }
+        value.put("representation", "replayable");
+        value.put("value", input);
+        value.put("redaction", "redacted-at-source");
         Map<String, Object> trigger = new LinkedHashMap<>();
         trigger.put("kind", "trigger");
         trigger.put("trigger", "http-request");
@@ -429,7 +417,8 @@ public final class Capture implements TraceSink {
         // does not reproduce the app's original randomness; it pins the
         // replay's.
         Map<String, Object> attributes = determinismEnvelope(
-            first.get("at") instanceof Number at ? at.longValue() : null);
+            first.get("at") instanceof Number at ? at.longValue() : null,
+            first.get("replaySeed") instanceof String seed ? seed : null);
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put("kind", "checkpoint");
         envelope.put("name", "determinism-envelope");
@@ -442,12 +431,27 @@ public final class Capture implements TraceSink {
             String subject = source.get("resource") instanceof String text && !text.isEmpty()
                 ? text : operation.operation();
             Map<String, Object> captured = new LinkedHashMap<>();
-            captured.put("representation", "replayable");
-            captured.put("value", source);
-            captured.put("redaction", "redacted-at-source");
+            if (source.get("exchange") instanceof Map<?, ?>) {
+                captured.put("representation", "replayable");
+                captured.put("value", source);
+                captured.put("redaction", "redacted-at-source");
+            } else {
+                captured.put("representation", "structural");
+                captured.put("shape", Map.of("effect", effect, "subject", subject));
+            }
             Map<String, Object> causal = new LinkedHashMap<>();
-            causal.put("kind", "effect");
-            causal.put("effect", effect);
+            if ("call".equals(effect)) {
+                causal.put("kind", "dependency");
+                causal.put("system", "service");
+                causal.put("operation", "call");
+            } else if (List.of("read", "write", "delete").contains(effect)) {
+                causal.put("kind", "state-access");
+                causal.put("state", "database");
+                causal.put("operation", effect);
+            } else {
+                causal.put("kind", "effect");
+                causal.put("effect", effect);
+            }
             causal.put("subject", subject);
             causal.put("value", captured);
             builder.add(causal, source);
@@ -511,20 +515,21 @@ public final class Capture implements TraceSink {
             "consent", "application-telemetry", "retentionClass", "standard"));
         List<Map<String, Object>> capabilities = new ArrayList<>();
         capabilities.add(Map.of("capability", "http", "completeness", "complete"));
-        capabilities.add(Map.of(
-            "capability", "database",
-            "completeness", "partial",
-            "detail", "effect records do not prove complete database state capture"));
         // Declared only when Instrument actually recorded exchanges, so the
         // capsule completeness model never over-claims on captures from apps
         // that never routed a call through the boundary.
-        boolean hasExchanges = operation.events().stream()
-            .anyMatch(event -> event.get("exchange") instanceof Map<?, ?>);
-        if (hasExchanges) {
+        boolean hasNetworkExchanges = hasExchange(operation.events(), List.of("call"));
+        boolean hasDatabaseExchanges = hasExchange(
+            operation.events(), List.of("read", "write", "delete"));
+        if (hasNetworkExchanges) {
             capabilities.add(Map.of(
                 "capability", "network",
                 "completeness", "complete",
                 "detail", "outbound dependency exchanges recorded with responses"));
+        }
+        if (hasDatabaseExchanges) {
+            capabilities.add(Map.of(
+                "capability", "database", "completeness", "complete"));
         }
         batch.put("capabilities", capabilities);
         batch.put("events", events);
@@ -538,6 +543,34 @@ public final class Capture implements TraceSink {
         return batch;
     }
 
+    private static boolean hasExchange(
+            List<Map<String, Object>> events, List<String> effects) {
+        return events.stream().anyMatch(event ->
+            event.get("effect") instanceof String effect
+                && effects.contains(effect)
+                && event.get("exchange") instanceof Map<?, ?>);
+    }
+
+    private static boolean portableOperation(
+            List<Map<String, Object>> events,
+            Map<String, Object> returned,
+            Integer status) {
+        if (markedOracle(events) == null && (status == null || status < 500)) return false;
+        if (!Boolean.TRUE.equals(returned.get("effectsComplete"))) return false;
+        if (!(events.get(0).get("replaySeed") instanceof String seed)
+                || !seed.matches("[0-9a-f]{16}")) {
+            return false;
+        }
+        for (Map<String, Object> event : events) {
+            if (!"effect".equals(event.get("kind"))) continue;
+            if (!List.of("call", "read", "write", "delete").contains(event.get("effect"))) {
+                continue;
+            }
+            if (!(event.get("exchange") instanceof Map<?, ?>)) return false;
+        }
+        return true;
+    }
+
     /**
      * The determinism envelope: where and when the capture happened, and a
      * fresh seed that makes REPLAY runs deterministic. Public so a file-sink
@@ -546,6 +579,11 @@ public final class Capture implements TraceSink {
      * field the platform cannot determine would be ABSENT, never guessed.
      */
     public static Map<String, Object> determinismEnvelope(Long observedAtMs) {
+        return determinismEnvelope(observedAtMs, replaySeed());
+    }
+
+    private static Map<String, Object> determinismEnvelope(
+            Long observedAtMs, String replaySeed) {
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put(
             "observedAtMs",
@@ -555,7 +593,7 @@ public final class Capture implements TraceSink {
         envelope.put("runtime", "java " + System.getProperty("java.version"));
         envelope.put("os", System.getProperty("os.name"));
         envelope.put("arch", System.getProperty("os.arch"));
-        envelope.put("replaySeed", replaySeed());
+        envelope.put("replaySeed", replaySeed);
         String imageDigest = System.getenv("REPROIT_IMAGE_DIGEST");
         if (imageDigest != null && TOKEN.matcher(imageDigest).matches()) {
             envelope.put("imageDigest", imageDigest);
@@ -564,7 +602,7 @@ public final class Capture implements TraceSink {
     }
 
     // 16 hex characters, the width the replay stream reads.
-    private static String replaySeed() {
+    static String replaySeed() {
         byte[] seed = new byte[8];
         new java.security.SecureRandom().nextBytes(seed);
         StringBuilder out = new StringBuilder(16);

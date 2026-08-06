@@ -25,6 +25,7 @@ public final class ReproItEngine {
   /// Capture-batch (capsule) sequence, kept separate from the legacy event
   /// batch counter so neither renumbers the other.
   private var captureBatchSequence: UInt64 = 0
+  private let captureReplaySeed = reproitRandomSeedHex()
   /// Stable session identity, also the capsule's trace id.
   private let sessionId = "ses-\(reproitNowMs())-\(UInt32.random(in: 0...UInt32.max))"
   private var currentSig: String?
@@ -322,24 +323,35 @@ public final class ReproItEngine {
       sig: sig, path: pathCopy, message: message,
       stack: trimmed, source: source, line: line, context: context, t: reproitNowMs())
     lock.unlock()
-    emit(ev)
-    // A failure that carries recorded dependency exchanges also ships as a
-    // capsule, so it can be re-executed locally rather than only re-read.
-    sendCaptureBatch(
-      operation: sig, triggerSubject: pathCopy.last?.action ?? "load", message: message)
-    flushSync()
+    let captured = sendCaptureBatch(
+      operation: sig,
+      triggerSubject: pathCopy.last?.action ?? "load",
+      triggerValue: captureTrigger(pathCopy),
+      oracle: "crash",
+      message: message,
+      signature: sig,
+      additionalContext: context)
+    emit(ev, uploadTelemetry: !captured)
+    if !captured { flushSync() }
   }
 
   /// Build and POST the capture-batch-v1 capsule for a failure occurrence.
-  /// A no-op unless production exchange capture is on AND exchanges were
-  /// actually recorded: without them the capsule could not be re-executed, so
-  /// emitting one would over-claim.
-  func sendCaptureBatch(operation: String, triggerSubject: String, message: String) {
-    guard cfg.captureExchanges, let endpoint = cfg.endpoint,
+  /// Dependency exchanges are included only when the operation crossed that
+  /// boundary. Returns true after it schedules the capture request.
+  @discardableResult
+  func sendCaptureBatch(
+    operation: String,
+    triggerSubject: String,
+    triggerValue: Any,
+    oracle: String,
+    message: String,
+    signature: String,
+    additionalContext: [String: Any]? = nil
+  ) -> Bool {
+    guard let endpoint = cfg.endpoint,
       let url = URL(string: "\(endpoint)/v1/capture-batches")
-    else { return }
-    let exchanges = ReproItExchangeStore.shared.snapshot()
-    guard !exchanges.isEmpty else { return }
+    else { return false }
+    let exchanges = cfg.captureExchanges ? ReproItExchangeStore.shared.snapshot() : []
     lock.lock()
     captureBatchSequence += 1
     let sequence = captureBatchSequence
@@ -351,14 +363,16 @@ public final class ReproItEngine {
         batchId: "cb-ios-\(reproitNowMs())-\(sequence)",
         operation: operation.isEmpty ? "unknown-state" : operation,
         triggerSubject: triggerSubject,
-        triggerValue: nil,
+        triggerValue: triggerValue,
         exchanges: exchanges,
         failureSummary: message,
-        failureSignature: "crash:\(operation)",
+        failureSignature: "\(oracle):\(signature)",
         buildVersion: cfg.buildVersion,
-        buildCommit: cfg.buildCommit),
+        buildCommit: cfg.buildCommit,
+        replaySeed: captureReplaySeed,
+        context: captureEnvelopeContext(additionalContext)),
       let body = try? JSONSerialization.data(withJSONObject: batch, options: [.sortedKeys])
-    else { return }
+    else { return false }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -367,6 +381,7 @@ public final class ReproItEngine {
     }
     request.httpBody = body
     session.dataTask(with: request).resume()
+    return true
   }
 
   /// Capture the current structural state as a tester-observed bug.
@@ -394,8 +409,16 @@ public final class ReproItEngine {
       sig: sig, path: pathCopy, trigger: trigger,
       context: context, t: reproitNowMs())
     lock.unlock()
-    emit(ev)
-    flush()
+    let captured = sendCaptureBatch(
+      operation: sig,
+      triggerSubject: trigger,
+      triggerValue: captureTrigger(pathCopy),
+      oracle: "tester-capture",
+      message: "Tester observed a bug in this state",
+      signature: sig,
+      additionalContext: context)
+    emit(ev, uploadTelemetry: !captured)
+    if !captured { flush() }
     return true
   }
 
@@ -423,9 +446,37 @@ public final class ReproItEngine {
       sig: sig, path: pathCopy,
       trigger: trigger, identity: identity, message: message, t: reproitNowMs())
     lock.unlock()
-    emit(ev)
-    flush()
+    let captured = sendCaptureBatch(
+      operation: sig,
+      triggerSubject: trigger,
+      triggerValue: captureTrigger(pathCopy),
+      oracle: "invariant",
+      message: message,
+      signature: identity)
+    emit(ev, uploadTelemetry: !captured)
+    if !captured { flush() }
     return true
+  }
+
+  private func captureTrigger(_ path: [ReproItStep]) -> [String: Any] {
+    [
+      "action": path.last?.action ?? "load",
+      "path": path.map { step in
+        var value: [String: Any] = ["sig": step.sig, "action": step.action]
+        if !cfg.redactLabels, let label = step.label { value["label"] = label }
+        return value
+      },
+    ]
+  }
+
+  private func captureEnvelopeContext(_ additional: [String: Any]?) -> [String: Any]? {
+    lock.lock()
+    var captured = context
+    lock.unlock()
+    if let additional {
+      for (key, value) in additional { captured[key] = value }
+    }
+    return captured.isEmpty ? nil : captured
   }
 
   // MARK: path / buffer
@@ -435,8 +486,9 @@ public final class ReproItEngine {
     if path.count > cfg.pathCap { path.removeFirst(path.count - cfg.pathCap) }
   }
 
-  private func emit(_ ev: ReproItEvent) {
+  private func emit(_ ev: ReproItEvent, uploadTelemetry: Bool = true) {
     cfg.onEvent?(ev)
+    if !uploadTelemetry { return }
     // No endpoint => onEvent / debug only, never buffer for network.
     if cfg.endpoint == nil {
       if cfg.onEvent == nil {

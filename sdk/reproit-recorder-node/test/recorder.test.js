@@ -12,6 +12,22 @@ const {
   structural,
 } = require('../index.js');
 
+function addPortableFailure(capture, artifactIds = []) {
+  capture.trigger('http-request', 'POST /orders', replayable({ sku: 'widget' }));
+  capture.checkpoint('determinism-envelope', {
+    observedAtMs: 1,
+    replaySeed: '00ff00ff00ff00ff',
+    tz: 'UTC',
+  });
+  capture.failure({
+    observation: 'exception',
+    authority: 'runtime-diagnosis',
+    summary: 'order creation failed',
+    signature: 'orders:create:failed',
+    artifactIds,
+  });
+}
+
 function recorder(maxEvents = 16) {
   return new Recorder({
     batchId: 'cb_test',
@@ -155,13 +171,7 @@ test('transport requires digest verified bytes for exportable artifacts', () => 
     redaction: 'redacted-at-source',
     collection: 'flight-recorder',
   });
-  capture.failure({
-    observation: 'exception',
-    authority: 'runtime-diagnosis',
-    summary: 'failure with artifact',
-    signature: 'failure:artifact',
-    artifactIds: [digest],
-  });
+  addPortableFailure(capture, [digest]);
   const batch = capture.finish();
   const transport = Transport.create({
     endpoint: 'https://cloud.example/v1/capture-batches',
@@ -170,4 +180,53 @@ test('transport requires digest verified bytes for exportable artifacts', () => 
   assert.strictEqual(transport.submit(batch), false);
   assert.strictEqual(transport.submit(batch, { [digest]: Buffer.from('wrong') }), false);
   assert.strictEqual(transport.submit(batch, { [digest]: bytes }), true);
+});
+
+test('transport rejects incomplete captures before any network request', async () => {
+  const capture = recorder();
+  capture.failure({
+    observation: 'exception',
+    authority: 'runtime-diagnosis',
+    summary: 'failure without a trigger or envelope',
+    signature: 'failure:incomplete',
+    artifactIds: [],
+  });
+  const transport = Transport.create({
+    endpoint: 'https://cloud.example/v1/capture-batches',
+    apiKey: 'pk_test',
+  });
+  const originalFetch = global.fetch;
+  let requests = 0;
+  global.fetch = async () => {
+    requests += 1;
+    throw new Error('unexpected request');
+  };
+  try {
+    assert.strictEqual(transport.submit(capture.finish()), false);
+    assert.strictEqual(await transport.flush(100), true);
+    assert.strictEqual(requests, 0);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('transport rejects local-only oracle artifacts before upload', () => {
+  const bytes = Buffer.from('local evidence');
+  const digest = 'sha256:' + crypto.createHash('sha256').update(bytes).digest('hex');
+  const capture = recorder();
+  capture.addArtifact({
+    id: digest,
+    kind: 'structured-log',
+    mediaType: 'application/json',
+    bytes: bytes.length,
+    policy: 'local-only',
+    redaction: 'redacted-at-source',
+    collection: 'flight-recorder',
+  });
+  addPortableFailure(capture, [digest]);
+  const transport = Transport.create({
+    endpoint: 'https://cloud.example/v1/capture-batches',
+    apiKey: 'pk_test',
+  });
+  assert.strictEqual(transport.submit(capture.finish()), false);
 });

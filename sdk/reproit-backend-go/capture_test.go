@@ -9,7 +9,10 @@ import (
 
 func finishedTrace(t *testing.T, status int, success bool) *BackendTrace {
 	t.Helper()
-	context := &TraceContext{TraceID: "cap-1-1", Build: "1.2.3"}
+	context := &TraceContext{
+		TraceID: "cap-1-1", Build: "1.2.3", CaptureEnvelope: true,
+		ReplaySeed: "00ff00ff00ff00ff",
+	}
 	trace, err := Begin(context, "createOrder", BeginOptions{
 		Input: HTTPInput{
 			Body: map[string]any{"item": "widget", "qty": 2},
@@ -18,7 +21,14 @@ func finishedTrace(t *testing.T, status int, success bool) *BackendTrace {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = trace.Effect(EffectRead, EffectOptions{Resource: "inventory", Key: "widget"})
+	err = trace.Exchange(EffectRead, ExchangeOptions{
+		Resource: "inventory",
+		Key:      "widget",
+		Exchange: map[string]any{
+			"request":  map[string]any{"key": "widget"},
+			"response": map[string]any{"available": true},
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +41,7 @@ func finishedTrace(t *testing.T, status int, success bool) *BackendTrace {
 func batchFor(t *testing.T, status int, success bool) map[string]any {
 	t.Helper()
 	capture := &Capture{config: CaptureConfig{
-		Endpoint: "http://c/v1/events", APIKey: "sk", AppID: "app-demo", Build: "1.2.3",
+		Endpoint: "http://c/v1/capture-batches", APIKey: "sk", AppID: "app-demo", Build: "1.2.3",
 	}}
 	trace := finishedTrace(t, status, success)
 	return capture.buildBatch([]capturedOperation{{
@@ -175,8 +185,8 @@ func TestHealthyOperationsAreNotCapturedByDefault(t *testing.T) {
 		t.Fatal("healthy operation captured with sampling disabled")
 	}
 	capture.Record(finishedTrace(t, 200, false))
-	if len(capture.queue) != 1 {
-		t.Fatal("success == false operation must always be captured")
+	if len(capture.queue) != 0 {
+		t.Fatal("an operation without a stable oracle was captured")
 	}
 }
 
@@ -197,7 +207,9 @@ func TestConfigBoundsAreClamped(t *testing.T) {
 }
 
 func TestAgentOracleMarkersRideTheTraceAndRejectUnknownIds(t *testing.T) {
-	trace, err := Begin(&TraceContext{TraceID: "cap-1-1"}, "POST /assist", BeginOptions{})
+	trace, err := Begin(&TraceContext{
+		TraceID: "cap-1-1", CaptureEnvelope: true, ReplaySeed: "00ff00ff00ff00ff",
+	}, "POST /assist", BeginOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
