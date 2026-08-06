@@ -125,35 +125,24 @@ fn session() -> Option<&'static ReplaySession> {
         .as_ref()
 }
 
+/// The capture envelope of the loaded replay session, or `None` outside
+/// replay mode. The [`crate::determinism`] seam reads `replaySeed` from it.
+pub(crate) fn replay_envelope() -> Option<&'static Value> {
+    session().map(|session| &session.envelope)
+}
+
 /// Deterministic xorshift64* stream from the capture's `replaySeed`. `None`
 /// outside replay mode or when the capture carries no envelope. Named gap:
 /// this pins randomness the app draws THROUGH the SDK; direct `rand` /
-/// `getrandom` calls in application code cannot be intercepted in Rust.
+/// `getrandom` calls in application code cannot be intercepted in Rust. The
+/// first-class home for this seam is [`crate::determinism`]; this is the same
+/// stream under the instrument namespace.
 pub fn replay_rng() -> Option<ReplayRng> {
-    let seed = session()?
-        .envelope
-        .get("replaySeed")
-        .and_then(Value::as_str)?
-        .to_string();
-    let hex: String = seed.chars().take(16).collect();
-    let state = u64::from_str_radix(&hex, 16).ok()? | 1;
-    Some(ReplayRng { state })
+    crate::determinism::replay_rng()
 }
 
-pub struct ReplayRng {
-    state: u64,
-}
-
-impl ReplayRng {
-    /// The next draw in [0, 1), matching the Node SDK's stream shape.
-    pub fn next_f64(&mut self) -> f64 {
-        self.state ^= self.state << 13;
-        self.state ^= self.state >> 7;
-        self.state ^= self.state << 17;
-        let mixed = self.state.wrapping_mul(0x2545_f491_4f6c_dd1d);
-        ((mixed >> 11) as f64) / ((1u64 << 53) as f64)
-    }
-}
+/// The one seeded-stream type the SDK exposes; see [`crate::determinism`].
+pub use crate::determinism::SeededRng as ReplayRng;
 
 /// Bound one exchange body: within budget it is recorded verbatim (JSON
 /// parsed when declared), beyond it only byte count + sha256 + truncated.

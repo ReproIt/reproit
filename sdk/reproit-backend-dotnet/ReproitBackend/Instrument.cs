@@ -1,6 +1,6 @@
 // Outbound-exchange capture and hermetic replay for reproit-backend-dotnet.
 //
-// .NET has no monkeypatching, so the boundary is explicit and OPT-IN: build the app's
+// .NET has no monkeypatching, so the explicit boundary is OPT-IN: build the app's
 // HttpClient with `Instrument.Handler()`, wrap the app's ADO.NET connection with `Ado.Wrap`
 // (or route statements through `Instrument.Db.RunAsync`). Every dependency exchange (request
 // AND response) is then recorded onto the ambient request trace, bounded and redacted at
@@ -8,27 +8,47 @@
 // replay. Streaming responses (SSE / chunked) are recorded through a TEE stream as the app
 // consumes them, chunk boundaries preserved; an abandoned body records nothing.
 //
+// `Instrument.InstallAutoCapture()` adds an AUTOMATIC HTTP path that needs no app wiring: it
+// subscribes to the "System.Net.Http" DiagnosticListener, so ANY HttpClient in the process
+// records its outbound request onto the ambient trace. The two paths cover different amounts,
+// because DiagnosticSource never hands the observer the response body without consuming the
+// stream the app must read:
+//   - AUTOMATIC (InstallAutoCapture): method, url, request headers, request body, response
+//     status, response headers. NO response body and NO stream boundaries. Enough to see and
+//     match the call; not enough to REPLAY a body-dependent response.
+//   - EXPLICIT (Instrument.Handler): everything the automatic path records PLUS the response
+//     body and streaming chunk boundaries, so replay serves the recorded body verbatim.
+// A request that already flows through Handler() is recorded once, by the handler; the
+// automatic observer skips it. Database capture stays the explicit Ado.Wrap / Db.RunAsync
+// boundary: an automatic hook would need EF Core or a driver dependency this SDK does not take.
+//
 // With `REPROIT_REPLAY` naming a `reproit-backend-capture` payload the SAME boundary serves
 // the recorded exchanges: no socket is opened and no database is contacted. An unmatched call
 // emits the structured `REPROIT:DIVERGENCE` line and answers 599 (HTTP) or throws (db).
 //
-// Determinism sources the SDK can and cannot pin, named:
-//   - `Instrument.RandomSource` is the SDK-exposed System.Random: the envelope-seeded
-//     stream in replay mode, Random.Shared otherwise. `System.Security.Cryptography.
-//     RandomNumberGenerator` is NOT pinnable (it reads the OS CSPRNG directly); apps
-//     drawing security randomness replay with fresh entropy, and that is named here
-//     rather than faked.
-//   - `Instrument.Time` is the SDK-exposed TimeProvider: pinned to the capture's
-//     `observedAtMs` in replay mode, TimeProvider.System otherwise. Direct DateTime.Now /
-//     DateTime.UtcNow reads CANNOT be intercepted without profiler APIs, so only code
-//     reading time through the exposed provider replays the capture's clock. The time
-//     ZONE is pinned process-wide on Unix (Replay.PinTimeZone); Windows resolves the zone
-//     from the registry and keeps the readable fallback.
+// Determinism sources the SDK exposes, and the boundary that stays impossible, named:
+//   - `Instrument.RandomSource` is the SDK-exposed System.Random: the envelope-seeded stream
+//     in replay mode, Random.Shared otherwise.
+//   - `Instrument.CryptoRandom` is an SDK-exposed RandomNumberGenerator: it draws from the
+//     same envelope-seeded stream in replay mode, and RandomNumberGenerator.Create() (the OS
+//     CSPRNG) otherwise. An app drawing security randomness through it replays deterministically.
+//   - `Instrument.Time` is the SDK-exposed TimeProvider (pinned to the capture's `observedAtMs`
+//     in replay mode, TimeProvider.System otherwise), and `Instrument.Now` / `Instrument.UtcNow`
+//     / `Instrument.LocalNow` read the clock through it, so an app replacing DateTime.Now with
+//     these replays the capture's instant. The time ZONE is pinned process-wide on Unix
+//     (Replay.PinTimeZone); Windows resolves the zone from the registry and keeps the fallback.
+// Honesty note, same as every SDK: the seed makes REPLAY runs deterministic; it does not
+// reproduce the randomness the app drew in production. And direct static calls the SDK does not
+// mediate (a literal DateTime.Now, RandomNumberGenerator.Create(), or Random.Shared in app
+// code) still cannot be intercepted without profiler APIs; only code reading through the
+// exposed primitives above replays the capture.
 //
 // The ambient trace is an AsyncLocal, so it flows across awaits automatically; a call made
 // outside a scope is simply not recorded, never half-recorded.
 
+using System.Diagnostics;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace ReproitBackend;
@@ -116,6 +136,7 @@ public static class Instrument
             _sessionResolved = replacement != null;
             _session = replacement;
             _randomSource = null;
+            _cryptoRandom = null;
             _time = null;
         }
     }
@@ -124,6 +145,7 @@ public static class Instrument
     private static long _truncatedBodies;
     private static long _failedCaptures;
     private static Random? _randomSource;
+    private static RandomNumberGenerator? _cryptoRandom;
     private static TimeProvider? _time;
 
     internal static void CountCapturedExchange() =>
@@ -143,8 +165,7 @@ public static class Instrument
     };
 
     // The SDK-exposed randomness source: the envelope-seeded stream in replay mode,
-    // Random.Shared otherwise. RandomNumberGenerator (the OS CSPRNG) is NOT pinnable; the
-    // file header names it. Honesty note, same as every SDK: the seed makes REPLAY runs
+    // Random.Shared otherwise. Honesty note, same as every SDK: the seed makes REPLAY runs
     // deterministic; it does not reproduce the randomness the app drew in production.
     public static Random RandomSource
     {
@@ -162,9 +183,40 @@ public static class Instrument
         }
     }
 
+    // The SDK-exposed crypto randomness source: the envelope-seeded stream in replay mode,
+    // RandomNumberGenerator.Create() (the OS CSPRNG) otherwise. An app that draws security
+    // randomness through this replays deterministically; a literal RandomNumberGenerator.
+    // Create() call the SDK does not mediate does not, as the file header names.
+    public static RandomNumberGenerator CryptoRandom
+    {
+        get
+        {
+            lock (SessionLock)
+            {
+                if (_cryptoRandom == null)
+                {
+                    var rng = Session()?.Rng();
+                    _cryptoRandom = rng == null
+                        ? RandomNumberGenerator.Create()
+                        : new SeededCryptoRandom(rng);
+                }
+                return _cryptoRandom;
+            }
+        }
+    }
+
+    // Clock reads through the pinned TimeProvider, so an app replacing DateTime.Now /
+    // DateTimeOffset.Now / DateTime.UtcNow with these replays the capture's instant. The
+    // local reads use the pinned time zone (Unix) or the capture fallback zone.
+    public static DateTimeOffset Now => Time.GetLocalNow();
+
+    public static DateTimeOffset UtcNow => Time.GetUtcNow();
+
+    public static DateTime LocalNow => Time.GetLocalNow().DateTime;
+
     // The SDK-exposed clock: pinned to the capture's observedAtMs in replay mode,
-    // TimeProvider.System otherwise. Direct DateTime.Now reads cannot be intercepted
-    // without profiler APIs; the file header names it.
+    // TimeProvider.System otherwise. Read it through Instrument.Now / UtcNow / LocalNow. A
+    // literal DateTime.Now the SDK does not mediate is not pinnable; the file header names it.
     public static TimeProvider Time
     {
         get
@@ -202,6 +254,55 @@ public static class Instrument
         public override double NextDouble() => Sample();
     }
 
+    // RandomNumberGenerator over the same envelope-seeded xorshift64* stream. Bytes are drawn
+    // from the raw 64-bit stream words, so two replays of one capture yield identical bytes.
+    private sealed class SeededCryptoRandom : RandomNumberGenerator
+    {
+        private readonly ReplayRng _rng;
+        private ulong _bits;
+        private int _available;
+
+        internal SeededCryptoRandom(ReplayRng rng)
+        {
+            _rng = rng;
+        }
+
+        public override void GetBytes(byte[] data) => FillBytes(data.AsSpan());
+
+        public override void GetBytes(byte[] data, int offset, int count) =>
+            FillBytes(data.AsSpan(offset, count));
+
+        public override void GetBytes(Span<byte> data) => FillBytes(data);
+
+        public override void GetNonZeroBytes(byte[] data)
+        {
+            for (var index = 0; index < data.Length; index++)
+            {
+                byte value;
+                do { value = NextByte(); } while (value == 0);
+                data[index] = value;
+            }
+        }
+
+        private void FillBytes(Span<byte> data)
+        {
+            for (var index = 0; index < data.Length; index++) data[index] = NextByte();
+        }
+
+        private byte NextByte()
+        {
+            if (_available == 0)
+            {
+                _bits = _rng.NextUInt64();
+                _available = 8;
+            }
+            var value = (byte)_bits;
+            _bits >>= 8;
+            _available -= 1;
+            return value;
+        }
+    }
+
     private sealed class PinnedTimeProvider : TimeProvider
     {
         private readonly TimeSpan _offset;
@@ -218,6 +319,173 @@ public static class Instrument
         public override TimeZoneInfo LocalTimeZone => _zone ?? base.LocalTimeZone;
     }
 
+    // A request the explicit handler owns; the automatic observer skips it to avoid a
+    // double record. Set on the request options by ExchangeHandler.SendAsync.
+    private static readonly HttpRequestOptionsKey<bool> InstrumentedRequestKey =
+        new("reproit.instrumented");
+
+    // The automatic observer stashes the request body here at Start, while the content is
+    // still readable, and reads it back at Stop after the send.
+    private static readonly HttpRequestOptionsKey<byte[]> AutoRequestBodyKey =
+        new("reproit.autoRequestBody");
+    private static readonly HttpRequestOptionsKey<string> AutoRequestTypeKey =
+        new("reproit.autoRequestType");
+
+    private static int _autoCaptureInstalled;
+    private static IDisposable? _autoCaptureSubscription;
+
+    private static bool IsInstrumented(HttpRequestMessage request) =>
+        request.Options.TryGetValue(InstrumentedRequestKey, out var flag) && flag;
+
+    // Lowercased first-value header pairs; the recorded header shape for both the explicit
+    // handler and the automatic observer.
+    internal static IEnumerable<KeyValuePair<string, string>> HeaderPairs(
+        System.Net.Http.Headers.HttpHeaders headers) =>
+        headers.Select(header =>
+            new KeyValuePair<string, string>(
+                header.Key, header.Value.FirstOrDefault() ?? string.Empty));
+
+    // Record one finished HTTP exchange onto the trace. The explicit handler and the automatic
+    // observer share this so the recorded shape is identical; the observer passes an empty
+    // response body (DiagnosticSource cannot expose it). Failure is counted, never surfaced.
+    internal static void RecordHttpExchange(
+        BackendTrace trace,
+        HttpRequestMessage request,
+        int status,
+        IEnumerable<KeyValuePair<string, string>> responseHeaders,
+        byte[] requestBody,
+        string requestContentType,
+        Dictionary<string, object?> responseBodyFields,
+        Dictionary<string, object?>? stream)
+    {
+        try
+        {
+            var method = request.Method.Method;
+            var url = request.RequestUri?.ToString() ?? string.Empty;
+            trace.Effect("call", new EffectOptions
+            {
+                Resource = request.RequestUri?.Host,
+                Key = method + " " + Replay.PathAndQuery(url),
+                Exchange = Exchange.Http(
+                    method,
+                    url,
+                    HeaderPairs(request.Headers),
+                    requestBody,
+                    requestContentType,
+                    status,
+                    responseHeaders,
+                    responseBodyFields,
+                    stream),
+            });
+            CountCapturedExchange();
+        }
+        catch (Exception)
+        {
+            CountFailedCapture();
+        }
+    }
+
+    // The HttpClient DiagnosticListener name and its request/response event keys. The name is
+    // "HttpHandlerDiagnosticListener" (not "System.Net.Http", which is the ActivitySource);
+    // the events carry the HttpRequestMessage / HttpResponseMessage the capture needs.
+    private const string HttpListenerName = "HttpHandlerDiagnosticListener";
+    private const string HttpStartEvent = "System.Net.Http.HttpRequestOut.Start";
+    private const string HttpStopEvent = "System.Net.Http.HttpRequestOut.Stop";
+
+    // Install the automatic HTTP capture path: subscribe to the HttpClient DiagnosticListener
+    // so ANY HttpClient in the process records its outbound request onto the ambient trace,
+    // with no app wiring. Idempotent; the subscription lives for the process. See the file
+    // header for what the automatic path records versus Handler().
+    public static void InstallAutoCapture()
+    {
+        if (Interlocked.Exchange(ref _autoCaptureInstalled, 1) == 1) return;
+        _autoCaptureSubscription =
+            DiagnosticListener.AllListeners.Subscribe(new AllListenersObserver());
+    }
+
+    // Watches every DiagnosticListener and attaches the HTTP observer to the HttpClient one.
+    // The IsEnabled predicate must be present: HttpClient only writes the request/response
+    // events when a subscriber has enabled them.
+    private sealed class AllListenersObserver : IObserver<DiagnosticListener>
+    {
+        public void OnNext(DiagnosticListener listener)
+        {
+            if (listener.Name == HttpListenerName)
+            {
+                listener.Subscribe(new HttpDiagnosticObserver(), (name, _, _) => true);
+            }
+        }
+
+        public void OnError(Exception error) {}
+        public void OnCompleted() {}
+    }
+
+    // Records the outbound request at Stop. The Start event carries the request while its
+    // content is still readable, so the request body is buffered there (same as the explicit
+    // handler does before it sends). DiagnosticSource never exposes the response body without
+    // consuming the app's stream, so Stop records only status and response headers.
+    private sealed class HttpDiagnosticObserver : IObserver<KeyValuePair<string, object?>>
+    {
+        public void OnNext(KeyValuePair<string, object?> evt)
+        {
+            try
+            {
+                switch (evt.Key)
+                {
+                    case HttpStartEvent:
+                        OnStart(Property(evt.Value, "Request") as HttpRequestMessage);
+                        break;
+                    case HttpStopEvent:
+                        OnStop(Property(evt.Value, "Response") as HttpResponseMessage);
+                        break;
+                }
+            }
+            catch (Exception)
+            {
+                CountFailedCapture();
+            }
+        }
+
+        private static void OnStart(HttpRequestMessage? request)
+        {
+            if (request == null || IsInstrumented(request)) return;
+            if (AmbientTrace() == null) return;
+            var content = request.Content;
+            if (content == null) return;
+            var body = content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
+            request.Options.Set(AutoRequestBodyKey, body);
+            request.Options.Set(AutoRequestTypeKey,
+                content.Headers.ContentType?.ToString() ?? string.Empty);
+        }
+
+        private static void OnStop(HttpResponseMessage? response)
+        {
+            if (response == null) return;
+            var request = response.RequestMessage;
+            if (request == null || IsInstrumented(request)) return;
+            var trace = AmbientTrace();
+            if (trace == null) return;
+            var requestBody = request.Options.TryGetValue(AutoRequestBodyKey, out var body)
+                ? body : Array.Empty<byte>();
+            var requestContentType =
+                request.Options.TryGetValue(AutoRequestTypeKey, out var type)
+                    ? type : string.Empty;
+            var responseHeaders = HeaderPairs(response.Headers)
+                .Concat(HeaderPairs(response.Content.Headers))
+                .ToList();
+            // Empty response body: reading it here would consume the app's stream. The file
+            // header names this boundary; the explicit Handler() path records the body.
+            RecordHttpExchange(trace, request, (int)response.StatusCode, responseHeaders,
+                requestBody, requestContentType, new Dictionary<string, object?>(), stream: null);
+        }
+
+        public void OnError(Exception error) {}
+        public void OnCompleted() {}
+
+        private static object? Property(object? payload, string name) =>
+            payload?.GetType().GetProperty(name)?.GetValue(payload);
+    }
+
     // The instrumented outbound HTTP boundary. Compose it into an HttpClient:
     //   new HttpClient(Instrument.Handler())
     public static DelegatingHandler Handler(HttpMessageHandler? inner = null) =>
@@ -230,6 +498,9 @@ public static class Instrument
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            // Mark the request so the automatic DiagnosticSource observer (if installed) does
+            // not record it a second time: the handler owns this exchange, bodies and all.
+            request.Options.Set(InstrumentedRequestKey, true);
             var method = request.Method.Method;
             var url = request.RequestUri?.ToString() ?? string.Empty;
             byte[] requestBody = request.Content == null
@@ -306,34 +577,11 @@ public static class Instrument
             Dictionary<string, object?> responseBodyFields,
             Dictionary<string, object?>? stream)
         {
-            try
-            {
-                var method = request.Method.Method;
-                var url = request.RequestUri?.ToString() ?? string.Empty;
-                var responseHeaders = HeaderPairs(live.Headers)
-                    .Concat(HeaderPairs(live.Content.Headers))
-                    .ToList();
-                trace.Effect("call", new EffectOptions
-                {
-                    Resource = request.RequestUri?.Host,
-                    Key = method + " " + Replay.PathAndQuery(url),
-                    Exchange = Exchange.Http(
-                        method,
-                        url,
-                        HeaderPairs(request.Headers),
-                        requestBody,
-                        requestContentType,
-                        (int)live.StatusCode,
-                        responseHeaders,
-                        responseBodyFields,
-                        stream),
-                });
-                CountCapturedExchange();
-            }
-            catch (Exception)
-            {
-                CountFailedCapture();
-            }
+            var responseHeaders = HeaderPairs(live.Headers)
+                .Concat(HeaderPairs(live.Content.Headers))
+                .ToList();
+            RecordHttpExchange(trace, request, (int)live.StatusCode, responseHeaders,
+                requestBody, requestContentType, responseBodyFields, stream);
         }
 
         // Hand the app a live response whose body is a recording TEE: chunks are observed
@@ -376,12 +624,6 @@ public static class Instrument
             }
             return replacement;
         }
-
-        private static IEnumerable<KeyValuePair<string, string>> HeaderPairs(
-            System.Net.Http.Headers.HttpHeaders headers) =>
-            headers.Select(header =>
-                new KeyValuePair<string, string>(
-                    header.Key, header.Value.FirstOrDefault() ?? string.Empty));
 
         // Synthesize the HttpResponseMessage for a served (or diverged) probe. A recorded
         // stream shape is re-served chunk for chunk so a consumer reading the stream

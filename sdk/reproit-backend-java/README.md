@@ -135,11 +135,11 @@ deleted-exchange-diverges under the PORTABILITY bar, replay compiled with plain 
 
 ## Capsule parity: outbound exchange capture and hermetic replay
 
-The capsule boundary is library-layer only (no `-javaagent`, no bytecode weaving), per the
-Track 2x decision. Route outbound HTTP through the delegating client and database statements
-through the JDBC wrap; both record onto the ambient trace (`Instrument.scope`, or the servlet
-filter's request scope) and both SERVE the recorded exchanges when `REPROIT_REPLAY` names a
-capture payload:
+The capsule boundary works with no agent: route outbound HTTP through the delegating client and
+database statements through the JDBC wrap; both record onto the ambient trace (`Instrument.scope`,
+or the servlet filter's request scope) and both SERVE the recorded exchanges when `REPROIT_REPLAY`
+names a capture payload. An optional `-javaagent` (see "Automatic capture" below) removes the JDBC
+hand-wrapping, but the wrappers stay the supported path for HTTP and for replay:
 
 ```java
 HttpClient client = ReproitHttpClient.wrap(HttpClient.newHttpClient());
@@ -178,6 +178,46 @@ The money-test fixture lives in `fixtures/java-backend-fixture/` and the four-ve
 revert / deleted-exchange-diverges). `sdk/test/backend_replay_parity_test.js` byte-compares the
 served exchange, the 599 body, and the divergence marker against the Node reference.
 
+## Automatic capture (optional `-javaagent`)
+
+An app can capture outbound JDBC without wrapping each connection. Add the agent to the JVM:
+
+```sh
+java -javaagent:reproit-backend-java.jar -cp app.jar:byte-buddy.jar:... com.example.Main
+```
+
+`ReproitAgent` (the `Premain-Class`) uses ByteBuddy to weave `java.sql.Driver.connect` on every
+driver implementation. On exit the woven advice replaces the returned `Connection` with the same
+recording connection `ReproitJdbc.wrap` returns, so a plain `DriverManager.getConnection(url)`
+records every statement onto the ambient trace through the existing path. The recorded shape is
+byte-identical to the opt-in wrappers. The agent fails closed: an advice fault counts a failed
+capture and returns the host's own connection, it never breaks the host call.
+
+ByteBuddy is an OPTIONAL dependency (`provided` + `optional`), so it stays off the transitive
+classpath. An app that adds the agent puts `byte-buddy` on the classpath itself; an app that does
+not use the agent never sees it, and the SDK jar stays zero-transitive-dependency.
+
+What the agent auto-captures, and what stays opt-in (each a NAMED gap, never a silent downgrade):
+
+- AUTOMATIC: outbound JDBC. Driver classes load in the app classloader, the same loader that
+  loads `dev.reproit.backend`, so the woven advice reaches the recording path directly. The JDBC
+  subset is exactly the wrapper's subset (`executeQuery` / `executeUpdate` on
+  Statement / PreparedStatement with indexed parameters).
+- OPT-IN: outbound HTTP. The only HTTP surface in a dependency-free app is
+  `java.net.http.HttpClient`, whose implementation `jdk.internal.net.http.HttpClientImpl` loads in
+  the BOOTSTRAP class loader inside the sealed `java.net.http` module. Weaving it needs the SDK
+  appended to the bootstrap class-loader search (a real jar) and the module opened to that code, so
+  the agent does not weave it. HTTP capture stays on `ReproitHttpClient.wrap` or
+  `Instrument.Http.send`, which already work and are tested.
+- OPT-IN: hermetic replay. The agent is a capture mechanism. `REPROIT_REPLAY` replay stays on the
+  opt-in boundary, because serving a recorded exchange without dialing the real dependency must run
+  BEFORE the driver connects, which the connect-exit hook cannot do.
+
+`AgentAutoCaptureTest` proves the automatic JDBC path with real bytecode weaving: it self-attaches
+the agent (`ByteBuddyAgent.install`, `-Djdk.attach.allowAttachSelf=true` in the Surefire
+`argLine`), then makes a plain `DriverManager` call against an in-memory H2 database with no
+wrapping and asserts the exchanges recorded onto the trace.
+
 ## Level matrix against the Node reference
 
 Founder rule: every capability the Node SDK has, this SDK has, and a genuinely-impossible
@@ -189,8 +229,8 @@ surface is a NAMED gap here, never a silent downgrade.
 | Framework adapters (express.js, fastify.js)  | `ReproitFilter` (any jakarta.servlet container) | same role; servlet is the Java-idiomatic host |
 | Production capture + batch shape (capture.js) | `Capture`                         | same, batch shape pinned |
 | Agent oracle API (`trace.oracle`, AGENT_* ids, marked-op capture) | `BackendTrace.oracle`, `Capture.AGENT_ORACLES` | same |
-| Outbound HTTP capture (instrument.js patches http/https/fetch process-wide) | `ReproitHttpClient.wrap`, `Instrument.Http.send` | same recording; NAMED GAP: no auto-install. Library layer only, no bytecode weaving, so only wrapped clients are visible |
-| DB capture (instrument.js patches the pg driver) | `ReproitJdbc`, `Instrument.Db.run` | same recording; NAMED GAP as above, plus the JDBC subset listed under capsule parity |
+| Outbound HTTP capture (instrument.js patches http/https/fetch process-wide) | `ReproitHttpClient.wrap`, `Instrument.Http.send` | same recording; NAMED GAP: no auto-install for HTTP. The optional `-javaagent` cannot weave the bootstrap-loaded `java.net.http` impl, so HTTP stays library-layer only and only wrapped clients are visible |
+| DB capture (instrument.js patches the pg driver) | `ReproitJdbc`, `Instrument.Db.run`, plus the optional `ReproitAgent` `-javaagent` | same recording; the agent auto-installs JDBC capture (weaves `Driver.connect`), so no wrapping is needed; without the agent, or for the JDBC subset listed under capsule parity, the wrapper is the path |
 | Determinism envelope (seeded RNG, pinned clock/TZ/locale) | `Instrument.random()`, `Instrument.clock()`, envelope pin | same seams; NAMED GAP: direct `System.currentTimeMillis`/`Instant.now`, app-constructed `Random`, `Math.random`, `ThreadLocalRandom` stay live; `SecureRandom` unpinnable by design |
 | Hermetic replay, strict ordinals, 599, `REPROIT:DIVERGENCE` + `bodyDelta` (replay.js) | `Replay` | same, marker byte-identical |
 | Streaming (SSE) exchanges with chunk boundaries | TEE subscriber in `ReproitHttpClient` | same |

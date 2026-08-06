@@ -22,6 +22,8 @@ pub mod axum;
 mod capture;
 #[cfg(feature = "instrument")]
 pub mod ci;
+#[cfg(feature = "instrument")]
+pub mod determinism;
 #[cfg(any(feature = "axum", feature = "actix", feature = "instrument"))]
 mod framework;
 #[cfg(feature = "instrument")]

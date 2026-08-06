@@ -50,6 +50,31 @@
       <version>11.0.25</version>
       <scope>test</scope>
     </dependency>
+    <!-- Bytecode weaving for the OPTIONAL java.lang.instrument agent
+         (ReproitAgent). provided + optional keeps it off the app's transitive
+         classpath: an app that does not add -javaagent never sees ByteBuddy,
+         so the SDK jar stays zero-transitive-dependency. -->
+    <dependency>
+      <groupId>net.bytebuddy</groupId>
+      <artifactId>byte-buddy</artifactId>
+      <version>1.14.18</version>
+      <scope>provided</scope>
+      <optional>true</optional>
+    </dependency>
+    <!-- Self-attach for the agent's own test (AgentAutoCaptureTest). -->
+    <dependency>
+      <groupId>net.bytebuddy</groupId>
+      <artifactId>byte-buddy-agent</artifactId>
+      <version>1.14.18</version>
+      <scope>test</scope>
+    </dependency>
+    <!-- In-memory database for the agent's auto-capture test only. -->
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <version>2.2.224</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
@@ -58,6 +83,29 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <version>3.2.5</version>
+        <configuration>
+          <!-- AgentAutoCaptureTest self-attaches the agent to the running
+               JVM; the JDK requires this flag to allow a process to attach
+               to itself. -->
+          <argLine>-Djdk.attach.allowAttachSelf=true</argLine>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.4.1</version>
+        <configuration>
+          <archive>
+            <manifestEntries>
+              <!-- `-javaagent:reproit-backend-java.jar` runs premain; the
+                   Agent-Class allows dynamic attach after startup. -->
+              <Premain-Class>dev.reproit.backend.ReproitAgent</Premain-Class>
+              <Agent-Class>dev.reproit.backend.ReproitAgent</Agent-Class>
+              <Can-Redefine-Classes>true</Can-Redefine-Classes>
+              <Can-Retransform-Classes>true</Can-Retransform-Classes>
+            </manifestEntries>
+          </archive>
+        </configuration>
       </plugin>
     </plugins>
   </build>

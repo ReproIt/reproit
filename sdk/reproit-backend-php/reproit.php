@@ -15,3 +15,4 @@ require_once __DIR__ . '/instrument.php';
 require_once __DIR__ . '/capture.php';
 require_once __DIR__ . '/pdo.php';
 require_once __DIR__ . '/psr18.php';
+require_once __DIR__ . '/autocapture.php';

@@ -284,6 +284,49 @@ public class InstrumentTests : IDisposable
         File.Delete(path);
     }
 
+    [Fact]
+    public void CryptoRandomDrawsTheSameBytesAcrossSessionsWithTheSameSeed()
+    {
+        var path = WriteCapture();
+        Instrument.ResetSessionForTest(Replay.Load(path));
+        var first = new byte[32];
+        Instrument.CryptoRandom.GetBytes(first);
+        // A fresh session on the same capture seeds the stream identically.
+        Instrument.ResetSessionForTest(Replay.Load(path));
+        var second = new byte[32];
+        Instrument.CryptoRandom.GetBytes(second);
+        Assert.Equal(first, second);
+        // The seeded stream really produced bytes, not the all-zero default buffer.
+        Assert.Contains(first, b => b != 0);
+        var nonZero = new byte[16];
+        Instrument.CryptoRandom.GetNonZeroBytes(nonZero);
+        Assert.DoesNotContain((byte)0, nonZero);
+        File.Delete(path);
+    }
+
+    [Fact]
+    public void ClockReadsThePinnedInstantUnderReplay()
+    {
+        Instrument.ResetSessionForTest(Replay.Load(WriteCapture()));
+        var pinned = DateTimeOffset.FromUnixTimeMilliseconds(1753747200000);
+        // The pinned provider offsets a live clock, so it keeps ticking from the recorded
+        // instant; within a test that is milliseconds, never the years a real now would differ.
+        Assert.True(Math.Abs((Instrument.UtcNow - pinned).TotalSeconds) < 5);
+        Assert.True(Math.Abs((Instrument.Now.ToUniversalTime() - pinned).TotalSeconds) < 5);
+        Assert.True(Math.Abs((Instrument.LocalNow - Instrument.Now.DateTime).TotalSeconds) < 5);
+    }
+
+    [Fact]
+    public void CryptoRandomAndClockDelegateToRealProvidersOutsideReplay()
+    {
+        Assert.False(Instrument.Replaying());
+        var buffer = new byte[16];
+        // No throw, and real entropy (not the seeded stream).
+        Instrument.CryptoRandom.GetBytes(buffer);
+        Assert.Contains(buffer, b => b != 0);
+        Assert.True(Math.Abs((Instrument.UtcNow - DateTimeOffset.UtcNow).TotalSeconds) < 5);
+    }
+
     private static string WriteCapture()
     {
         const string payload = """

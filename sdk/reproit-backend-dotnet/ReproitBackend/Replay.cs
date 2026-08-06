@@ -521,12 +521,15 @@ public sealed class ReplayRng
     }
 
     // The next draw in [0, 1).
-    public double NextDouble()
+    public double NextDouble() => (NextUInt64() >> 11) / (double)(1UL << 53);
+
+    // The next raw 64-bit word of the stream. NextDouble scales one of these, so the two
+    // draws share one sequence; crypto-random byte draws pull whole words from it.
+    internal ulong NextUInt64()
     {
         _state ^= _state << 13;
         _state ^= _state >> 7;
         _state ^= _state << 17;
-        var mixed = unchecked(_state * 0x2545f4914f6cdd1dUL);
-        return (mixed >> 11) / (double)(1UL << 53);
+        return unchecked(_state * 0x2545f4914f6cdd1dUL);
     }
 }

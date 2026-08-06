@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "sdk-autocapture-determinism",
+  "changeType": "feature",
+  "detail": "Automatic outbound capture and determinism pinning extended to the compiled-language SDKs as far as each language allows. Java: a -javaagent premain (ByteBuddy) weaves java.sql.Driver.connect so JDBC is captured with no per-call code; HTTP stays opt-in because java.net.http lives in a sealed JDK 17 module self-attach cannot open. .NET: HttpClient captured automatically via the System.Net.Http DiagnosticListener, and RandomNumberGenerator plus DateTime clocks pinned through Instrument.CryptoRandom and Instrument.Now over the existing TimeProvider seam. PHP: an auto_prepend_file bootstrap registers a capturing http/https stream wrapper; curl_exec and PDO stay opt-in as uninterceptable C functions. Rust: a seeded xorshift RNG and a pinned replay clock exposed as primitives, since Rust cannot monkeypatch global time or randomness. Every remaining boundary is documented in code, not faked. All four SDK suites and the shared behavior-coverage and inventory gates pass.",
+  "evidence": [
+    {
+      "path": "sdk/reproit-backend-dotnet/ReproitBackend.Tests/InstrumentTests.cs",
+      "sha256": "sha256:4614a466ac4055a7e0eac144cfe80f8def07ae011057f6b801feea11217945f8"
+    }
+  ]
+}

@@ -121,12 +121,43 @@ byte by `sdk/test/backend_replay_parity_test.js` (served exchange, 599 divergenc
   Replay pins the timezone, seeds `mt_srand` from `replaySeed`, and exposes the pinned clock as
   `Instrument::clock()` (a `PinnedClock` offset to the capture instant).
 
+### Automatic http(s) stream capture (auto_prepend_file)
+
+One outbound path needs no per-call change. PHP lets userland replace a stream wrapper, so
+`autocapture.php` registers a capturing wrapper over `http://` and `https://`. Once installed,
+every stream-based outbound request (`file_get_contents`, `fopen`, `SimpleXML`,
+`DOMDocument::load` on an http(s) URL) is captured AUTOMATICALLY through the SAME path as
+`Instrument::http`: the wrapper reads the method, headers, and body from the caller's stream
+context and delegates to `Instrument::http`, so the recorded exchange shape and redaction are
+identical. In replay mode (`REPROIT_REPLAY` set) the wrapper serves the recorded exchange with no
+socket and fails closed on divergence with a thrown `DivergenceError` plus the `REPROIT:DIVERGENCE `
+marker, the stream form of the boundary's 599.
+
+Turn it on with the `auto_prepend_file` bootstrap, which requires the SDK and installs the wrapper
+before the app runs:
+
+```sh
+php -d auto_prepend_file=/path/to/reproit-backend-php/bootstrap.php app.php
+; or in php.ini / an FPM pool config:
+auto_prepend_file = /path/to/reproit-backend-php/bootstrap.php
+```
+
+Installation is EXPLICIT. Requiring `reproit.php` loads the wrapper class but does not touch the
+wrapper table, so an app opts in through the bootstrap or a direct `\ReproitBackend\install()`
+call. Tests register and unregister deterministically with `install()` / `uninstall()`. Install is
+idempotent and fails closed toward the host: a registration or capture defect leaves the builtin
+wrapper serving and never breaks the host request. This covers STREAM traffic only. `curl_exec`
+and PDO remain OPT-IN for the reason below.
+
 Named capability gaps, stated rather than papered over:
 
-- **curl-direct traffic is not interceptable.** PHP has no process-wide HTTP chokepoint, so
-  `curl_exec` called directly, `file_get_contents` with an `http://` URL, and ORMs with their
-  own transports are invisible to capture and unavailable at replay. Route outbound calls
-  through `RecordingClient` (or `Instrument::http`) or they are outside the capsule.
+- **curl-direct and PDO traffic are not interceptable.** PHP has no process-wide HTTP
+  chokepoint, so `curl_exec` called directly and ORMs with their own transports are invisible to
+  capture and unavailable at replay. curl and the PDO drivers are C-level functions, and PHP
+  cannot redefine or intercept a C function at runtime without the uopz or runkit extension,
+  which are not present (nor an acceptable production dependency). These stay OPT-IN: route curl
+  calls through `RecordingClient` (or `Instrument::http`) and database statements through
+  `RecordingPdo`, or they are outside the capsule. One outbound path IS automatic, see below.
 - **The wall clock cannot be pinned.** Redeclaring `time()`/`microtime()` is a fatal error and
   the namespaced fallback cannot reach application code (measured; see `pin_envelope`), and the
   extensions that could (uopz/runkit7) are not acceptable production dependencies. The SDK's
@@ -217,7 +248,7 @@ genuinely-impossible surfaces are NAMED gaps, never silent. The full Node surfac
 | Canonical JSON wire + byte parity pins | Level (golden checks vs Node) |
 | Framework adapters (express/fastify) | Level shape: PSR-15 + vanilla wrapper |
 | Production capture mode + ingest upload | Level (`capture.php`; PHP flush model documented) |
-| Outbound HTTP capture | Level, OPT-IN (PSR-18, `Instrument::http`); curl-direct NAMED gap |
+| Outbound HTTP capture | Level; http(s) STREAMS automatic (auto_prepend wrapper), PSR-18 + `Instrument::http` opt-in; curl-direct + PDO NAMED gaps |
 | DB driver exchange capture (`pg`) | Level shape: PDO wrap (`pdo.php`) |
 | Streaming (SSE/chunked) exchange boundaries | Level (teed PSR-7 stream, chunk boundaries) |
 | Envelope: TZ pin, seeded RNG | Level for `mt_rand`; `random_bytes`/`random_int` NAMED gap |
